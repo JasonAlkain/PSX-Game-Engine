@@ -1,0 +1,15 @@
+[package]
+name = "psx_sandbox"
+description = "Milestone 1 test application: opens a window and renders a textured test mesh."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+psx_runtime.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true

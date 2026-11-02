@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = ["crates/psx_core", "crates/psx_render", "crates/psx_runtime", "apps/psx_sandbox"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/JasonAlkain/PSX-Game-Engine"
+
+[workspace.dependencies]
+psx_core = { path = "crates/psx_core" }
+psx_render = { path = "crates/psx_render" }
+psx_runtime = { path = "crates/psx_runtime" }
+
+# Graphics / windowing. egui 0.37 (added in Milestone 3) requires wgpu 30 and winit 0.30.
+wgpu = "30.0.1"
+naga = { version = "30.0.0", features = ["wgsl-in"] }
+winit = "0.30.13"
+glam = { version = "0.34", features = ["bytemuck"] }
+bytemuck = { version = "1.25", features = ["derive"] }
+pollster = "1.0"
+
+# Diagnostics
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+thiserror = "2.0"
+anyhow = "1.0"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.dev.package."*"]
+opt-level = 2
