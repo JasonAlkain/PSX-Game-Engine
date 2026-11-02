@@ -10,6 +10,8 @@ use std::time::Duration;
 
 /// Default simulation rate.
 pub const DEFAULT_TICK_HZ: u32 = 60;
+/// Highest supported rate: one tick per nanosecond, the resolution of `Duration`.
+pub const MAX_TICK_HZ: u32 = 1_000_000_000;
 /// Default upper bound on simulation ticks executed for one rendered frame.
 pub const DEFAULT_MAX_TICKS_PER_FRAME: u32 = 8;
 
@@ -43,9 +45,10 @@ impl Default for FixedStep {
 impl FixedStep {
     /// Creates a stepper running at `hz` ticks per second.
     ///
-    /// `hz` of zero is treated as one to keep the step finite.
+    /// `hz` is clamped to `1..=MAX_TICK_HZ` so the step is always a finite,
+    /// non-zero duration.
     pub fn from_hz(hz: u32) -> Self {
-        let hz = hz.max(1);
+        let hz = hz.clamp(1, MAX_TICK_HZ);
         Self {
             step: Duration::from_secs(1) / hz,
             max_ticks_per_frame: DEFAULT_MAX_TICKS_PER_FRAME,
@@ -164,5 +167,13 @@ mod tests {
     fn zero_hz_does_not_divide_by_zero() {
         let s = FixedStep::from_hz(0);
         assert_eq!(s.step(), Duration::from_secs(1));
+    }
+
+    #[test]
+    fn rates_above_one_ghz_keep_a_nonzero_step() {
+        let mut s = FixedStep::from_hz(u32::MAX);
+        assert_eq!(s.step(), Duration::from_nanos(1));
+        assert_eq!(s.advance(Duration::ZERO).ticks, 0);
+        assert_eq!(s.advance(Duration::from_nanos(3)).ticks, 3);
     }
 }

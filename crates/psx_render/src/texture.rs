@@ -8,6 +8,8 @@ pub enum TextureError {
     ZeroSize { width: u32, height: u32 },
     #[error("texture {width}x{height} exceeds the device limit of {max} pixels per side")]
     TooLarge { width: u32, height: u32, max: u32 },
+    #[error("texture {width}x{height} is too large to address in memory")]
+    ByteSizeOverflow { width: u32, height: u32 },
     #[error("texture {width}x{height} expects {expected} bytes of RGBA8 data, got {actual}")]
     WrongDataLength {
         width: u32,
@@ -49,7 +51,10 @@ impl TextureData {
                 max: max_dimension,
             });
         }
-        let expected = width as usize * height as usize * 4;
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or(TextureError::ByteSizeOverflow { width, height })?;
         if self.rgba.len() != expected {
             return Err(TextureError::WrongDataLength {
                 width,
@@ -131,6 +136,10 @@ mod tests {
                 ..
             })
         ));
+        let huge = TextureData::new(u32::MAX, u32::MAX, vec![]);
+        if usize::BITS <= 64 {
+            assert!(matches!(huge, Err(TextureError::ByteSizeOverflow { .. })));
+        }
         let t = TextureData::checkerboard(32, 4, [0; 4], [255; 4]);
         assert!(matches!(
             t.validate(16),

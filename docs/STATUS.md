@@ -11,6 +11,8 @@ Last updated: 2026-11-02 (Milestone 1).
   paused, event loop sleeps), occlusion, DPI change (logged; follows with a
   resize), focus loss, close, external window destruction.
 - Recoverable surface handling (suboptimal/outdated/timeout/occluded/lost).
+  Occluded windows stop redrawing; a skipped acquire retries after 50 ms
+  instead of spinning the CPU.
 - Fixed 60 Hz simulation with bounded catch-up and render interpolation.
 - Input sampling with reliable press edges across ticks.
 - Fly camera (mouse capture with locked→confined fallback).
@@ -28,7 +30,7 @@ Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
 | --- | --- |
 | `cargo fmt --all -- --check` | pass |
 | `cargo clippy --workspace --all-targets -- -D warnings` | pass |
-| `PSX_REQUIRE_GPU=1 cargo test --workspace` | pass (32 unit tests + offscreen render test) |
+| `PSX_REQUIRE_GPU=1 cargo test --workspace` | pass (35 unit tests + offscreen render test) |
 | `cargo build --workspace --release` | pass |
 | Offscreen render (64×64): cube visible, checker texture contrast, corners = clear colour, no validation errors | pass on lavapipe |
 | `psx_sandbox --frames 120` under Xvfb | pass, exit 0, no wgpu errors |

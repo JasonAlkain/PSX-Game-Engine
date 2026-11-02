@@ -77,7 +77,9 @@ loss clears held keys and releases mouse capture.
   window minimized, skips rendering and switches the loop to `ControlFlow::Wait`.
 - `Suboptimal` frames are presented, and the surface is reconfigured before the
   next acquire (never while a frame is held).
-- `Outdated` reconfigures; `Timeout`/`Occluded` skip the frame.
+- `Outdated` reconfigures; `Timeout`/`Occluded` skip the frame. Any skipped
+  acquire waits 50 ms (`ControlFlow::WaitUntil`) before retrying, and an
+  occluded window (`WindowEvent::Occluded(true)`) sleeps until it is visible.
 - `Lost` first reconfigures the swapchain; a second consecutive `Lost` drops
   the old surface and creates a new one (Vulkan allows only one surface per
   window, so the old one must be dropped first). After 5 consecutive

@@ -7,8 +7,8 @@
 
 use glam::{Mat4, Vec3};
 use psx_render::{
-    Camera, DepthTarget, FrameUniforms, GpuContext, Lighting, MeshData, MeshRenderer, TextureData,
-    wgpu,
+    Camera, DepthTarget, FrameUniforms, GpuContext, GpuError, Lighting, MeshData, MeshRenderer,
+    TextureData, wgpu,
 };
 
 const SIZE: u32 = 64; // 64 px * 4 bytes = 256, already COPY_BYTES_PER_ROW_ALIGNMENT.
@@ -17,13 +17,16 @@ const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 fn gpu_or_skip() -> Option<GpuContext> {
     match pollster::block_on(GpuContext::headless()) {
         Ok(gpu) => Some(gpu),
-        Err(err) => {
+        // Only a missing adapter is a skip. An adapter that exists but fails
+        // to create a device is a renderer setup failure.
+        Err(err @ GpuError::NoAdapter(_)) => {
             if std::env::var("PSX_REQUIRE_GPU").as_deref() == Ok("1") {
                 panic!("PSX_REQUIRE_GPU=1 but no adapter is available: {err}");
             }
             eprintln!("SKIPPED: no graphics adapter available ({err})");
             None
         }
+        Err(err) => panic!("GPU initialisation failed: {err}"),
     }
 }
 

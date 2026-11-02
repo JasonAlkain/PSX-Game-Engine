@@ -82,17 +82,39 @@ const MAX_SURFACE_FAILURES: u32 = 5;
 #[derive(Debug, Clone, Copy)]
 struct SimState {
     camera: Camera,
-    mesh_angle: f32,
+    /// Test-mesh rotation about Y and X, each kept in `[0, TAU)`.
+    spin_y: f32,
+    spin_x: f32,
 }
 
 impl SimState {
     fn lerp(&self, next: &SimState, t: f32) -> SimState {
         SimState {
             camera: self.camera.lerp(&next.camera, t),
-            mesh_angle: self.mesh_angle + (next.mesh_angle - self.mesh_angle) * t,
+            spin_y: lerp_angle(self.spin_y, next.spin_y, t),
+            spin_x: lerp_angle(self.spin_x, next.spin_x, t),
         }
     }
 }
+
+/// Interpolates between two angles (radians) along the shorter arc, so a
+/// value that wrapped from just below TAU to just above 0 does not spin back.
+fn lerp_angle(from: f32, to: f32, t: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    let mut delta = (to - from).rem_euclid(TAU);
+    if delta > PI {
+        delta -= TAU;
+    }
+    from + delta * t
+}
+
+/// Rotation speeds of the test mesh in radians per second.
+const SPIN_Y_SPEED: f32 = 0.8;
+const SPIN_X_SPEED: f32 = 0.8 * 0.37;
+
+/// How long to wait before retrying after a frame could not be acquired
+/// (occluded, timed out, reconfigured), instead of spinning the CPU.
+const ACQUIRE_RETRY: Duration = Duration::from_millis(50);
 
 struct App {
     display: OwnedDisplayHandle,
@@ -119,6 +141,10 @@ struct Running {
     last_frame: Instant,
 
     minimized: bool,
+    /// Set from `WindowEvent::Occluded`; rendering pauses while true.
+    occluded: bool,
+    /// After a skipped acquire, the next redraw waits until this instant.
+    retry_at: Option<Instant>,
     surface_failures: u32,
     /// Unrecoverable error that ended the event loop.
     fatal: Option<anyhow::Error>,
@@ -174,7 +200,8 @@ impl Running {
                 pitch: -0.15,
                 ..Camera::default()
             },
-            mesh_angle: 0.0,
+            spin_y: 0.0,
+            spin_x: 0.0,
         };
 
         tracing::info!(
@@ -200,6 +227,8 @@ impl Running {
             input: InputState::default(),
             last_frame: Instant::now(),
             minimized: size.width == 0 || size.height == 0,
+            occluded: false,
+            retry_at: None,
             surface_failures: 0,
             fatal: None,
             cursor_captured: false,
@@ -257,8 +286,9 @@ impl Running {
             let tick = self.input.begin_tick();
             self.fly
                 .tick(&mut self.current.camera, &tick, dt, self.cursor_captured);
-            self.current.mesh_angle =
-                (self.current.mesh_angle + dt * 0.8).rem_euclid(std::f32::consts::TAU * 4.0);
+            let tau = std::f32::consts::TAU;
+            self.current.spin_y = (self.current.spin_y + dt * SPIN_Y_SPEED).rem_euclid(tau);
+            self.current.spin_x = (self.current.spin_x + dt * SPIN_X_SPEED).rem_euclid(tau);
         }
         plan.alpha
     }
@@ -275,7 +305,10 @@ impl Running {
         }
         let frame = match self.presenter.acquire(&self.gpu) {
             FrameAcquire::Ready(frame) => frame,
-            FrameAcquire::Skip => return false,
+            FrameAcquire::Skip => {
+                self.retry_at = Some(now + ACQUIRE_RETRY);
+                return false;
+            }
             FrameAcquire::Lost => {
                 tracing::warn!("rendering surface lost; recreating");
                 let (instance, window) = (&self.gpu.instance, self.window.clone());
@@ -305,8 +338,7 @@ impl Running {
         let state = self.previous.lerp(&self.current, alpha);
         let (w, h) = self.presenter.size();
         let aspect = w as f32 / h as f32;
-        let model = Mat4::from_rotation_y(state.mesh_angle)
-            * Mat4::from_rotation_x(state.mesh_angle * 0.37);
+        let model = Mat4::from_rotation_y(state.spin_y) * Mat4::from_rotation_x(state.spin_x);
         let uniforms =
             FrameUniforms::new(state.camera.view_projection(aspect), model, &self.lighting);
 
@@ -386,7 +418,9 @@ impl ApplicationHandler for App {
             }
             WindowEvent::Occluded(occluded) => {
                 tracing::debug!(occluded, "window occlusion changed");
+                app.occluded = occluded;
                 if !occluded {
+                    app.retry_at = None;
                     app.window.request_redraw();
                 }
             }
@@ -442,16 +476,23 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(app) = self.running.as_ref() else {
+        let Some(app) = self.running.as_mut() else {
             return;
         };
-        if app.minimized {
-            // Sleep until the OS sends a restore/resize event.
+        if app.minimized || app.occluded {
+            // Sleep until the OS sends a restore/resize/occlusion event.
             event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
-            event_loop.set_control_flow(ControlFlow::Poll);
-            app.window.request_redraw();
+            return;
         }
+        if let Some(retry_at) = app.retry_at {
+            if Instant::now() < retry_at {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+                return;
+            }
+            app.retry_at = None;
+        }
+        event_loop.set_control_flow(ControlFlow::Poll);
+        app.window.request_redraw();
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
@@ -464,6 +505,40 @@ impl ApplicationHandler for App {
             && let Some(err) = app.fatal
         {
             self.error = Some(err);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::TAU;
+
+    #[test]
+    fn angle_lerp_takes_short_arc_across_wrap() {
+        let mid = lerp_angle(TAU - 0.1, 0.1, 0.5);
+        assert!(mid.rem_euclid(TAU) < 1e-5 || (TAU - mid.rem_euclid(TAU)) < 1e-5);
+        assert!((lerp_angle(1.0, 2.0, 0.25) - 1.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn spin_interpolation_has_no_pop_when_angles_wrap() {
+        let a = SimState {
+            camera: Camera::default(),
+            spin_y: TAU - 0.01,
+            spin_x: TAU - 0.004,
+        };
+        let b = SimState {
+            spin_y: 0.003,
+            spin_x: 0.0003,
+            ..a
+        };
+        for i in 0..=10 {
+            let s = a.lerp(&b, i as f32 / 10.0);
+            let ry = Mat4::from_rotation_y(s.spin_y);
+            let ry_a = Mat4::from_rotation_y(a.spin_y);
+            // Interpolated pose stays within the tiny step between the states.
+            assert!(ry.abs_diff_eq(ry_a, 0.02), "pop at t={i}");
         }
     }
 }
