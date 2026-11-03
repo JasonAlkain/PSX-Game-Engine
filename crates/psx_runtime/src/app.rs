@@ -2,21 +2,27 @@
 //!
 //! Per frame (`RedrawRequested`):
 //! 1. measure elapsed time and ask [`FixedStep`] how many ticks to run;
-//! 2. for each tick: sample input, update the simulation (fly camera, test mesh);
-//! 3. interpolate between the last two simulation states and render.
+//! 2. for each tick: sample input, update the simulation (fly camera, crate spin);
+//! 3. interpolate between the last two simulation states and render the
+//!    comparison scene through the retro renderer (scene pass at internal
+//!    resolution, then composite into the window).
 //!
 //! Minimized or zero-sized windows skip rendering and stop requesting redraws
 //! until they are restored. Focus loss releases mouse capture and held keys.
+//! Style keys (see [`crate::style_controls`]) change the style immediately;
+//! they are UI actions, not simulation input.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
-use glam::{Mat4, Vec2, Vec3};
-use psx_core::FixedStep;
+use glam::{Mat4, Vec2};
+use psx_core::style::{StyleError, load_style, save_style};
+use psx_core::{FixedStep, RetroStyle};
 use psx_render::{
-    Camera, DepthTarget, FrameAcquire, FrameUniforms, GpuContext, GpuMesh, GpuTexture, Lighting,
-    MeshData, MeshRenderer, Presenter, TextureData, wgpu,
+    Camera, CompositeSlot, DrawItem, FrameAcquire, GpuContext, GpuMesh, GpuTexture, Lighting,
+    Material, Presenter, RenderView, RetroRenderer, ViewLayout, wgpu,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -25,8 +31,10 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHan
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window, WindowId};
 
+use crate::comparison_scene;
 use crate::fly_camera::FlyCamera;
 use crate::input::InputState;
+use crate::style_controls::{self, StyleCommand};
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -36,6 +44,10 @@ pub struct AppConfig {
     pub height: u32,
     /// Exit after presenting this many frames. Used for automated smoke runs.
     pub exit_after_frames: Option<u64>,
+    /// Style settings file: loaded at start if present, written by F5.
+    pub style_path: PathBuf,
+    /// Start in split comparison view.
+    pub split: bool,
 }
 
 impl Default for AppConfig {
@@ -45,6 +57,8 @@ impl Default for AppConfig {
             width: 960,
             height: 720,
             exit_after_frames: None,
+            style_path: PathBuf::from("psx_style.json"),
+            split: false,
         }
     }
 }
@@ -67,14 +81,6 @@ pub fn run(config: AppConfig) -> anyhow::Result<()> {
     }
 }
 
-/// Linear clear colour (dusky blue-grey, displayed after sRGB encoding).
-const CLEAR_COLOR: wgpu::Color = wgpu::Color {
-    r: 0.02,
-    g: 0.025,
-    b: 0.05,
-    a: 1.0,
-};
-
 /// Consecutive surface recreation failures tolerated before giving up.
 const MAX_SURFACE_FAILURES: u32 = 5;
 
@@ -82,7 +88,7 @@ const MAX_SURFACE_FAILURES: u32 = 5;
 #[derive(Debug, Clone, Copy)]
 struct SimState {
     camera: Camera,
-    /// Test-mesh rotation about Y and X, each kept in `[0, TAU)`.
+    /// Crate rotation about Y and X, each kept in `[0, TAU)`.
     spin_y: f32,
     spin_x: f32,
 }
@@ -108,7 +114,7 @@ fn lerp_angle(from: f32, to: f32, t: f32) -> f32 {
     from + delta * t
 }
 
-/// Rotation speeds of the test mesh in radians per second.
+/// Rotation speeds of the spinning crate in radians per second.
 const SPIN_Y_SPEED: f32 = 0.8;
 const SPIN_X_SPEED: f32 = 0.8 * 0.37;
 
@@ -123,15 +129,31 @@ struct App {
     error: Option<anyhow::Error>,
 }
 
+/// One uploaded object of the comparison scene.
+struct GpuObject {
+    mesh: GpuMesh,
+    texture: usize,
+    material: Material,
+    transform: Mat4,
+    spins: bool,
+}
+
 struct Running {
     window: Arc<Window>,
     gpu: GpuContext,
     presenter: Presenter,
-    depth: DepthTarget,
-    renderer: MeshRenderer,
-    mesh: GpuMesh,
-    texture: GpuTexture,
+    renderer: RetroRenderer,
+    /// The view rendered with the current style.
+    view: RenderView,
+    /// Effects-off view for the split comparison; created on first use.
+    reference_view: Option<RenderView>,
+    textures: Vec<GpuTexture>,
+    objects: Vec<GpuObject>,
     lighting: Lighting,
+    style: RetroStyle,
+    style_path: PathBuf,
+    split: bool,
+    base_title: String,
 
     stepper: FixedStep,
     previous: SimState,
@@ -181,23 +203,47 @@ impl Running {
 
         let size = window.inner_size();
         let presenter = Presenter::new(&gpu, surface, size.width, size.height)?;
-        let depth = DepthTarget::new(&gpu.device, size.width, size.height);
-        let renderer = MeshRenderer::new(&gpu.device, presenter.format());
-        let mesh = renderer
-            .upload_mesh(&gpu.device, &MeshData::cube(1.0))
-            .context("test mesh is invalid")?;
-        let texture = renderer
-            .upload_texture(
-                &gpu.device,
-                &gpu.queue,
-                &TextureData::checkerboard(64, 8, [225, 220, 205, 255], [70, 60, 80, 255]),
-            )
-            .context("test texture is invalid")?;
+        let renderer = RetroRenderer::new(&gpu.device, presenter.format());
+
+        let style = initial_style(&config.style_path);
+        check_device_limits(&gpu, &style)?;
+        let view = renderer
+            .create_view(&gpu.device, style.low_res.width, style.low_res.height)
+            .context("could not create the internal render target")?;
+
+        let scene = comparison_scene::build();
+        let textures = scene
+            .textures
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                renderer
+                    .upload_texture(&gpu.device, &gpu.queue, t)
+                    .with_context(|| format!("comparison scene texture {i} is invalid"))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let objects = scene
+            .objects
+            .into_iter()
+            .map(|o| {
+                Ok(GpuObject {
+                    mesh: renderer
+                        .upload_mesh(&gpu.device, &o.mesh)
+                        .with_context(|| {
+                            format!("comparison scene mesh `{}` is invalid", o.name)
+                        })?,
+                    texture: o.texture,
+                    material: o.material,
+                    transform: o.transform,
+                    spins: o.spins,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let initial = SimState {
             camera: Camera {
-                position: Vec3::new(0.0, 0.6, 3.0),
-                pitch: -0.15,
+                position: comparison_scene::START_POSITION,
+                pitch: comparison_scene::START_PITCH,
                 ..Camera::default()
             },
             spin_y: 0.0,
@@ -210,16 +256,22 @@ impl Running {
             scale_factor = window.scale_factor(),
             "window ready; click to capture the mouse, WASD/QE to fly, Shift for speed, Esc to release"
         );
+        tracing::info!("{}", style_controls::help_text());
 
-        Ok(Self {
+        let running = Self {
             window,
             gpu,
             presenter,
-            depth,
             renderer,
-            mesh,
-            texture,
+            view,
+            reference_view: None,
+            textures,
+            objects,
             lighting: Lighting::default(),
+            style,
+            style_path: config.style_path.clone(),
+            split: config.split,
+            base_title: config.title.clone(),
             stepper: FixedStep::default(),
             previous: initial,
             current: initial,
@@ -235,7 +287,51 @@ impl Running {
             frames_presented: 0,
             stats_window_start: Instant::now(),
             stats_frames: 0,
-        })
+        };
+        running.update_title();
+        Ok(running)
+    }
+
+    fn update_title(&self) {
+        let split = if self.split {
+            "  [split: left current, right effects off]"
+        } else {
+            ""
+        };
+        self.window.set_title(&format!(
+            "{} — {}{split}",
+            self.base_title,
+            style_controls::summary(&self.style)
+        ));
+    }
+
+    fn handle_style_key(&mut self, key: KeyCode) {
+        let Some(command) = style_controls::apply_key(&mut self.style, key) else {
+            return;
+        };
+        match command {
+            StyleCommand::Changed(what) => tracing::info!("{what}"),
+            StyleCommand::ToggleSplit => {
+                self.split = !self.split;
+                tracing::info!(split = self.split, "comparison view");
+            }
+            StyleCommand::Save => match save_style(&self.style, &self.style_path) {
+                Ok(()) => tracing::info!(path = %self.style_path.display(), "style saved"),
+                Err(err) => tracing::error!("{err}"),
+            },
+            StyleCommand::Reload => {
+                let loaded = load_style(&self.style_path).map_err(anyhow::Error::from);
+                match loaded.and_then(|s| check_device_limits(&self.gpu, &s).map(|()| s)) {
+                    Ok(style) => {
+                        self.style = style;
+                        tracing::info!(path = %self.style_path.display(), "style reloaded");
+                    }
+                    Err(err) => tracing::error!("style not reloaded: {err:#}"),
+                }
+            }
+            StyleCommand::Help => tracing::info!("{}", style_controls::help_text()),
+        }
+        self.update_title();
     }
 
     fn set_cursor_capture(&mut self, capture: bool) {
@@ -265,7 +361,7 @@ impl Running {
         self.minimized = width == 0 || height == 0;
         self.presenter.resize(&self.gpu, width, height);
         if !self.minimized {
-            self.depth.ensure_size(&self.gpu.device, width, height);
+            // Internal targets follow the style's layout in `redraw`.
             tracing::debug!(width, height, "resized");
         } else {
             tracing::debug!("minimized; rendering paused");
@@ -336,29 +432,108 @@ impl Running {
         };
 
         let state = self.previous.lerp(&self.current, alpha);
-        let (w, h) = self.presenter.size();
-        let aspect = w as f32 / h as f32;
-        let model = Mat4::from_rotation_y(state.spin_y) * Mat4::from_rotation_x(state.spin_x);
-        let uniforms =
-            FrameUniforms::new(state.camera.view_projection(aspect), model, &self.lighting);
+        let output_size = self.presenter.size();
+        let Some(layout) = ViewLayout::for_style(output_size, &self.style) else {
+            return false;
+        };
+        let reference_style = style_controls::reference_style(&self.style);
+        let device = &self.gpu.device;
+        let (iw, ih) = layout.internal;
+        if let Err(err) = self
+            .renderer
+            .ensure_view_size(device, &mut self.view, iw, ih)
+        {
+            tracing::error!("{err}");
+            return false;
+        }
+        let rect = layout.placement.rect;
+        if self.split {
+            // The reference renders at the native size of the same rectangle.
+            let result = match &mut self.reference_view {
+                Some(view) => self
+                    .renderer
+                    .ensure_view_size(device, view, rect.width, rect.height),
+                None => self
+                    .renderer
+                    .create_view(device, rect.width, rect.height)
+                    .map(|v| {
+                        self.reference_view = Some(v);
+                    }),
+            };
+            if let Err(err) = result {
+                tracing::error!("{err}");
+                self.split = false;
+            }
+        }
 
-        let view = frame.texture.create_view(&Default::default());
-        let mut encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("frame"),
-            });
-        self.renderer.draw(
-            &self.gpu.queue,
+        let spin = Mat4::from_rotation_y(state.spin_y) * Mat4::from_rotation_x(state.spin_x);
+        let items: Vec<DrawItem<'_>> = self
+            .objects
+            .iter()
+            .map(|o| DrawItem {
+                mesh: &o.mesh,
+                texture: &self.textures[o.texture],
+                material: &o.material,
+                model: if o.spins {
+                    o.transform * spin
+                } else {
+                    o.transform
+                },
+            })
+            .collect();
+
+        let output_view = frame.texture.create_view(&Default::default());
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("frame"),
+        });
+        let queue = &self.gpu.queue;
+        self.renderer.render_view(
+            device,
+            queue,
             &mut encoder,
-            &view,
-            &self.depth,
-            CLEAR_COLOR,
-            &uniforms,
-            &self.mesh,
-            &self.texture,
+            &mut self.view,
+            &state.camera,
+            &self.lighting,
+            &self.style,
+            &items,
         );
+        let reference = match (&mut self.reference_view, self.split) {
+            (Some(view), true) => {
+                self.renderer.render_view(
+                    device,
+                    queue,
+                    &mut encoder,
+                    view,
+                    &state.camera,
+                    &self.lighting,
+                    &reference_style,
+                    &items,
+                );
+                Some(&*view)
+            }
+            _ => None,
+        };
+        let mut slots = vec![CompositeSlot {
+            view: &self.view,
+            rect,
+            scissor: if reference.is_some() {
+                rect.horizontal_slice(0.0, 0.5)
+            } else {
+                rect
+            },
+            style: &self.style,
+        }];
+        if let Some(view) = reference {
+            slots.push(CompositeSlot {
+                view,
+                rect,
+                scissor: rect.horizontal_slice(0.5, 1.0),
+                style: &reference_style,
+            });
+        }
+        self.renderer
+            .composite(queue, &mut encoder, &output_view, output_size, &slots);
+        drop(items);
         self.gpu.queue.submit([encoder.finish()]);
         self.window.pre_present_notify();
         self.gpu.queue.present(frame);
@@ -442,6 +617,9 @@ impl ApplicationHandler for App {
                         if code == KeyCode::Escape {
                             app.set_cursor_capture(false);
                         }
+                        if !event.repeat {
+                            app.handle_style_key(code);
+                        }
                         app.input.key_down(code, event.repeat);
                     }
                     ElementState::Released => app.input.key_up(code),
@@ -507,6 +685,39 @@ impl ApplicationHandler for App {
             self.error = Some(err);
         }
     }
+}
+
+/// Loads the style file if it exists. A missing file means "use the PS1
+/// preset"; an unreadable or invalid file is reported and also falls back to
+/// the preset, without overwriting the file.
+fn initial_style(path: &std::path::Path) -> RetroStyle {
+    match load_style(path) {
+        Ok(style) => {
+            tracing::info!(path = %path.display(), "style settings loaded");
+            style
+        }
+        Err(StyleError::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            tracing::info!(
+                path = %path.display(),
+                "no style settings file; using the PS1 preset (F5 saves)"
+            );
+            RetroStyle::ps1()
+        }
+        Err(err) => {
+            tracing::error!("{err}; using the PS1 preset. The file is left unchanged until F5.");
+            RetroStyle::ps1()
+        }
+    }
+}
+
+/// Rejects internal resolutions the device cannot allocate.
+fn check_device_limits(gpu: &GpuContext, style: &RetroStyle) -> anyhow::Result<()> {
+    let max = gpu.device.limits().max_texture_dimension_2d;
+    let (w, h) = (style.low_res.width, style.low_res.height);
+    if w > max || h > max {
+        anyhow::bail!("internal resolution {w}x{h} exceeds this GPU's limit of {max} pixels");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

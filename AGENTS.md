@@ -17,6 +17,11 @@ Read this before changing the repository.
 - `unsafe_code` is denied workspace-wide. If it ever becomes necessary, isolate
   it, document the invariants, and allow it locally.
 - Do not land placeholder subsystems. A TODO or mocked success is not a feature.
+- Retro effects stay independently switchable through `RetroStyle`
+  (`psx_core::style`). A new effect gets a settings field with validation, a
+  sandbox key, and an image test in `crates/psx_render/tests/retro_images.rs`.
+- Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
+  checked by the naga layout tests in `psx_render::retro`.
 
 ## Checks before a change is done
 

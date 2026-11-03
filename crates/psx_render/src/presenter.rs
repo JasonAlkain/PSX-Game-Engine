@@ -33,8 +33,9 @@ pub struct Presenter {
 impl Presenter {
     /// Configures `surface` for presentation at `width`×`height` physical pixels.
     ///
-    /// An sRGB format is preferred so shader output (linear) is encoded by the
-    /// hardware. A zero size is allowed; the surface stays unconfigured until a
+    /// An sRGB format is preferred so the composite shader's linear output is
+    /// encoded by the hardware; with any other format the composite shader
+    /// encodes instead (see `shaders/composite.wgsl`). A zero size is allowed; the surface stays unconfigured until a
     /// non-zero `resize`.
     pub fn new(
         gpu: &GpuContext,
@@ -51,9 +52,9 @@ impl Presenter {
             .or_else(|| caps.formats.first().copied())
             .ok_or(GpuError::SurfaceUnsupported)?;
         if !format.is_srgb() {
-            tracing::warn!(
+            tracing::info!(
                 ?format,
-                "no sRGB surface format available; output will look too dark"
+                "no sRGB surface format; the composite pass writes sRGB-encoded values itself"
             );
         }
         let alpha_mode = caps

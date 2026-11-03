@@ -22,6 +22,10 @@ glam = { version = "0.34", features = ["bytemuck"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 pollster = "1.0"
 
+# Project data (style settings files from Milestone 2)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
 # Diagnostics
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

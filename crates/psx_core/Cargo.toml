@@ -1,12 +1,15 @@
 [package]
 name = "psx_core"
-description = "Shared engine types: time stepping and configuration. No window or GPU dependencies."
+description = "Shared engine types: time stepping and retro style settings. No window or GPU dependencies."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
