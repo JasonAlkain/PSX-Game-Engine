@@ -5,6 +5,14 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to the same branch or PR replaces the running check.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -13,6 +21,7 @@ jobs:
   linux:
     name: Linux (fmt, clippy, test on lavapipe)
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain from rust-toolchain.toml
@@ -35,6 +44,7 @@ jobs:
   windows:
     name: Windows (clippy, test, release build)
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain from rust-toolchain.toml

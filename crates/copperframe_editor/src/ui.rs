@@ -51,6 +51,8 @@ pub struct Stats {
     pub fps: f32,
     pub draws: usize,
     pub triangles: u64,
+    /// False while the editor waits for input instead of redrawing.
+    pub continuous: bool,
 }
 
 /// UI state that is not part of the scene.
@@ -64,6 +66,8 @@ pub struct UiState {
     show_colliders: bool,
     name_buffer: Option<(EntityId, String)>,
     gizmo: Option<GizmoDrag>,
+    /// The viewport camera is being flown (right mouse held).
+    camera_active: bool,
     confirm_close: bool,
     conflict: Option<u64>,
     pub stats: Stats,
@@ -83,6 +87,7 @@ impl Default for UiState {
             show_colliders: true,
             name_buffer: None,
             gizmo: None,
+            camera_active: false,
             confirm_close: false,
             conflict: None,
             stats: Stats::default(),
@@ -92,6 +97,13 @@ impl Default for UiState {
 }
 
 impl UiState {
+    /// Something in the UI moves on its own and needs a frame every
+    /// refresh: flying the camera (keys held without mouse events) or a
+    /// gizmo drag.
+    pub fn is_animating(&self) -> bool {
+        self.camera_active || self.gizmo.is_some()
+    }
+
     /// Asks before closing when there are unsaved changes. Returns true if
     /// the app may quit now.
     pub fn request_close(&mut self, session: &EditorSession) -> bool {
@@ -375,9 +387,13 @@ fn status_bar(ui: &mut egui::Ui, session: &EditorSession, state: &UiState) {
         ));
         ui.separator();
         let s = state.stats;
+        let rate = if s.continuous {
+            format!("{:.0} fps", s.fps)
+        } else {
+            "idle".to_string()
+        };
         ui.label(format!(
-            "{:.0} fps · {} draws · {} triangles · {} entities",
-            s.fps,
+            "{rate} · {} draws · {} triangles · {} entities",
             s.draws,
             s.triangles,
             session.scene.entities.len()
@@ -1086,6 +1102,7 @@ fn viewport(
 
     // Camera: right mouse look + WASD/QE; wheel dolly.
     let looking = response.dragged_by(egui::PointerButton::Secondary);
+    state.camera_active = looking;
     if looking {
         let d = response.drag_delta();
         let (motion, fast) = ui.input(|i| {

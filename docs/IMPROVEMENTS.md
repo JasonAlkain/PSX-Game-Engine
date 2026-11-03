@@ -63,17 +63,21 @@ end of their section.
     renders every frame even when nothing changes, which keeps a CPU core
     and the GPU busy and makes laptops hot. *Change:* redraw on input, on
     egui's repaint requests, and continuously only while something moves
-    (camera fly, animation preview, splash, gizmo drag); poll at 10 Hz while
-    a game runs or a background job reports progress. The status bar shows
-    "idle" while waiting. **Done (editor responsiveness PR).**
+    (camera fly, splash, gizmo drag); the animation preview runs at 30 Hz
+    (10 Hz in the background); poll at 10 Hz while a game runs or a
+    background job reports progress. The status bar shows "idle" while
+    waiting. Measured on Linux with the software renderer over 10 s: an idle
+    new project went from about 2.3 CPU cores to 0, the example room (which
+    animates the caretaker) from 2.3 to 0.3. **Done (editor responsiveness
+    PR).**
 
 ## Housekeeping
 
 11. **CI keeps running superseded commits.** *Change:* cancel in-progress
-    runs for the same branch and add job timeouts. **Done (housekeeping PR).**
+    runs for the same branch and add job timeouts. **Done (editor responsiveness PR).**
 12. **Dependencies drift silently.** *Change:* Dependabot for GitHub
     Actions and Cargo, weekly, grouped so wgpu/winit/egui move together.
-    **Done (housekeeping PR).**
+    **Done (editor responsiveness PR).**
 
 ## Later (not started)
 

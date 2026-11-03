@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use copperframe_render::{
@@ -93,7 +93,16 @@ struct Running {
     fps_window: (Instant, u32),
     quit: bool,
     splash: Splash,
+    /// When the next frame is needed; `None` waits for input.
+    next_frame: Option<Instant>,
 }
+
+/// How often the editor wakes while a game or background job may be
+/// writing to the console.
+const BACKGROUND_POLL: Duration = Duration::from_millis(100);
+
+/// Frame interval of the viewport's animation preview (30 Hz).
+const PREVIEW_FRAME: Duration = Duration::from_micros(33_333);
 
 impl Running {
     fn new(
@@ -168,6 +177,7 @@ impl Running {
             fps_window: (Instant::now(), 0),
             quit: false,
             splash: Splash::new(),
+            next_frame: Some(Instant::now()),
         };
         running.update_title();
         Ok(running)
@@ -183,6 +193,36 @@ impl Running {
         if self.window.title() != title {
             self.window.set_title(&title);
         }
+    }
+
+    /// Decides when the next frame is needed (see ARCHITECTURE "Editor").
+    fn schedule_next_frame(&mut self, now: Instant, egui_delay: Duration) {
+        let interactive = self.splash.is_active() || self.ui.is_animating();
+        let mut delay = if interactive {
+            Duration::ZERO
+        } else {
+            egui_delay
+        };
+        if self.resources.has_animation_preview(&self.session.scene) {
+            // The preview is ambient motion: cap it, more so in the background.
+            let rate = if self.window.has_focus() {
+                PREVIEW_FRAME
+            } else {
+                BACKGROUND_POLL
+            };
+            delay = delay.min(rate);
+        }
+        if self.tools.is_playing() || self.tools.busy_label().is_some() {
+            delay = delay.min(BACKGROUND_POLL);
+        }
+        let continuous = delay < BACKGROUND_POLL;
+        let was_continuous = std::mem::replace(&mut self.ui.stats.continuous, continuous);
+        self.next_frame = if was_continuous && !continuous {
+            // One more frame so the status bar shows "idle".
+            Some(now)
+        } else {
+            now.checked_add(delay)
+        };
     }
 
     fn sync_assets(&mut self) {
@@ -261,6 +301,11 @@ impl Running {
         });
         self.egui_state
             .handle_platform_output(&self.window, std::mem::take(&mut full.platform_output));
+        let repaint_delay = full
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map_or(Duration::MAX, |v| v.repaint_delay);
+        self.schedule_next_frame(now, repaint_delay);
         // Texture uploads are applied now; frees wait until after this
         // frame's draw (or happen at once if nothing is drawn).
         for (id, deltas) in full.textures_delta.set.drain() {
@@ -448,7 +493,10 @@ impl ApplicationHandler for App {
             return;
         };
         let response = app.egui_state.on_window_event(&app.window, &event);
-        if response.repaint {
+        // egui reports every RedrawRequested as needing a repaint; acting on
+        // that would redraw forever. Its real repaint requests arrive as
+        // the frame's repaint delay (`schedule_next_frame`).
+        if response.repaint && !matches!(event, WindowEvent::RedrawRequested) {
             app.window.request_redraw();
         }
         match event {
@@ -458,7 +506,11 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::Focused(_) | WindowEvent::Occluded(false) => {
+                app.window.request_redraw();
+            }
             WindowEvent::Resized(size) => {
+                app.window.request_redraw();
                 app.minimized = size.width == 0 || size.height == 0;
                 app.presenter.resize(&app.gpu, size.width, size.height);
             }
@@ -483,11 +535,20 @@ impl ApplicationHandler for App {
         let Some(app) = self.running.as_mut() else {
             return;
         };
-        if app.minimized {
-            event_loop.set_control_flow(ControlFlow::Wait);
-        } else {
+        if self.config.exit_after_frames.is_some() && !app.minimized {
+            // Smoke runs count frames: keep drawing.
             event_loop.set_control_flow(ControlFlow::Poll);
             app.window.request_redraw();
+            return;
+        }
+        match app.next_frame {
+            _ if app.minimized => event_loop.set_control_flow(ControlFlow::Wait),
+            Some(at) if at <= Instant::now() => {
+                event_loop.set_control_flow(ControlFlow::Poll);
+                app.window.request_redraw();
+            }
+            Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 
