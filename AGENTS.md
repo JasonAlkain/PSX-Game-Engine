@@ -10,8 +10,18 @@ Read this before changing the repository.
 - Dependencies: versions live only in the root `Cargo.toml`
   `[workspace.dependencies]`. Crates use `foo.workspace = true`. Commit `Cargo.lock`.
   wgpu, winit and egui versions must stay mutually compatible (see ARCHITECTURE).
-- Dependency direction: `psx_core` and (later) `psx_scene` must not depend on a
-  window, GPU or editor. `psx_render` must not depend on winit.
+- Dependency direction: `psx_core`, `psx_scene` and `psx_assets` must not
+  depend on a window, GPU or editor. `psx_render` must not depend on winit.
+  The editor and the CLI share one command layer: every scene edit is a
+  `psx_scene::Command`. Do not add an edit path that bypasses it.
+- File formats (scene, batch, project, asset meta, style) are versioned JSON
+  with a `format` tag. Changing a format means bumping its version, adding a
+  migration from the previous version, and a test that loads the old one.
+  Saves go through `psx_core::atomic_write`.
+- Commands must leave the scene untouched on failure, must not reorder
+  entities they do not touch, and append new entities (undo relies on it).
+- Importers must not panic on any input; add a fixture test for each new
+  failure mode (`crates/psx_assets/src/import/gltf/tests.rs`).
 - Errors: no panics for recoverable failures (bad assets, missing devices,
   surface loss). Use `thiserror` in libraries, `anyhow` at application edges.
 - `unsafe_code` is denied workspace-wide. If it ever becomes necessary, isolate
@@ -20,6 +30,7 @@ Read this before changing the repository.
 - Retro effects stay independently switchable through `RetroStyle`
   (`psx_core::style`). A new effect gets a settings field with validation, a
   sandbox key, and an image test in `crates/psx_render/tests/retro_images.rs`.
+- `examples/room` must keep passing `psx validate --project examples/room`.
 - Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
   checked by the naga layout tests in `psx_render::retro`.
 

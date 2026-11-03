@@ -38,6 +38,9 @@ pub struct Material {
     pub allow_affine: bool,
     /// Draw both faces (no back-face culling).
     pub double_sided: bool,
+    /// Linear RGB added after lighting (glTF emissive factor). Not lit, but
+    /// fogged like everything else.
+    pub emissive: [f32; 3],
 }
 
 impl Default for Material {
@@ -49,6 +52,7 @@ impl Default for Material {
             flat_shading: false,
             allow_affine: true,
             double_sided: false,
+            emissive: [0.0; 3],
         }
     }
 }

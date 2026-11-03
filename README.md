@@ -4,13 +4,15 @@ A Rust game engine for making original 3D games with PlayStation 1 and
 PlayStation 2-inspired visuals on modern PCs. It is not an emulator or a
 console SDK. "PSX Engine" is a working name.
 
-**Status: Milestone 2 (PS1 visual slice) — early prototype, not production-ready.**
-The sandbox renders a comparison scene through the PS1-style renderer:
-low internal resolution with integer upscaling, vertex snapping, affine
-texture mapping, colour reduction, ordered dithering, fog, and opaque /
-cutout / blended materials. Every effect can be toggled live and the style
-saved to a file. The editor, scene files and gameplay are not implemented
-yet. See [docs/STATUS.md](docs/STATUS.md) and
+**Status: Milestone 3 (authoring loop) — early prototype, not production-ready.**
+The PS1-style renderer (low internal resolution with integer upscaling,
+vertex snapping, affine texture mapping, colour reduction, ordered
+dithering, fog, opaque / cutout / blended materials) now draws scenes stored
+as versioned JSON files. A scene editor (hierarchy, inspector, assets,
+console, viewport picking, translate gizmo, undo/redo, save/load) and the
+`psx` command-line tool share one command layer, and static glTF models and
+PNG/JPEG textures can be imported. Gameplay, physics, audio and play mode
+are not implemented yet. See [docs/STATUS.md](docs/STATUS.md) and
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Requirements
@@ -23,7 +25,66 @@ yet. See [docs/STATUS.md](docs/STATUS.md) and
   X11 with Mesa lavapipe); macOS is untested.
 - Linux only: X11/Wayland client libraries, including `libxkbcommon-x11`.
 
-## Build and run
+## Editor and command-line tool
+
+Open the example project in the editor:
+
+```sh
+cargo run -p psx_editor --release -- examples/room
+```
+
+Or create a new project and open it:
+
+```sh
+cargo run -p psx_cli --release -- new my_game --name "My game"
+cargo run -p psx_editor --release -- my_game
+```
+
+A project is a folder with `project.json`, `assets/` (source files plus
+`.meta.json` sidecars that hold each asset's stable ID) and `scenes/`.
+Copy `.gltf`/`.glb` models and `.png`/`.jpg` textures into `assets/`; the
+editor's Assets tab (or `psx import`) registers them.
+
+Editor controls:
+
+| Input | Action |
+| --- | --- |
+| Left click in the viewport | select (click empty space to clear) |
+| Drag a gizmo arrow | move the selection along X (red), Y (green) or Z (blue); with Edit > Snap on, moves in steps (0.25 m by default) |
+| Right mouse drag | look; with `W` `A` `S` `D` `E` `Q` to fly, `Shift` faster |
+| Mouse wheel | dolly |
+| `Ctrl+S` | save |
+| `Ctrl+Z` / `Ctrl+Shift+Z` or `Ctrl+Y` | undo / redo |
+| `Ctrl+D` / `Delete` | duplicate / delete the selection (with children) |
+
+The hierarchy panel selects; the inspector's parent box reparents (keeping
+the world position). The inspector edits name, transform
+(position, Euler rotation in degrees, scale), mesh and material overrides;
+Scene settings edit the style preset, lighting and camera start. The editor
+holds `.psx/editor.lock` while open, warns before closing with unsaved
+changes, and refuses to overwrite a scene that changed on disk unless you
+choose to.
+
+`psx` commands (add `--json` for machine-readable output; exit codes 0 ok,
+1 validation or batch failure, 2 usage, 3 conflict or editor lock, 4 I/O):
+
+```sh
+psx new DIR [--name NAME]
+psx validate [--project DIR]                 # project, metadata, imports, scenes
+psx import [--project DIR] [FILE]            # register + test-import assets
+psx inspect [--project DIR] [SCENE]          # entities with IDs and components
+psx apply [--project DIR] [--scene SCENE] [--dry-run] BATCH  # all-or-nothing; BATCH may be -
+psx schema                                   # formats, components, commands
+```
+
+Use `cargo run -p psx_cli --release -- <command>` or the built
+`target/release/psx`. `examples/room/build_room.batch.json` is the batch
+that built the example scene. Command batches and file formats are
+documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Sandbox
+
+The renderer comparison scene from Milestone 2:
 
 ```sh
 cargo run -p psx_sandbox --release
@@ -64,8 +125,8 @@ to force a graphics backend.
 cargo test --workspace
 ```
 
-The offscreen image tests (one per effect) and the comparison-scene camera
-sweep need a graphics adapter and print `SKIPPED` without one. Set
+The offscreen image tests (one per effect), the comparison-scene camera
+sweep and the scene-resource test need a graphics adapter and print `SKIPPED` without one. Set
 `PSX_REQUIRE_GPU=1` to make a missing adapter a failure. Debug images land
 in `target/tmp/`.
 
@@ -73,10 +134,15 @@ in `target/tmp/`.
 
 | Path | Purpose |
 | --- | --- |
-| `crates/psx_core` | Fixed-step timing, retro style settings and their JSON file format. No GPU/window deps. |
+| `crates/psx_core` | Fixed-step timing, stable IDs, atomic file writes, retro style settings and their JSON file format. No GPU/window deps. |
+| `crates/psx_scene` | Scene document (entities, hierarchy, transforms, mesh/material components), versioned scene file, commands, undo/redo history, command batches. No GPU/window deps. |
+| `crates/psx_assets` | Projects, asset metadata and database, static glTF and texture import, validation. No GPU/window deps. |
 | `crates/psx_render` | wgpu device, surface presenter, retro renderer (scene + composite passes), materials, fit policy, camera, mesh/texture data, WGSL shaders. |
-| `crates/psx_runtime` | winit event loop, input sampling, fly camera, comparison scene, style keys, frame loop, logging. |
+| `crates/psx_runtime` | winit event loop, input sampling, fly camera, comparison scene, style keys, frame loop, logging, GPU scene resources and picking. |
+| `crates/psx_editor` | egui scene editor (library + `psx_editor` binary). |
+| `apps/psx_cli` | `psx` command-line tool. |
 | `apps/psx_sandbox` | Sandbox application showing the comparison scene. |
+| `examples/room` | Example project: a small room built from imported models and a texture. |
 
 ## License
 

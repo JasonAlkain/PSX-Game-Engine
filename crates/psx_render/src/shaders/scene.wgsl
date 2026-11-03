@@ -38,6 +38,9 @@ struct DrawUniforms {
     // x: alpha cutoff (negative = no cutout), y: 1.0 = lit,
     // z: 1.0 = flat shading, w: 1.0 = material accepts affine UVs.
     params: vec4<f32>,
+    // rgb: linear emitted colour added after shading (unaffected by
+    // lights, still fogged). a unused.
+    emissive: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
@@ -122,6 +125,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel = textureSample(base_texture, base_sampler, uv);
     let shade = select(in.color_smooth, in.color_flat, draw.params.z > 0.5);
     var color = texel * shade;
+    color = vec4<f32>(color.rgb + draw.emissive.rgb, color.a);
 
     if draw.params.x >= 0.0 && color.a < draw.params.x {
         discard;

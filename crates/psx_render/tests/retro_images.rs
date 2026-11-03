@@ -562,3 +562,48 @@ fn flat_shading_gives_one_colour_per_triangle() {
     assert!(count(&flat) <= 101, "flat: {} colours", count(&flat));
     assert!(count(&smooth) > 2 * count(&flat));
 }
+
+#[test]
+fn emissive_adds_after_lighting_and_is_fogged() {
+    let Some(h) = harness() else { return };
+    let size = (16, 16);
+    let cam = Camera::default();
+    // A lit black-tinted wall facing away from the light: only emission shows.
+    let wall = |emissive: [f32; 3], z: f32| {
+        h.object(
+            &MeshData::quad(200.0, 200.0),
+            &white_texture(),
+            Material {
+                tint: [0.0, 0.0, 0.0, 1.0],
+                emissive,
+                ..Material::default()
+            },
+            Mat4::from_translation(Vec3::new(0.0, 0.0, z)),
+        )
+    };
+    let mut style = bare_style(size);
+    let dark = h.render(&style, &cam, &[wall([0.0; 3], -3.0)], size, size, None);
+    assert_eq!(dark.rgb(8, 8), [0, 0, 0]);
+    let glow = h.render(
+        &style,
+        &cam,
+        &[wall([0.0, 1.0, 0.0], -3.0)],
+        size,
+        size,
+        None,
+    );
+    assert_eq!(glow.rgb(8, 8), [0, 255, 0], "emission is not lit or tinted");
+    style.fog.enabled = true;
+    style.fog.color = [255, 0, 0];
+    style.fog.start = 1.0;
+    style.fog.end = 2.0;
+    let fogged = h.render(
+        &style,
+        &cam,
+        &[wall([0.0, 1.0, 0.0], -10.0)],
+        size,
+        size,
+        None,
+    );
+    assert_eq!(fogged.rgb(8, 8), [255, 0, 0], "emission is fogged");
+}
