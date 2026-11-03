@@ -214,6 +214,12 @@ review the PNGs. File format history and API changes per milestone are in
 the demo walkthrough in `examples/room/game/tests`) run headless and need
 neither a GPU nor an audio device.
 
+## Releases
+
+Pushing a `v*` tag builds the Windows editor and publishes it to
+[itch.io](https://allyn-david.itch.io/copperframe-engine); setup and steps
+are in [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Layout
 
 | Path | Purpose |
