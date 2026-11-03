@@ -1,0 +1,208 @@
+name: Release to itch.io
+
+# Builds the Windows editor bundle and pushes it to itch.io with butler.
+#
+# - Push a tag like `v0.2.0` to build and publish that version.
+# - Run it by hand (Actions > Release to itch.io > Run workflow) to build the
+#   bundle as a downloadable workflow artifact; tick "publish" to also push it.
+#
+# Needs the repository secret BUTLER_API_KEY (an itch.io API key). See
+# docs/RELEASING.md.
+
+on:
+  push:
+    tags: ["v*"]
+  # Build-only check when this workflow changes (never publishes).
+  pull_request:
+    paths: [".github/workflows/release-itch.yml"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Also push the bundle to itch.io"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-itch
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # itch.io target: user/game:channel. A channel name containing "windows"
+  # tags the upload as a Windows download on the itch page.
+  ITCH_TARGET: allyn-david/copperframe-engine:windows
+  # Cargo packages and the executables they produce. Rename here only.
+  PKG_EDITOR: psx_editor
+  BIN_EDITOR: psx_editor
+  PKG_CLI: psx_cli
+  BIN_CLI: psx
+  PKG_PLAYER: psx_player
+  BIN_PLAYER: psx_player
+  ENGINE_NAME: Copperframe Engine
+
+jobs:
+  build-windows:
+    name: Build Windows bundle
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain from rust-toolchain.toml
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            # Manual runs and PR checks: <crate version>-dev.<commit>
+            v="$(cargo metadata --format-version 1 --no-deps --locked \
+              | jq -r --arg p "$PKG_EDITOR" '.packages[] | select(.name == $p) | .version')-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Version: $v"
+
+      - name: Build release binaries
+        run: cargo build --release --locked -p "$PKG_EDITOR" -p "$PKG_CLI" -p "$PKG_PLAYER"
+
+      - name: Assemble the bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          out=dist/bundle
+          rm -rf "$out"
+          mkdir -p "$out/examples/room"
+
+          for b in "$BIN_EDITOR" "$BIN_CLI" "$BIN_PLAYER"; do
+            cp "target/release/$b.exe" "$out/"
+          done
+
+          # The example project's data. Its Rust game crate and dev tools stay
+          # out: they need the engine source to build.
+          src=examples/room
+          cp "$src/project.json" "$out/examples/room/"
+          cp "$src"/*.batch.json "$out/examples/room/"
+          for d in assets scenes scripts; do
+            cp -r "$src/$d" "$out/examples/room/"
+          done
+
+          cp LICENSE "$out/LICENSE.txt"
+
+          # Launch action for the itch.io app: "Launch" opens the example project.
+          cat > "$out/.itch.toml" <<EOF
+          [[actions]]
+          name = "Open the example project"
+          path = "$BIN_EDITOR.exe"
+          args = ["examples/room"]
+
+          EOF
+
+          printf '@echo off\r\nstart "" "%%~dp0%s.exe" "%%~dp0examples\\room"\r\n' "$BIN_EDITOR" \
+            > "$out/Open example project.bat"
+
+          cat > "$out/README.txt" <<EOF
+          $ENGINE_NAME $VERSION (Windows x86-64)
+
+          A Rust engine and scene editor for PS1- and PS2-style 3D games.
+
+          Getting started
+            Double-click "Open example project.bat" to open the example room
+            in the editor, or run:
+              $BIN_EDITOR.exe examples\\room
+
+            Make a new project with the command-line tool, then open it:
+              $BIN_CLI.exe new my_game --no-game
+              $BIN_EDITOR.exe my_game
+
+          What is in this folder
+            $BIN_EDITOR.exe
+                The scene editor. Play runs the scene inside the editor.
+            $BIN_CLI.exe
+                Command-line project tools ($BIN_CLI.exe --help).
+            $BIN_PLAYER.exe
+                Stock player for projects without a Rust game crate.
+            examples\\room
+                The example project's data.
+
+          Exporting a standalone game ($BIN_CLI.exe build) and writing game
+          code in Rust need the engine source and a Rust toolchain:
+            https://github.com/JasonAlkain/PSX-Game-Engine
+
+          Licence: MIT (LICENSE.txt). Third-party licences: NOTICES.txt.
+          EOF
+          sed -i 's/$/\r/' "$out/README.txt"
+
+          {
+            printf 'Third-party software in %s\r\n' "$ENGINE_NAME"
+            printf '==========================================\r\n\r\n'
+            printf 'The programs in this folder link the following Rust crates\r\n'
+            printf '(the list covers every Windows dependency of the three programs):\r\n\r\n'
+            cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc \
+              | jq -r '.packages[] | select(.source != null)
+                  | "\(.name) \(.version) - \(.license // "see repository") - \(.repository // "")\r"' \
+              | sort -u
+          } > "$out/NOTICES.txt"
+
+          echo "Bundle contents:"
+          find "$out" -maxdepth 2 | sort
+
+      - name: Smoke-test the bundled CLI
+        run: |
+          set -euo pipefail
+          cd dist/bundle
+          "./$BIN_CLI.exe" --help > /dev/null
+          "./$BIN_EDITOR.exe" --help
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: copperframe-windows-${{ steps.version.outputs.version }}
+          path: dist/bundle
+          include-hidden-files: true
+          if-no-files-found: error
+
+  publish-itch:
+    name: Push to itch.io
+    needs: build-windows
+    if: github.ref_type == 'tag' || inputs.publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: copperframe-windows-${{ needs.build-windows.outputs.version }}
+          path: bundle
+
+      - name: Check the API key is set
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ]; then
+            echo "::error::Repository secret BUTLER_API_KEY is not set. See docs/RELEASING.md."
+            exit 1
+          fi
+
+      - name: Install butler
+        run: |
+          set -euo pipefail
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d "$RUNNER_TEMP/butler"
+          chmod +x "$RUNNER_TEMP/butler/butler"
+          echo "$RUNNER_TEMP/butler" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/butler/butler" -V
+
+      - name: Push
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          VERSION: ${{ needs.build-windows.outputs.version }}
+        run: butler push bundle "$ITCH_TARGET" --userversion "$VERSION"
