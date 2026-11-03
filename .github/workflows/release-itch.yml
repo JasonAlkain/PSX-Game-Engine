@@ -12,6 +12,9 @@ name: Release to itch.io
 on:
   push:
     tags: ["v*"]
+  # Build-only check when this workflow changes (never publishes).
+  pull_request:
+    paths: [".github/workflows/release-itch.yml"]
   workflow_dispatch:
     inputs:
       publish:
@@ -63,6 +66,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             v="${GITHUB_REF_NAME#v}"
           else
+            # Manual runs and PR checks: <crate version>-dev.<commit>
             v="$(cargo metadata --format-version 1 --no-deps --locked \
               | jq -r --arg p "$PKG_EDITOR" '.packages[] | select(.name == $p) | .version')-dev.${GITHUB_SHA::7}"
           fi
