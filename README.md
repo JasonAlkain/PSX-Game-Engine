@@ -4,10 +4,13 @@ A Rust game engine for making original 3D games with PlayStation 1 and
 PlayStation 2-inspired visuals on modern PCs. It is not an emulator or a
 console SDK. "PSX Engine" is a working name.
 
-**Status: Milestone 1 (foundation) — early prototype, not production-ready.**
-The engine opens a window and renders a lit, textured test cube with a fly
-camera. Retro rendering effects, the editor, scenes and gameplay are not
-implemented yet. See [docs/STATUS.md](docs/STATUS.md) and
+**Status: Milestone 2 (PS1 visual slice) — early prototype, not production-ready.**
+The sandbox renders a comparison scene through the PS1-style renderer:
+low internal resolution with integer upscaling, vertex snapping, affine
+texture mapping, colour reduction, ordered dithering, fog, and opaque /
+cutout / blended materials. Every effect can be toggled live and the style
+saved to a file. The editor, scene files and gameplay are not implemented
+yet. See [docs/STATUS.md](docs/STATUS.md) and
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Requirements
@@ -26,11 +29,32 @@ implemented yet. See [docs/STATUS.md](docs/STATUS.md) and
 cargo run -p psx_sandbox --release
 ```
 
-Controls: click in the window to capture the mouse, move the mouse to look,
+Camera: click in the window to capture the mouse, move the mouse to look,
 `W` `A` `S` `D` to move, `E`/`Q` up/down, `Shift` to move faster, `Esc` to
 release the mouse. Close the window to quit.
 
-`psx_sandbox --frames N` exits after presenting N frames (for smoke tests).
+Style (the window title shows the current state):
+
+| Key | Action |
+| --- | --- |
+| `1` | low-resolution rendering on/off |
+| `2` | vertex snapping on/off |
+| `3` | affine texture mapping on/off |
+| `4` | colour reduction on/off |
+| `5` | dithering on/off |
+| `6` | fog on/off |
+| `7` | integer scaling / aspect fit |
+| `[` `]` | colour bits per channel −/+ |
+| `-` `=` | snap grid finer/coarser |
+| `P` | next preset (PS1, Clean) |
+| `C` | split view: current style on the left, effects off on the right |
+| `F5` / `F9` | save / reload style settings |
+| `F1` | print the key list to the log |
+
+Options: `--style PATH` chooses the style settings file (default
+`psx_style.json` in the current directory; loaded at start if it exists),
+`--split` starts in split view, and `--frames N` exits after presenting N
+frames (for smoke tests).
 Set `RUST_LOG=debug` for more logging, and `WGPU_BACKEND=vulkan|dx12|metal|gl`
 to force a graphics backend.
 
@@ -40,17 +64,19 @@ to force a graphics backend.
 cargo test --workspace
 ```
 
-The offscreen render test needs a graphics adapter and prints `SKIPPED`
-without one. Set `PSX_REQUIRE_GPU=1` to make a missing adapter a failure.
+The offscreen image tests (one per effect) and the comparison-scene camera
+sweep need a graphics adapter and print `SKIPPED` without one. Set
+`PSX_REQUIRE_GPU=1` to make a missing adapter a failure. Debug images land
+in `target/tmp/`.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
-| `crates/psx_core` | Fixed-step timing; later stable IDs and config. No GPU/window deps. |
-| `crates/psx_render` | wgpu device, surface presenter, camera, mesh/texture upload, WGSL shaders. |
-| `crates/psx_runtime` | winit event loop, input sampling, fly camera, frame loop, logging. |
-| `apps/psx_sandbox` | Milestone 1 test application. |
+| `crates/psx_core` | Fixed-step timing, retro style settings and their JSON file format. No GPU/window deps. |
+| `crates/psx_render` | wgpu device, surface presenter, retro renderer (scene + composite passes), materials, fit policy, camera, mesh/texture data, WGSL shaders. |
+| `crates/psx_runtime` | winit event loop, input sampling, fly camera, comparison scene, style keys, frame loop, logging. |
+| `apps/psx_sandbox` | Sandbox application showing the comparison scene. |
 
 ## License
 
