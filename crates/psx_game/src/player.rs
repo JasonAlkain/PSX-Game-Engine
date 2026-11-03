@@ -106,6 +106,8 @@ struct Running {
     renderer: RetroRenderer,
     view: RenderView,
     resources: SceneResources,
+    /// Scene whose assets `resources` was last trimmed to.
+    resources_scene: Option<PathBuf>,
     egui_ctx: egui::Context,
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
@@ -230,6 +232,7 @@ impl Running {
             renderer,
             view,
             resources,
+            resources_scene: None,
             egui_ctx,
             egui_state,
             egui_renderer,
@@ -534,6 +537,19 @@ impl Running {
             return false;
         }
 
+        // After a scene change, release GPU assets the new scene does not
+        // reference (runtime spawns reload what they need).
+        if self.sim.scene_path() != self.resources_scene.as_deref() {
+            self.resources_scene = self.sim.scene_path().map(PathBuf::from);
+            if let Some(scene) = self.sim.scene() {
+                let released = self
+                    .resources
+                    .release_unused(scene.entities.iter().filter_map(|e| e.mesh.as_ref()));
+                if released > 0 {
+                    tracing::info!(released, "released GPU assets of the previous scene");
+                }
+            }
+        }
         // Assets for whatever is visible now.
         let draws = self.sim.draw_list();
         let messages = self.resources.sync_meshes(

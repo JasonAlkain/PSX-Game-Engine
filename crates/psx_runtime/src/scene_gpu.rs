@@ -337,6 +337,29 @@ impl SceneResources {
         messages
     }
 
+    /// Drops uploaded models and textures (and their import status) that
+    /// none of `meshes` references, e.g. after a scene change. Returns how
+    /// many assets were released; they load again if referenced later.
+    pub fn release_unused<'m>(
+        &mut self,
+        meshes: impl IntoIterator<Item = &'m MeshComponent>,
+    ) -> usize {
+        let keep: std::collections::HashSet<AssetId> = meshes
+            .into_iter()
+            .flat_map(|m| m.source.asset_refs())
+            .collect();
+        let before = self.status.len();
+        self.models.retain(|id, _| keep.contains(id));
+        self.textures.retain(|id, _| keep.contains(id));
+        self.status.retain(|id, _| keep.contains(id));
+        before - self.status.len()
+    }
+
+    /// Number of assets with an import status (loaded, failed or missing).
+    pub fn asset_count(&self) -> usize {
+        self.status.len()
+    }
+
     /// (Re)imports one asset. On failure the previous version, if any, stays
     /// in use. Returns an error message on failure.
     pub fn load(

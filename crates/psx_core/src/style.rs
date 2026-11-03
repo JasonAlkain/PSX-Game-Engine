@@ -600,6 +600,23 @@ mod tests {
     }
 
     #[test]
+    fn committed_version_1_file_loads_with_its_values_and_ps1_sections() {
+        // The style of the Milestone 4 example room as a version 1 file,
+        // with a changed snap grid and colour depth.
+        let v1 = include_str!("../fixtures/v1.style.json");
+        assert!(v1.contains("\"version\": 1") && !v1.contains("\"shading\""));
+        let style = parse_style(v1, Path::new("v1.style.json")).unwrap();
+        assert_eq!(style.vertex_snap.grid, 2.0);
+        assert_eq!(style.color_reduction.bits, 4);
+        assert_eq!(style.textures, Textures::ps1());
+        assert_eq!(style.shading, Shading::ps1());
+        assert_eq!(style.shadows, Shadows::ps1());
+        let text = style_to_json(&style).unwrap();
+        assert!(text.contains(&format!("\"version\": {STYLE_VERSION}")));
+        assert_eq!(parse_style(&text, Path::new("x")).unwrap(), style);
+    }
+
+    #[test]
     fn json_round_trip() {
         let mut s = RetroStyle::ps1();
         s.vertex_snap.grid = 2.0;

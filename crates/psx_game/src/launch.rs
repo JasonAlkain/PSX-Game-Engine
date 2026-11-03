@@ -6,8 +6,9 @@
 //! }
 //! ```
 //!
-//! Exit codes: 0 success; 1 the scene cannot be played or a headless
-//! expectation failed; 2 usage error; 4 project or file error.
+//! Exit codes: 0 success; 1 the scene cannot be played, a headless
+//! expectation failed, or the benchmark could not run (no adapter); 2 usage
+//! error; 4 project or file error.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -53,12 +54,35 @@ pub struct Args {
     /// Editor play mode: skip the title screen and never write saves.
     #[arg(long)]
     pub play: bool,
-    /// Exit after presenting this many frames (smoke tests).
+    /// Exit after presenting this many frames (smoke tests). With
+    /// `--bench`: measured frames per style (default 300).
     #[arg(long)]
     pub frames: Option<u64>,
+    /// Measure tick and frame times offscreen (no window or audio) in the
+    /// authored, PS1 and PS2 styles and print a JSON report. Uses
+    /// `--script` as input when given.
+    #[arg(long)]
+    pub bench: bool,
+    /// Output size for `--bench`, `WIDTHxHEIGHT`.
+    #[arg(long, default_value = "1280x720", value_parser = parse_size)]
+    pub bench_size: (u32, u32),
     /// Folder for settings and saves (default: the user's per-game folders).
     #[arg(long)]
     pub user_dir: Option<PathBuf>,
+}
+
+fn parse_size(s: &str) -> Result<(u32, u32), String> {
+    let (w, h) = s
+        .split_once(['x', 'X'])
+        .ok_or_else(|| format!("expected WIDTHxHEIGHT, found `{s}`"))?;
+    let parse = |v: &str| {
+        v.trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|n| (16..=8192).contains(n))
+            .ok_or_else(|| format!("`{v}` is not a size in 16..=8192"))
+    };
+    Ok((parse(w)?, parse(h)?))
 }
 
 /// Parses the process arguments and runs the game.
@@ -117,6 +141,9 @@ pub fn run(args: Args, create: fn() -> Box<dyn Game>, dev_project: &Path) -> Exi
         .clone()
         .unwrap_or_else(|| PathBuf::from(&project.file.startup_scene));
 
+    if args.bench {
+        return run_bench(&args, project, &scene, create);
+    }
     if args.headless || args.script.is_some() {
         return run_headless(&args, project, &scene, create);
     }
@@ -136,6 +163,59 @@ pub fn run(args: Args, create: fn() -> Box<dyn Game>, dev_project: &Path) -> Exi
     }
 }
 
+fn read_script(path: &Path) -> Result<Script, ExitCode> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Script::parse(&text).map_err(|e| {
+            eprintln!("error: {}: {e}", path.display());
+            ExitCode::from(2)
+        }),
+        Err(e) => {
+            eprintln!("error: {}: {e}", path.display());
+            Err(ExitCode::from(4))
+        }
+    }
+}
+
+fn run_bench(
+    args: &Args,
+    project: Project,
+    scene: &Path,
+    create: fn() -> Box<dyn Game>,
+) -> ExitCode {
+    let script = match &args.script {
+        Some(path) => match read_script(path) {
+            Ok(s) => Some(s),
+            Err(code) => return code,
+        },
+        None => None,
+    };
+    let options = crate::bench::BenchOptions {
+        frames: args
+            .frames
+            .unwrap_or(300)
+            .min(u64::from(crate::bench::MAX_BENCH_FRAMES)) as u32,
+        size: args.bench_size,
+        script,
+    };
+    match crate::bench::run(project, scene, create, &options) {
+        Ok(report) => {
+            let text = serde_json::to_string_pretty(&report).unwrap_or_default();
+            println!("{text}");
+            if let Some(path) = &args.report
+                && let Err(e) = std::fs::write(path, format!("{text}\n"))
+            {
+                eprintln!("error: could not write {}: {e}", path.display());
+                return ExitCode::from(4);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn run_headless(
     args: &Args,
     project: Project,
@@ -143,18 +223,9 @@ fn run_headless(
     create: fn() -> Box<dyn Game>,
 ) -> ExitCode {
     let script = match &args.script {
-        Some(path) => match std::fs::read_to_string(path) {
-            Ok(text) => match Script::parse(&text) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("error: {}: {e}", path.display());
-                    return ExitCode::from(2);
-                }
-            },
-            Err(e) => {
-                eprintln!("error: {}: {e}", path.display());
-                return ExitCode::from(4);
-            }
+        Some(path) => match read_script(path) {
+            Ok(s) => s,
+            Err(code) => return code,
         },
         None => Script::idle(args.ticks.min(headless::MAX_TICKS)),
     };

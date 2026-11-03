@@ -2747,6 +2747,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "glam 0.34.2",
+ "image",
  "pollster",
  "psx_assets",
  "psx_core",

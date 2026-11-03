@@ -51,6 +51,16 @@ Read this before changing the repository.
 - Animation state lives in `psx_game::animation::Animator`; behaviours
   drive it through `Ctx::play_animation`/`stop_animation`. The renderer
   only receives joint palettes.
+- A visual change that alters the example room must update the reference
+  images (`PSX_UPDATE_GOLDEN=1 cargo test -p psx_runtime --test
+  scene_resources`) and say why in the commit. Never loosen the tolerance
+  to make a test pass.
+- A file format change also updates `docs/MIGRATION.md` and adds a fixture
+  of the previous version. Scene, style or settings changes that game
+  crates see go in its "Game code" section.
+- Keep long-lived caches bounded: anything cached per asset must be
+  released on scene change (see `Simulation::load_scene`,
+  `SceneResources::release_unused`).
 - Logs go to stderr; stdout of `--schema` and `--headless` is JSON only.
 - Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
   checked by the naga layout tests in `psx_render::retro`.
@@ -62,7 +72,11 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 PSX_REQUIRE_GPU=1 cargo test --workspace   # drop the env var if no adapter exists
 cargo build --workspace --release
+psx validate --project examples/room
 ```
+
+Performance: `psx bench --project examples/room` (needs an adapter; compare
+numbers only on the same adapter).
 
 `PSX_REQUIRE_GPU=1` turns a skipped GPU test into a failure. On Linux without a
 GPU, install Mesa lavapipe (`mesa-vulkan-drivers`). Building

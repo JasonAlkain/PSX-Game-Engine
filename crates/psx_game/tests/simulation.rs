@@ -348,6 +348,7 @@ fn instantiate_remaps_references_and_scene_change_cleans_up() {
     let path = root.join("scenes/main.scene.json");
     sim.load_scene(scene.clone(), &path).unwrap();
     let before = (sim.entity_count(), sim.body_count(), sim.emitter_count());
+    assert_eq!(sim.cached_assets().1, 1, "the door sound is decoded");
     run(&mut sim, 4, &[], Vec2::ZERO);
     // A copy of door + lever exists with fresh IDs.
     assert_eq!(sim.entity_count(), before.0 + 2);
@@ -388,6 +389,8 @@ fn instantiate_remaps_references_and_scene_change_cleans_up() {
     assert_eq!(sim.body_count(), 0);
     assert_eq!(sim.emitter_count(), 0);
     assert!(sim.state().contains_key("spawned"));
+    // The second scene uses no assets: cached models and sounds are freed.
+    assert_eq!(sim.cached_assets(), (0, 0));
     std::fs::remove_dir_all(&root).unwrap();
 }
 
@@ -516,5 +519,35 @@ fn animated_models_play_crossfade_and_report_finished_clips() {
         })
         .collect();
     assert_eq!(finished, vec![("Arm".to_owned(), "bend".to_owned())]);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn repeated_restarts_do_not_accumulate_entities_bodies_or_emitters() {
+    let root = std::env::temp_dir().join(format!("psx_sim_restart_{}", std::process::id()));
+    let (project, scene, _) = build(&root);
+    let mut sim = Simulation::new(project, Box::new(TestGame), Audio::silent());
+    sim.load_scene(scene, &root.join("scenes/main.scene.json"))
+        .unwrap();
+    run(&mut sim, 30, &["move_forward"], Vec2::ZERO);
+    let first = (
+        sim.entity_count(),
+        sim.body_count(),
+        sim.emitter_count(),
+        sim.cached_assets(),
+    );
+    for _ in 0..50 {
+        sim.restart(false).unwrap();
+        run(&mut sim, 30, &["move_forward"], Vec2::ZERO);
+        let now = (
+            sim.entity_count(),
+            sim.body_count(),
+            sim.emitter_count(),
+            sim.cached_assets(),
+        );
+        assert_eq!(now, first);
+        assert!(sim.take_warnings().is_empty());
+        sim.take_events();
+    }
     std::fs::remove_dir_all(&root).unwrap();
 }

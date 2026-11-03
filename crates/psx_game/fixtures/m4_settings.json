@@ -1,0 +1,12 @@
+{
+  "format": "psx_player_settings",
+  "version": 1,
+  "master_volume": 0.8,
+  "music_volume": 0.5,
+  "effects_volume": 1.0,
+  "mouse_sensitivity": 0.2,
+  "invert_y": true,
+  "fullscreen": false,
+  "vsync": true,
+  "bindings": null
+}

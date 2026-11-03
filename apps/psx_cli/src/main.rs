@@ -108,6 +108,24 @@ enum Cmd {
         #[arg(long, default_value_t = 300)]
         ticks: u64,
     },
+    /// Measure simulation tick and frame times: builds the game in release,
+    /// then renders the scene offscreen for --frames frames in the
+    /// authored, PS1 and PS2 styles. Needs a graphics adapter.
+    Bench {
+        /// Scene file (default: the project's startup scene).
+        scene: Option<PathBuf>,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Input script (`psx_script` JSON); idle without one.
+        #[arg(long)]
+        script: Option<PathBuf>,
+        /// Measured frames per style.
+        #[arg(long, default_value_t = 300)]
+        frames: u32,
+        /// Output size, WIDTHxHEIGHT.
+        #[arg(long, default_value = "1280x720")]
+        size: String,
+    },
     /// Export the game for this platform: release executable, project data,
     /// third-party notices. The export is then run headless from another
     /// folder to check it starts.
@@ -176,6 +194,7 @@ fn main() -> ExitCode {
         Cmd::Schema { .. } => "schema",
         Cmd::TestScene { .. } => "test-scene",
         Cmd::Build { .. } => "build",
+        Cmd::Bench { .. } => "bench",
         Cmd::Validate { .. } => "validate",
         Cmd::Import { .. } => "import",
         Cmd::Inspect { .. } => "inspect",
@@ -190,6 +209,13 @@ fn main() -> ExitCode {
             script,
             ticks,
         } => test_scene(&project, scene.as_deref(), script.as_deref(), ticks),
+        Cmd::Bench {
+            scene,
+            project,
+            script,
+            frames,
+            size,
+        } => bench(&project, scene.as_deref(), script.as_deref(), frames, &size),
         Cmd::Build {
             project,
             out,
@@ -490,6 +516,90 @@ fn test_scene(
             extra: json!({"report": report}),
         })
     }
+}
+
+fn bench(
+    root: &Path,
+    scene: Option<&Path>,
+    script: Option<&Path>,
+    frames: u32,
+    size: &str,
+) -> Result<Success, Failure> {
+    let project = Project::open(root)?;
+    let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
+    eprintln!("building the release executable…");
+    let exe = target
+        .build_release(&mut |line| eprintln!("{line}"))
+        .map_err(|e| Failure::new(1, e))?;
+    let mut args: Vec<OsString> = vec![
+        "--project".into(),
+        absolute(root)?.into(),
+        "--bench".into(),
+        "--frames".into(),
+        frames.to_string().into(),
+        "--bench-size".into(),
+        size.into(),
+    ];
+    if let Some(scene) = scene {
+        let path = if scene.is_absolute() {
+            scene.to_path_buf()
+        } else {
+            absolute(scene)?
+        };
+        args.extend(["--scene".into(), path.into()]);
+    }
+    if let Some(s) = script {
+        args.extend(["--script".into(), absolute(s)?.into()]);
+    }
+    let out = std::process::Command::new(&exe)
+        .args(&args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| Failure::new(4, format!("could not run {}: {e}", exe.display())))?;
+    let report: Value = serde_json::from_slice(&out.stdout).map_err(|_| {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = err.lines().rev().take(20).collect();
+        Failure::new(
+            1,
+            format!(
+                "the benchmark did not produce a report ({}):\n{}",
+                out.status,
+                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+            ),
+        )
+    })?;
+    let mut text = format!(
+        "{} on {} ({}, {}), {} build, {}x{} output, {} frames per style\n",
+        report["scene"].as_str().unwrap_or("?"),
+        report["adapter"]["name"].as_str().unwrap_or("?"),
+        report["adapter"]["backend"].as_str().unwrap_or("?"),
+        report["adapter"]["device_type"].as_str().unwrap_or("?"),
+        report["build"].as_str().unwrap_or("?"),
+        report["output"][0],
+        report["output"][1],
+        report["frames_per_style"],
+    );
+    for s in report["styles"].as_array().into_iter().flatten() {
+        text.push_str(&format!(
+            "  {:<6} {}x{} internal, {} draws, {} triangles: frame mean {} ms, p95 {} ms, max {} ms; tick mean {} ms\n",
+            s["style"].as_str().unwrap_or("?"),
+            s["internal"][0],
+            s["internal"][1],
+            s["draws"],
+            s["triangles"],
+            s["frame"]["mean_ms"],
+            s["frame"]["p95_ms"],
+            s["frame"]["max_ms"],
+            s["tick"]["mean_ms"],
+        ));
+    }
+    for w in report["warnings"].as_array().into_iter().flatten() {
+        text.push_str(&format!("  warning: {}\n", w.as_str().unwrap_or_default()));
+    }
+    Ok(Success {
+        payload: json!({"report": report}),
+        text,
+    })
 }
 
 fn build(

@@ -652,6 +652,10 @@ impl Simulation {
     pub fn emitter_count(&self) -> usize {
         self.core.audio.emitter_count()
     }
+    /// Cached CPU models and decoded sounds (lifecycle tests).
+    pub fn cached_assets(&self) -> (usize, usize) {
+        (self.core.assets.models.len(), self.core.assets.sounds.len())
+    }
     /// Behaviour kinds attached to `e`.
     pub fn behaviors_of(&self, e: Entity) -> Vec<&str> {
         self.slots
@@ -783,6 +787,12 @@ impl Simulation {
             });
         }
         self.unload();
+        // Drop cached models and decoded sounds the new scene does not use,
+        // so long sessions over many scenes do not grow without bound.
+        let keep: HashSet<AssetId> = scene.asset_refs().into_iter().map(|(_, a)| a).collect();
+        self.core.assets.models.retain(|id, _| keep.contains(id));
+        self.core.assets.sounds.retain(|id| keep.contains(id));
+        self.core.audio.retain_sounds(&keep);
         let scene = Arc::new(scene);
         self.core.scene = Some(scene.clone());
         self.scene_path = Some(path.to_path_buf());

@@ -500,6 +500,33 @@ mode, and is deleted when the game finishes.
 `psx validate` warns when an animator names a clip the model does not have
 (listing the clips) or the model has no skin.
 
+### Formats added in Milestone 6
+
+| Format | Where | Notes |
+| --- | --- | --- |
+| `psx_bench` v1 | stdout of `--bench` or `--report` | Adapter (name, backend, device type, driver), output size, frames, build profile, and per style (`scene`, `ps1`, `ps2`): internal size, draws, triangles, `tick` and `frame` stats (`mean_ms`, `p50_ms`, `p95_ms`, `max_ms`) |
+
+See [MIGRATION.md](MIGRATION.md) for every format version.
+
+## Performance measurement and lifecycle (Milestone 6)
+
+`psx_game::bench` runs a fresh `Simulation` per style with the same input
+(idle or a script), renders each tick's state offscreen into an sRGB target
+at the requested output size through the same `SceneResources` and
+renderer calls as the player, and waits for the GPU after each frame. The
+first 10 frames per style are not measured (pipeline creation, uploads).
+`psx bench` builds the game in release first so numbers are not debug
+numbers.
+
+Caches and their lifetimes:
+
+| Cache | Owner | Released |
+| --- | --- | --- |
+| CPU models (colliders, animation) | `Simulation` assets | on scene load, for assets the new scene does not reference |
+| Decoded sounds | `Audio` | same (`Audio::retain_sounds`); playing sounds finish |
+| GPU models and textures | `SceneResources` | player: when the scene path changes (`release_unused`); editor: kept for the session (undo may bring them back) |
+| Primitive meshes, fallback textures | `SceneResources` | never (fixed size) |
+
 ### Play mode and export
 
 Editor Play (F5) writes the current, possibly unsaved, scene to

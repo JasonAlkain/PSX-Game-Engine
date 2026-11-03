@@ -307,6 +307,16 @@ fn skinned_models_draw_in_their_animated_pose() {
     let mut resources = SceneResources::new(&renderer, &gpu.device, &gpu.queue);
     resources.sync(&project, &db, &scene, &renderer, &gpu.device, &gpu.queue);
     assert!(resources.animation(asset).is_some());
+    // Releasing what nothing references drops the model; syncing again
+    // reloads it.
+    assert_eq!(resources.asset_count(), 1);
+    assert_eq!(resources.release_unused(std::iter::empty()), 1);
+    assert!(resources.animation(asset).is_none());
+    resources.sync(&project, &db, &scene, &renderer, &gpu.device, &gpu.queue);
+    assert_eq!(
+        resources.release_unused(scene.entities.iter().filter_map(|e| e.mesh.as_ref())),
+        0
+    );
     let rest = render(&gpu, &renderer, &mut resources, &scene);
     let poses = resources.preview_poses(&scene, 2.0);
     assert!(poses.contains_key(&arm.id));
@@ -383,4 +393,115 @@ fn example_room_renders_in_both_styles_from_the_same_content() {
         panic!("wgpu validation error: {err}");
     }
     assert_ne!(shots[0], shots[1]);
+}
+
+/// Compares `image` with the committed reference `tests/golden/<name>.png`.
+/// References are only compared on the reference adapter (Mesa llvmpipe,
+/// as on the Linux CI runner); other adapters rasterise differently and
+/// only check that rendering succeeds. `PSX_UPDATE_GOLDEN=1` rewrites the
+/// references.
+fn check_golden(gpu: &GpuContext, name: &str, size: (u32, u32), rgba: &[u8]) {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden");
+    let path = dir.join(format!("{name}.png"));
+    let img = image::RgbaImage::from_raw(size.0, size.1, rgba.to_vec()).expect("image size");
+    if std::env::var("PSX_UPDATE_GOLDEN").as_deref() == Ok("1") {
+        std::fs::create_dir_all(&dir).unwrap();
+        img.save(&path).unwrap();
+        eprintln!("updated {}", path.display());
+        return;
+    }
+    let info = gpu.adapter.get_info();
+    if !info.name.contains("llvmpipe") {
+        eprintln!(
+            "golden {name}: not compared on {} (reference adapter is llvmpipe)",
+            info.name
+        );
+        return;
+    }
+    let reference = image::open(&path)
+        .unwrap_or_else(|e| panic!("missing reference {}: {e}", path.display()))
+        .to_rgba8();
+    assert_eq!(reference.dimensions(), size, "{name}: size changed");
+    // Tolerances absorb rasteriser rounding between Mesa versions while
+    // still catching a changed effect, camera or asset: at most 1% of
+    // pixels may differ by more than 24 levels in any channel, and the
+    // mean channel difference must stay under 2 levels.
+    let mut total = 0u64;
+    let mut far = 0usize;
+    for (a, b) in reference.pixels().zip(img.pixels()) {
+        let mut worst = 0u8;
+        for c in 0..3 {
+            let d = a[c].abs_diff(b[c]);
+            total += u64::from(d);
+            worst = worst.max(d);
+        }
+        far += usize::from(worst > 24);
+    }
+    let pixels = (size.0 * size.1) as usize;
+    let mean = total as f64 / (pixels * 3) as f64;
+    if far * 100 > pixels || mean >= 2.0 {
+        save_ppm(&format!("golden_{name}_actual.ppm"), size, rgba);
+        panic!(
+            "{name} differs from tests/golden/{name}.png: {far} of {pixels} pixels off by > 24, \
+             mean difference {mean:.2} (actual image written to target/tmp; \
+             PSX_UPDATE_GOLDEN=1 accepts it)"
+        );
+    }
+}
+
+/// Regression images of the example room in the PS1 and PS2 styles from
+/// two poses, with the caretaker posed 0.75 s into its idle clip.
+#[test]
+fn example_room_matches_reference_images() {
+    let Some(gpu) = gpu_or_skip() else { return };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/room");
+    let project = Project::open(&root).unwrap();
+    let db = AssetDatabase::scan(&project);
+    let scene = psx_scene::load_scene(&project.startup_scene_path()).unwrap();
+    let renderer = RetroRenderer::new(&gpu.device, wgpu::TextureFormat::Rgba8Unorm);
+    let mut resources = SceneResources::new(&renderer, &gpu.device, &gpu.queue);
+    resources.sync(&project, &db, &scene, &renderer, &gpu.device, &gpu.queue);
+    let world = scene.world_matrices();
+    let poses = resources.preview_poses(&scene, 0.75);
+    let size = (320, 240);
+    let poses_list = [
+        (
+            "caretaker",
+            Camera {
+                position: Vec3::new(-0.6, 1.6, 2.2),
+                yaw: -1.2,
+                pitch: -0.18,
+                ..Camera::default()
+            },
+        ),
+        (
+            "corridor",
+            Camera {
+                position: Vec3::new(0.3, 1.5, -6.0),
+                yaw: 0.0,
+                pitch: -0.05,
+                ..Camera::default()
+            },
+        ),
+    ];
+    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    for (pose, camera) in poses_list {
+        for (style_name, style) in [
+            ("ps1", scene.settings.style.clone()),
+            ("ps2", RetroStyle::ps2()),
+        ] {
+            let view = View {
+                size,
+                style,
+                camera,
+                lighting: psx_runtime::scene_gpu::lighting_for_scene(&scene, &world),
+                poses: &poses,
+            };
+            let image = render_with(&gpu, &renderer, &mut resources, &scene, &view);
+            check_golden(&gpu, &format!("room_{pose}_{style_name}"), size, &image);
+        }
+    }
+    if let Some(err) = pollster::block_on(scope.pop()) {
+        panic!("wgpu validation error: {err}");
+    }
 }
