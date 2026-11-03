@@ -13,6 +13,11 @@ rename changed.)
 Built editor downloads will be published on itch.io:
 [allyn-david.itch.io/copperframe-engine](https://allyn-david.itch.io/copperframe-engine).
 
+**Documentation:** the [Copperframe wiki](https://jasonalkain.github.io/PSX-Game-Engine/)
+covers getting started, the editor, PS1/PS2 style settings, assets,
+behaviours, testing, exporting, the CLI and file formats. Its source is in
+[docs/wiki/](docs/wiki/src/SUMMARY.md).
+
 **Status: all six milestones implemented (Milestone 6: performance
 measurement, hardening, regression images, migration guide). Validated on
 Linux with a software GPU; Windows 11 runtime checks are still

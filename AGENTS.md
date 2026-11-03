@@ -6,6 +6,11 @@ Read this before changing the repository.
   are in `docs/ROADMAP.md` and `docs/STATUS.md`. Keep both accurate.
 - Architecture and conventions (coordinates, depth, colour space, buffer
   layout): `docs/ARCHITECTURE.md`. Update it when a convention changes.
+- User documentation is the mdBook wiki in `docs/wiki/` (published to
+  GitHub Pages by `.github/workflows/docs.yml`). A change users can see
+  (editor, CLI, player, game API, file formats) updates the relevant page in
+  the same change; new pages go in `docs/wiki/src/SUMMARY.md`, and
+  `python3 docs/wiki/check_links.py` must pass.
 - Toolchain: pinned in `rust-toolchain.toml` (stable, edition 2024). No nightly.
 - Dependencies: versions live only in the root `Cargo.toml`
   `[workspace.dependencies]`. Crates use `foo.workspace = true`. Commit `Cargo.lock`.

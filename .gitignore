@@ -26,3 +26,6 @@ rustc-ice-*.txt
 # Style settings written by the sandbox
 *.json.tmp
 *.json.bak
+
+# mdBook output (docs/wiki)
+docs/wiki/book/

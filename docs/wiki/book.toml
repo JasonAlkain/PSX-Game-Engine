@@ -1,0 +1,16 @@
+[book]
+title = "Copperframe Engine Wiki"
+description = "User and developer documentation for Copperframe Engine, a Rust engine for PS1- and PS2-inspired 3D games."
+authors = ["Copperframe Engine contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+site-url = "/PSX-Game-Engine/"
+git-repository-url = "https://github.com/JasonAlkain/PSX-Game-Engine"
+edit-url-template = "https://github.com/JasonAlkain/PSX-Game-Engine/edit/main/docs/wiki/{path}"
+default-theme = "navy"
+preferred-dark-theme = "navy"
+
+[output.html.search]
+enable = true
