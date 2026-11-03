@@ -145,6 +145,8 @@ impl Running {
         );
         let camera = EditorCamera::from_start(&session.scene.settings.camera);
         let tools = GameTools::new(&session);
+        let mut ui = UiState::default();
+        ui.reporting.check_for_crashes();
         let running = Self {
             window,
             gpu,
@@ -157,7 +159,7 @@ impl Running {
             egui_renderer,
             session,
             tools,
-            ui: UiState::default(),
+            ui,
             camera,
             last_frame: Instant::now(),
             started: Instant::now(),
@@ -236,6 +238,9 @@ impl Running {
 
         // 0. Output of the game process and background jobs.
         self.tools.poll(&mut self.session);
+        if self.tools.take_game_failed() {
+            self.ui.reporting.check_for_crashes();
+        }
 
         // 1. UI (may edit the scene).
         let raw = self.egui_state.take_egui_input(&self.window);

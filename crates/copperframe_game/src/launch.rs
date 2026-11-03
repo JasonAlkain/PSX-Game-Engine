@@ -87,6 +87,7 @@ fn parse_size(s: &str) -> Result<(u32, u32), String> {
 
 /// Parses the process arguments and runs the game.
 pub fn main(create: fn() -> Box<dyn Game>, dev_project: &str) -> ExitCode {
+    install_crash_reports(&create().title());
     copperframe_runtime::init_logging();
     let args = match Args::try_parse() {
         Ok(a) => a,
@@ -100,6 +101,19 @@ pub fn main(create: fn() -> Box<dyn Game>, dev_project: &str) -> ExitCode {
         }
     };
     run(args, create, Path::new(dev_project))
+}
+
+/// Crash reports and the log file of a game go to its own data folder
+/// (next to its settings and saves) and never offer the engine's report
+/// address: players of a game report to its author, not to the engine.
+/// The editor's Play redirects them with `COPPERFRAME_CRASH_DIR`.
+fn install_crash_reports(title: &str) {
+    let app = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "game".to_string());
+    let dir = crate::settings::UserDirs::for_game(title).map(|d| d.data);
+    copperframe_core::report::install(&app, dir, None);
 }
 
 /// The project a game opens without `--project`.

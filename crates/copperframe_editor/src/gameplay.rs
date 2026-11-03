@@ -44,6 +44,9 @@ pub struct GameTools {
     schema: Option<Value>,
     schema_busy: bool,
     export_busy: bool,
+    /// Set when a Play session exits with an error, so the app can look
+    /// for its crash report.
+    game_failed: bool,
     pub export_dir: String,
 }
 
@@ -64,6 +67,7 @@ impl GameTools {
             schema: cached_schema(&session.project),
             schema_busy: false,
             export_busy: false,
+            game_failed: false,
             export_dir,
         };
         if tools.schema.is_none() {
@@ -128,6 +132,7 @@ impl GameTools {
                         LogLevel::Error
                     };
                     session.push_log(level, format!("game exited ({status})"));
+                    self.game_failed |= !status.success();
                     self.play = None;
                 }
                 Ok(None) => {}
@@ -184,6 +189,10 @@ impl GameTools {
             "--play".into(),
         ];
         let mut cmd = target.command(&args);
+        // The game's crash reports go where the editor looks for its own.
+        if let Some(dir) = copperframe_core::report::data_dir() {
+            cmd.env(copperframe_core::report::CRASH_DIR_ENV, dir);
+        }
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -231,6 +240,11 @@ impl GameTools {
             }
             Err(e) => session.error(format!("could not start {}: {e}", target.describe())),
         }
+    }
+
+    /// True once after a Play session exited with an error.
+    pub fn take_game_failed(&mut self) -> bool {
+        std::mem::take(&mut self.game_failed)
     }
 
     pub fn stop(&mut self, session: &mut EditorSession) {

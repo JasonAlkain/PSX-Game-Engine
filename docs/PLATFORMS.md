@@ -61,6 +61,13 @@ monitor setup).
    folder and finish the game.
 6. `cargo run -p copperframe_cli --release -- bench --project examples/room`:
    record the report in STATUS.
+7. Crash reporting: put any text file named `test.txt` in
+   `%APPDATA%\Copperframe Engine\copperframe-engine\data\crash_reports`,
+   start the editor, and confirm the "closed unexpectedly" dialog shows it;
+   "Email report…" opens a draft in the default mail program addressed to
+   `zacharyaars+copperframeengine@gmail.com`; after closing it the dialog
+   does not come back. Help → "Report a bug…" → "Open email draft" does the
+   same. `logs\copperframe_editor.log` holds the session log.
 
 ## macOS checklist
 

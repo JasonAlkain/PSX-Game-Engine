@@ -511,6 +511,42 @@ mode, and is deleted when the game finishes.
 
 See [MIGRATION.md](MIGRATION.md) for every format version.
 
+## Crash and bug reports
+
+`copperframe_core::report` is installed first thing in every binary's
+`main`. It sets a panic hook that, after the default message, writes
+`crash_reports/<app>-<unix secs>-<pid>.txt` (system summary, adapter, panic
+message and location, thread, forced backtrace, last 200 log lines) and keeps
+the newest 20. The logging subscriber feeds every event, without colour
+codes, to `report::record_log`, which keeps the in-memory tail and writes
+`logs/<app>.log` (the previous run becomes `<app>.previous.log`; capped at
+16 MiB). The log file is opened on the first line, so tools that do not log
+leave none.
+
+| Binary | Data folder | Report address |
+| --- | --- | --- |
+| editor, sandbox, CLI | `report::engine_data_dir()` (`%APPDATA%\Copperframe Engine\copperframe-engine\data`, `~/.local/share/copperframe-engine`) | `report::REPORT_EMAIL` |
+| games (`copperframe_game::main`, including the stock player) | the game's `UserDirs` data folder | none |
+
+Games never offer the engine address: an exported game belongs to its
+author. When the editor runs Play it sets `COPPERFRAME_CRASH_DIR` to its own
+data folder, so a crash in the game lands where the editor looks; after a
+Play session exits with an error, and at startup, the editor shows unseen
+reports (`*.txt`, not `*.seen.txt`) in a dialog.
+
+Nothing is sent by the engine. "Email report" and Help → "Report a bug…"
+build a `mailto:` URL (RFC 6068 percent-encoding, capped at 1 900
+characters with a note to attach the full file when cut) and hand it to
+the OS (`rundll32 url.dll,FileProtocolHandler` on Windows, `open` on macOS,
+`xdg-open` elsewhere, never through a shell). The user reads and sends the
+draft in their own mail program, so no credentials ship in the public
+repository or binaries. A server-side collector would be a separate,
+opt-in feature.
+
+Release builds keep line tables (`[profile.release] debug =
+"line-tables-only"`); the itch.io bundle ships each `.pdb` next to its
+`.exe` so Windows backtraces have file and line numbers.
+
 ## Performance measurement and lifecycle (Milestone 6)
 
 `copperframe_game::bench` runs a fresh `Simulation` per style with the same input

@@ -186,6 +186,12 @@ struct Success {
 }
 
 fn main() -> ExitCode {
+    use copperframe_core::report;
+    report::install(
+        "copperframe",
+        report::engine_data_dir(),
+        Some(report::REPORT_EMAIL),
+    );
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {

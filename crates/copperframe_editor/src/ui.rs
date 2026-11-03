@@ -17,6 +17,7 @@ use egui::{Color32, Key, KeyboardShortcut, Modifiers, Pos2, Sense, Stroke};
 use glam::{Mat4, Vec2, Vec3};
 
 use crate::gameplay::{self, GameTools};
+use crate::reporting::Reporting;
 use crate::session::{EditorSession, LogLevel, SaveOutcome};
 use crate::viewport::{AXES, EditorCamera, ViewportGeometry, axis_drag_distance, snap};
 use crate::visuals;
@@ -66,6 +67,8 @@ pub struct UiState {
     confirm_close: bool,
     conflict: Option<u64>,
     pub stats: Stats,
+    /// Crash prompt and bug report dialog.
+    pub reporting: Reporting,
 }
 
 impl Default for UiState {
@@ -83,6 +86,7 @@ impl Default for UiState {
             confirm_close: false,
             conflict: None,
             stats: Stats::default(),
+            reporting: Reporting::default(),
         }
     }
 }
@@ -167,6 +171,7 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         });
 
     modals(ui.ctx(), session, state, &mut actions);
+    state.reporting.show(ui.ctx(), session);
     UiOutput { viewport, actions }
 }
 
@@ -346,6 +351,15 @@ fn menu_bar(
                  Ctrl+S save, Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+D duplicate, Del delete.\n\
                  F5 plays the scene in a separate game window (unsaved edits included) and stops it.",
             );
+            ui.separator();
+            if ui
+                .button("Report a bug…")
+                .on_hover_text("Opens an email draft with system details in your mail program")
+                .clicked()
+            {
+                state.reporting.open_bug_report();
+                ui.close();
+            }
         });
     });
 }

@@ -549,6 +549,7 @@ dependencies = [
 name = "copperframe_core"
 version = "0.1.0"
 dependencies = [
+ "directories",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -651,6 +652,7 @@ name = "copperframe_sandbox"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "copperframe_core",
  "copperframe_runtime",
 ]
 
