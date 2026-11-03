@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 
 use clap::{Parser, Subcommand};
-use psx_assets::export::{ExportOptions, export, verify_export};
+use psx_assets::export::{ExportOptions, check_output_folder, export, verify_export};
 use psx_assets::game::GameTarget;
 use psx_assets::project::{AssetDatabase, ImportedAsset, Project, ProjectError};
 use psx_assets::validate_project;
@@ -483,6 +483,8 @@ fn build(
     json_output: bool,
 ) -> Result<Success, Failure> {
     let project = Project::open(root)?;
+    // Refuse an unusable output folder before finding or building the game.
+    check_output_folder(out, replace).map_err(|e| Failure::new(1, e))?;
     let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
     let notices_manifest = match &target {
         GameTarget::Crate { manifest } => manifest.clone(),

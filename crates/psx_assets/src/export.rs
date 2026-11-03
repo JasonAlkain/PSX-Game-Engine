@@ -197,27 +197,39 @@ fn absolute(p: &Path) -> Result<PathBuf, String> {
     std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()))
 }
 
+/// Checks, without changing anything, that `out` may receive an export:
+/// it is missing, empty, or an earlier export and `replace` is set. Callers
+/// can run this before a slow build to fail early.
+pub fn check_output_folder(out: &Path, replace: bool) -> Result<(), String> {
+    if !out.exists() {
+        return Ok(());
+    }
+    let empty = std::fs::read_dir(out)
+        .map_err(|e| format!("{}: {e}", out.display()))?
+        .next()
+        .is_none();
+    if empty {
+        return Ok(());
+    }
+    if !out.join(EXPORT_MARKER).is_file() {
+        return Err(format!(
+            "{} is not empty and is not an earlier export; choose another folder",
+            out.display()
+        ));
+    }
+    if !replace {
+        return Err(format!(
+            "{} holds an earlier export; pass --replace to overwrite it",
+            out.display()
+        ));
+    }
+    Ok(())
+}
+
 fn prepare_out(out: &Path, replace: bool) -> Result<(), String> {
-    if out.exists() {
-        let empty = std::fs::read_dir(out)
-            .map_err(|e| format!("{}: {e}", out.display()))?
-            .next()
-            .is_none();
-        if !empty {
-            if !out.join(EXPORT_MARKER).is_file() {
-                return Err(format!(
-                    "{} is not empty and is not an earlier export; choose another folder",
-                    out.display()
-                ));
-            }
-            if !replace {
-                return Err(format!(
-                    "{} holds an earlier export; pass --replace to overwrite it",
-                    out.display()
-                ));
-            }
-            std::fs::remove_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-        }
+    check_output_folder(out, replace)?;
+    if out.join(EXPORT_MARKER).is_file() {
+        std::fs::remove_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     }
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))
 }
