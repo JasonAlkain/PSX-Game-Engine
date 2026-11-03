@@ -7,8 +7,11 @@ members = [
     "crates/psx_render",
     "crates/psx_runtime",
     "crates/psx_editor",
+    "crates/psx_game",
     "apps/psx_sandbox",
     "apps/psx_cli",
+    "apps/psx_player",
+    "examples/room/game",
 ]
 
 [workspace.package]
@@ -25,6 +28,7 @@ psx_runtime = { path = "crates/psx_runtime" }
 psx_scene = { path = "crates/psx_scene" }
 psx_assets = { path = "crates/psx_assets" }
 psx_editor = { path = "crates/psx_editor" }
+psx_game = { path = "crates/psx_game" }
 
 # Graphics / windowing. egui 0.37 (added in Milestone 3) requires wgpu 30 and winit 0.30.
 wgpu = "30.0.1"
@@ -46,6 +50,13 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 gltf = { version = "1.4.1", default-features = false, features = ["import", "utils", "names", "KHR_materials_unlit"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 base64 = "0.22"
+
+# Gameplay runtime (Milestone 4). rapier3d uses glam 0.33 internally (via
+# glamx); conversions happen in psx_game::physics only.
+hecs = "0.11.2"
+rapier3d = "0.36.1"
+kira = { version = "0.12.6", default-features = false, features = ["cpal", "wav", "pcm", "ogg", "vorbis"] }
+directories = "6.0"
 
 # Command-line interface
 clap = { version = "4.6", features = ["derive"] }

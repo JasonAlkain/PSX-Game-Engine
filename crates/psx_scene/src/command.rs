@@ -16,9 +16,10 @@ use psx_core::EntityId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::components::{AudioSourceComponent, BehaviorComponent, ColliderComponent};
 use crate::scene::{
-    CameraStart, Entity, MAX_DEPTH, MAX_NAME_LEN, MaterialOverride, MeshComponent, Scene,
-    SceneLighting, SceneSettings,
+    CameraStart, Entity, MAX_DEPTH, MaterialOverride, MeshComponent, Scene, SceneLighting,
+    SceneSettings,
 };
 use crate::transform::{Transform, euler_deg_to_quat};
 
@@ -95,6 +96,21 @@ pub enum Command {
         id: EntityId,
         material: MaterialOverride,
     },
+    /// Adds, replaces or (with `null`) removes the collider/body.
+    SetCollider {
+        id: EntityId,
+        collider: Option<ColliderComponent>,
+    },
+    /// Adds, replaces or (with `null`) removes the audio source.
+    SetAudio {
+        id: EntityId,
+        audio: Option<AudioSourceComponent>,
+    },
+    /// Replaces the entity's whole behaviour list (`[]` removes all).
+    SetBehaviors {
+        id: EntityId,
+        behaviors: Vec<BehaviorComponent>,
+    },
     /// Replaces any of the scene settings.
     SetSettings {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -118,12 +134,15 @@ impl Command {
             Command::SetParent { .. } => "set_parent",
             Command::SetMesh { .. } => "set_mesh",
             Command::SetMaterial { .. } => "set_material",
+            Command::SetCollider { .. } => "set_collider",
+            Command::SetAudio { .. } => "set_audio",
+            Command::SetBehaviors { .. } => "set_behaviors",
             Command::SetSettings { .. } => "set_settings",
         }
     }
 
     /// Every op with a one-line description, for `psx schema`.
-    pub const OPS: [(&'static str, &'static str); 9] = [
+    pub const OPS: [(&'static str, &'static str); 12] = [
         (
             "create_entity",
             "{id?, name, parent?, transform?, mesh?} -> created id",
@@ -147,6 +166,18 @@ impl Command {
         ),
         ("set_mesh", "{id, mesh (null removes)}"),
         ("set_material", "{id, material}"),
+        (
+            "set_collider",
+            "{id, collider (null removes): {shape, offset?, body?, sensor?, layer?, mask?, mass?, friction?}}",
+        ),
+        (
+            "set_audio",
+            "{id, audio (null removes): {sound, bus?, volume_db?, looping?, autoplay?, spatial?, min_distance?, max_distance?}}",
+        ),
+        (
+            "set_behaviors",
+            "{id, behaviors: [{kind, params?}]} replaces the list",
+        ),
         ("set_settings", "{style?, lighting?, camera?}"),
     ];
 }
@@ -295,18 +326,8 @@ fn tracked(
 fn check_entities(scene: &Scene, ids: &[EntityId]) -> Result<(), CommandError> {
     for &id in ids {
         let Some(e) = scene.get(id) else { continue };
-        if e.name.len() > MAX_NAME_LEN {
-            return Err(CommandError::Invalid(format!(
-                "name is longer than {MAX_NAME_LEN} bytes"
-            )));
-        }
-        if let Some(p) = e.transform.problem() {
-            return Err(CommandError::Invalid(format!("transform {p}")));
-        }
-        if let Some(m) = &e.mesh
-            && let Some(p) = m.material.problem()
-        {
-            return Err(CommandError::Invalid(format!("material: {p}")));
+        if let Some(p) = e.local_problems().into_iter().next() {
+            return Err(CommandError::Invalid(p));
         }
         if let Some(parent) = e.parent {
             if scene.get(parent).is_none() {
@@ -350,6 +371,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
                 parent: *parent,
                 transform: transform.unwrap_or_default(),
                 mesh: mesh.clone(),
+                ..Entity::new("")
             };
             let mut change = tracked(scene, &[id], |s| {
                 s.entities.push(entity);
@@ -383,11 +405,18 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             let copies: Vec<Entity> = originals
                 .iter()
                 .filter_map(|old| scene.get(*old))
-                .map(|e| Entity {
-                    id: map[&e.id],
-                    // The root keeps its parent; inner links are remapped.
-                    parent: e.parent.map(|p| map.get(&p).copied().unwrap_or(p)),
-                    ..e.clone()
+                .map(|e| {
+                    let mut copy = Entity {
+                        id: map[&e.id],
+                        // The root keeps its parent; inner links are remapped.
+                        parent: e.parent.map(|p| map.get(&p).copied().unwrap_or(p)),
+                        ..e.clone()
+                    };
+                    // References inside the copied subtree follow the copy.
+                    for b in &mut copy.behaviors {
+                        b.remap_entities(&map);
+                    }
+                    copy
                 })
                 .collect();
             let new_ids: Vec<EntityId> = copies.iter().map(|e| e.id).collect();
@@ -483,6 +512,33 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(m) = s.get_mut(*id).and_then(|e| e.mesh.as_mut()) {
                     m.material = *material;
+                }
+                Ok(())
+            })
+        }
+        Command::SetCollider { id, collider } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.collider = *collider;
+                }
+                Ok(())
+            })
+        }
+        Command::SetAudio { id, audio } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.audio = *audio;
+                }
+                Ok(())
+            })
+        }
+        Command::SetBehaviors { id, behaviors } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.behaviors = behaviors.clone();
                 }
                 Ok(())
             })
@@ -583,7 +639,7 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(Command::OPS.len(), 9);
+        assert_eq!(Command::OPS.len(), 12);
     }
 
     #[test]
@@ -700,7 +756,7 @@ mod tests {
             },
             Command::Rename {
                 id: a,
-                name: "x".repeat(MAX_NAME_LEN + 1),
+                name: "x".repeat(crate::scene::MAX_NAME_LEN + 1),
             },
             Command::SetSettings {
                 style: None,
@@ -750,5 +806,79 @@ mod tests {
         assert_eq!(scene, original);
         del.reapply(&mut scene);
         assert!(scene.get(c).is_none());
+    }
+
+    #[test]
+    fn gameplay_components_are_validated_and_duplicates_remap_references() {
+        use crate::components::*;
+        let mut scene = Scene::new("t");
+        let door = create(&mut scene, "door", None, 0.0);
+        let lever = create(&mut scene, "lever", Some(door), 1.0);
+
+        // A moving body must be a root.
+        let dynamic =
+            ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }, BodyKind::Dynamic);
+        let before = scene.clone();
+        let err = apply(
+            &mut scene,
+            &Command::SetCollider {
+                id: lever,
+                collider: Some(dynamic),
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("root"), "{err}");
+        assert_eq!(scene, before);
+        apply(
+            &mut scene,
+            &Command::SetCollider {
+                id: door,
+                collider: Some(ColliderComponent::new(
+                    ColliderShape::Box { size: Vec3::ONE },
+                    BodyKind::Kinematic,
+                )),
+            },
+        )
+        .unwrap();
+        // ...and cannot be reparented under something.
+        let other = create(&mut scene, "other", None, 5.0);
+        assert!(
+            apply(
+                &mut scene,
+                &Command::SetParent {
+                    id: door,
+                    parent: Some(other),
+                    keep_world_transform: true,
+                },
+            )
+            .is_err()
+        );
+
+        apply(
+            &mut scene,
+            &Command::SetBehaviors {
+                id: lever,
+                behaviors: vec![BehaviorComponent::new("switch").with("target", door.to_string())],
+            },
+        )
+        .unwrap();
+        let dup = apply(
+            &mut scene,
+            &Command::DuplicateEntity {
+                id: door,
+                new_id: None,
+            },
+        )
+        .unwrap();
+        let (new_door, new_lever) = (dup.created[0], dup.created[1]);
+        let target = scene.get(new_lever).unwrap().behaviors[0].params["target"].clone();
+        assert_eq!(target, serde_json::json!(new_door.to_string()));
+        // The original still points at the original.
+        let target = scene.get(lever).unwrap().behaviors[0].params["target"].clone();
+        assert_eq!(target, serde_json::json!(door.to_string()));
+        assert!(scene.dangling_entity_refs().is_empty());
+        apply(&mut scene, &Command::DeleteEntity { id: new_door }).unwrap();
+        apply(&mut scene, &Command::DeleteEntity { id: other }).unwrap();
+        assert!(scene.problems().is_empty());
     }
 }

@@ -1,0 +1,114 @@
+{
+  "format": "psx_command_batch",
+  "version": 1,
+  "expected_revision": 2,
+  "commands": [
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000072",
+      "name": "Player body",
+      "parent": "00000000-0000-4000-8000-000000000070",
+      "transform": {
+        "translation": [
+          0,
+          0.85,
+          0
+        ],
+        "scale": [
+          0.5,
+          1.7,
+          0.5
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.25,
+            0.3,
+            0.55,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000063",
+      "name": "Corridor camera",
+      "transform": {
+        "translation": [
+          0.7,
+          2.6,
+          -14.7
+        ]
+      }
+    },
+    {
+      "op": "set_transform",
+      "id": "00000000-0000-4000-8000-000000000063",
+      "rotation_euler_deg": [
+        -25,
+        180,
+        0
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000064",
+      "name": "Corridor camera zone",
+      "transform": {
+        "translation": [
+          0,
+          1.25,
+          -12.6
+        ]
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000064",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1.8,
+            2.4,
+            4.4
+          ]
+        },
+        "sensor": true
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000064",
+      "behaviors": [
+        {
+          "kind": "psx.camera_zone",
+          "params": {
+            "camera": "00000000-0000-4000-8000-000000000063"
+          }
+        }
+      ]
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000060",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1.8,
+            2.0,
+            1.6
+          ]
+        },
+        "sensor": true
+      }
+    }
+  ]
+}

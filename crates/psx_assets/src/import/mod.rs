@@ -7,6 +7,7 @@
 //! Imports never fetch network resources. External files referenced by a
 //! model must resolve inside the import boundary (the project directory).
 
+pub mod audio;
 pub mod gltf;
 pub mod texture;
 

@@ -14,11 +14,19 @@
 //!
 //! Scene mutations (`apply`) refuse to run while the editor holds the
 //! project lock, so unsaved editor work is never overwritten.
+//!
+//! `test-scene` and `build` run the project's game: its `game/` crate (built
+//! with cargo) or, without one, the stock `psx_player` next to this tool.
 
+mod template;
+
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{ExitCode, Stdio};
 
 use clap::{Parser, Subcommand};
+use psx_assets::export::{ExportOptions, check_output_folder, export, verify_export};
+use psx_assets::game::GameTarget;
 use psx_assets::project::{AssetDatabase, ImportedAsset, Project, ProjectError};
 use psx_assets::validate_project;
 use psx_scene::batch::{BATCH_FORMAT, BATCH_VERSION, BatchError, parse_batch};
@@ -43,9 +51,17 @@ enum Cmd {
         dir: PathBuf,
         #[arg(long)]
         name: Option<String>,
+        /// Do not create the Rust game crate (`game/`); the project then
+        /// plays in the stock player with engine behaviours only.
+        #[arg(long)]
+        no_game: bool,
     },
-    /// Describe file formats, components and batch commands.
-    Schema,
+    /// Describe file formats, components and batch commands. With
+    /// --project, also the behaviour kinds that project's game registers.
+    Schema {
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
     /// Check the project file, asset metadata, every import and every scene.
     Validate {
         #[arg(long, default_value = ".")]
@@ -77,6 +93,39 @@ enum Cmd {
         /// Validate and report without writing the scene.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Play a scene headless with the project's game and report what
+    /// happened (fails if a script expectation fails).
+    TestScene {
+        /// Scene file (default: the project's startup scene).
+        scene: Option<PathBuf>,
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Input script (`psx_script` JSON) with optional expectations.
+        #[arg(long)]
+        script: Option<PathBuf>,
+        /// Ticks to run without a script (60 per second).
+        #[arg(long, default_value_t = 300)]
+        ticks: u64,
+    },
+    /// Export the game for this platform: release executable, project data,
+    /// third-party notices. The export is then run headless from another
+    /// folder to check it starts.
+    Build {
+        #[arg(long, default_value = ".")]
+        project: PathBuf,
+        /// Output folder (created; must be empty or an earlier export).
+        #[arg(long)]
+        out: PathBuf,
+        /// Overwrite an earlier export in --out.
+        #[arg(long)]
+        replace: bool,
+        /// Script for the post-export check (default: idle run).
+        #[arg(long)]
+        script: Option<PathBuf>,
+        /// Skip the post-export check.
+        #[arg(long)]
+        no_verify: bool,
     },
 }
 
@@ -124,15 +173,37 @@ fn main() -> ExitCode {
     };
     let name = match &cli.command {
         Cmd::New { .. } => "new",
-        Cmd::Schema => "schema",
+        Cmd::Schema { .. } => "schema",
+        Cmd::TestScene { .. } => "test-scene",
+        Cmd::Build { .. } => "build",
         Cmd::Validate { .. } => "validate",
         Cmd::Import { .. } => "import",
         Cmd::Inspect { .. } => "inspect",
         Cmd::Apply { .. } => "apply",
     };
     let result = match cli.command {
-        Cmd::New { dir, name } => new(&dir, name),
-        Cmd::Schema => Ok(schema()),
+        Cmd::New { dir, name, no_game } => new(&dir, name, no_game),
+        Cmd::Schema { project } => schema(project.as_deref()),
+        Cmd::TestScene {
+            scene,
+            project,
+            script,
+            ticks,
+        } => test_scene(&project, scene.as_deref(), script.as_deref(), ticks),
+        Cmd::Build {
+            project,
+            out,
+            replace,
+            script,
+            no_verify,
+        } => build(
+            &project,
+            &out,
+            replace,
+            script.as_deref(),
+            no_verify,
+            cli.json,
+        ),
         Cmd::Validate { project } => validate(&project),
         Cmd::Import { file, project } => import(&project, file.as_deref()),
         Cmd::Inspect { scene, project } => inspect(&project, scene.as_deref()),
@@ -173,7 +244,7 @@ fn merge(into: &mut Value, from: Value) {
     }
 }
 
-fn new(dir: &Path, name: Option<String>) -> Result<Success, Failure> {
+fn new(dir: &Path, name: Option<String>, no_game: bool) -> Result<Success, Failure> {
     let name = name.unwrap_or_else(|| {
         dir.file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -181,22 +252,46 @@ fn new(dir: &Path, name: Option<String>) -> Result<Success, Failure> {
     });
     let project = Project::create(dir, &name)?;
     let scene = project.startup_scene_path();
+    let game = if no_game {
+        "none (plays in the stock psx_player)".to_owned()
+    } else {
+        match template::engine_root() {
+            Some(engine) => {
+                template::write_game_crate(dir, &name, &engine).map_err(|e| Failure::new(4, e))?;
+                format!(
+                    "game/ (Rust crate using the engine at {})",
+                    engine.display()
+                )
+            }
+            None => {
+                return Err(Failure::new(
+                    4,
+                    format!(
+                        "created the project, but not its game crate: the engine source this \
+                         tool was built from is gone. Use --no-game, or rebuild psx from an \
+                         engine checkout. Project: {}",
+                        dir.display()
+                    ),
+                ));
+            }
+        }
+    };
     Ok(Success {
         payload: json!({
             "project": dir.display().to_string(),
             "name": name,
             "startup_scene": project.file.startup_scene,
+            "game_crate": !no_game,
         }),
         text: format!(
-            "created project \"{name}\" in {}\n  startup scene: {}\n  \
-             (a Rust gameplay template arrives with play mode in Milestone 4)\n",
+            "created project \"{name}\" in {}\n  startup scene: {}\n  gameplay code: {game}\n",
             dir.display(),
             scene.display()
         ),
     })
 }
 
-fn schema() -> Success {
+fn schema(project: Option<&Path>) -> Result<Success, Failure> {
     let ops: Vec<Value> = Command::OPS
         .iter()
         .map(|(op, args)| json!({"op": op, "fields": args}))
@@ -213,6 +308,7 @@ fn schema() -> Success {
         "asset_kinds": {
             "gltf": [".gltf", ".glb"],
             "texture": [".png", ".jpg", ".jpeg"],
+            "sound": [".wav", ".ogg"],
         },
         "components": {
             "transform": {
@@ -224,6 +320,26 @@ fn schema() -> Success {
                 "source": "{kind: primitive, shape: cube|plane|sphere|quad, texture?: texture asset id} | {kind: model, asset: model asset id}",
                 "material": "{tint?: [r,g,b,a] linear, alpha?: {mode: opaque|blend} | {mode: cutout, threshold}, lit?, flat_shading?, allow_affine?, double_sided?}",
             },
+            "collider": {
+                "shape": "{kind: box, size: [x,y,z]} | {kind: sphere, radius} | {kind: capsule, radius, height} | {kind: mesh} (static only); sizes are in local space and follow the entity's scale",
+                "offset": "[x, y, z] local, default 0",
+                "body": "static (default) | dynamic | kinematic; dynamic and kinematic bodies must be root entities",
+                "sensor": "bool: reports overlaps instead of colliding",
+                "layer": "0..15 (default 0)",
+                "mask": "u16 bitmask of layers it collides with (default all)",
+                "mass": "kg, dynamic bodies (default 1)",
+                "friction": "0..=10 (default 0.5)",
+            },
+            "audio": {
+                "sound": "sound asset id",
+                "bus": "effects (default) | music",
+                "volume_db": "default 0",
+                "looping": "bool", "autoplay": "bool: start when the scene starts",
+                "spatial": "bool (default true): positioned at the entity",
+                "min_distance": "full volume within (m, default 1)",
+                "max_distance": "silent beyond (m, default 20)",
+            },
+            "behaviors": "[{kind, params: {name: bool|number|string}}]; kinds come from the game (`psx schema --project` lists them); `psx.*` kinds are built into the engine",
         },
         "conventions": {
             "coordinates": "right-handed, +Y up, meters, camera looks along -Z",
@@ -231,7 +347,28 @@ fn schema() -> Success {
             "ids": "UUID strings; entity ids may be chosen by the caller in create_entity",
         },
         "commands": ops,
+        "scripts": {"format": psx_script_format(), "version": 1,
+            "steps": "[{ticks, hold: [action], press: [action] (first tick), look: [x°, y°] per tick}]",
+            "expect": "{finished?: bool, events?: [partial event objects]}"},
     });
+    let mut payload = payload;
+    let mut behaviours_text = String::new();
+    if let Some(root) = project {
+        let project = Project::open(root)?;
+        let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
+        let game = target.schema().map_err(|e| Failure::new(1, e))?;
+        if let Err(e) = psx_assets::game::write_schema_cache(&project, &game) {
+            eprintln!("warning: {e}");
+        }
+        for b in game["behaviors"].as_array().into_iter().flatten() {
+            behaviours_text.push_str(&format!(
+                "  {:<18} {}\n",
+                b["kind"].as_str().unwrap_or("?"),
+                b["description"].as_str().unwrap_or("")
+            ));
+        }
+        payload["game"] = game;
+    }
     let mut text = String::from("formats:\n");
     for (k, v) in payload["formats"].as_object().into_iter().flatten() {
         text.push_str(&format!("  {k}: {} v{}\n", v["format"], v["version"]));
@@ -240,7 +377,169 @@ fn schema() -> Success {
     for (op, args) in Command::OPS {
         text.push_str(&format!("  {op:<18} {args}\n"));
     }
-    Success { payload, text }
+    if !behaviours_text.is_empty() {
+        text.push_str("behaviour kinds:\n");
+        text.push_str(&behaviours_text);
+    }
+    Ok(Success { payload, text })
+}
+
+fn psx_script_format() -> &'static str {
+    "psx_script"
+}
+
+fn absolute(p: &Path) -> Result<PathBuf, Failure> {
+    std::path::absolute(p).map_err(|e| Failure::new(4, format!("{}: {e}", p.display())))
+}
+
+fn test_scene(
+    root: &Path,
+    scene: Option<&Path>,
+    script: Option<&Path>,
+    ticks: u64,
+) -> Result<Success, Failure> {
+    let project = Project::open(root)?;
+    let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
+    let mut args: Vec<OsString> = vec![
+        "--project".into(),
+        absolute(root)?.into(),
+        "--headless".into(),
+    ];
+    if let Some(scene) = scene {
+        // Like the other commands, a relative scene path is relative to the
+        // current folder.
+        let path = if scene.is_absolute() {
+            scene.to_path_buf()
+        } else {
+            absolute(scene)?
+        };
+        args.extend(["--scene".into(), path.into()]);
+    }
+    match script {
+        Some(s) => args.extend(["--script".into(), absolute(s)?.into()]),
+        None => args.extend(["--ticks".into(), ticks.to_string().into()]),
+    }
+    let out = target
+        .command(&args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| Failure::new(4, format!("could not run {}: {e}", target.describe())))?;
+    let report: Value = serde_json::from_slice(&out.stdout).map_err(|_| {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let tail: Vec<&str> = err.lines().rev().take(20).collect();
+        Failure::new(
+            4,
+            format!(
+                "{} did not produce a report ({}):\n{}",
+                target.describe(),
+                out.status,
+                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+            ),
+        )
+    })?;
+    let mut text = format!(
+        "{} ran {} ticks ({:.1} s) of {}\n",
+        report["game"].as_str().unwrap_or("game"),
+        report["ticks"],
+        report["seconds"].as_f64().unwrap_or(0.0),
+        report["scene"].as_str().unwrap_or("?")
+    );
+    for e in report["events"].as_array().into_iter().flatten() {
+        text.push_str(&format!("  {e}\n"));
+    }
+    for w in report["warnings"].as_array().into_iter().flatten() {
+        text.push_str(&format!("  warning: {}\n", w.as_str().unwrap_or_default()));
+    }
+    if let Some(o) = report["outcome"].as_object() {
+        text.push_str(&format!("outcome: {}\n", Value::Object(o.clone())));
+    }
+    if report["passed"] == true {
+        text.push_str("passed\n");
+        Ok(Success {
+            payload: json!({"report": report}),
+            text,
+        })
+    } else {
+        let failures: Vec<String> = report["failures"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|f| f.as_str().map(str::to_owned))
+            .collect();
+        Err(Failure {
+            code: 1,
+            message: format!("{text}failed:\n  {}", failures.join("\n  ")),
+            extra: json!({"report": report}),
+        })
+    }
+}
+
+fn build(
+    root: &Path,
+    out: &Path,
+    replace: bool,
+    script: Option<&Path>,
+    no_verify: bool,
+    json_output: bool,
+) -> Result<Success, Failure> {
+    let project = Project::open(root)?;
+    // Refuse an unusable output folder before finding or building the game.
+    check_output_folder(out, replace).map_err(|e| Failure::new(1, e))?;
+    let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
+    let notices_manifest = match &target {
+        GameTarget::Crate { manifest } => manifest.clone(),
+        GameTarget::Executable { .. } => template::engine_root()
+            .map(|r| r.join("apps/psx_player/Cargo.toml"))
+            .ok_or_else(|| {
+                Failure::new(
+                    4,
+                    "cannot list the stock player's third-party licences: the engine source \
+                     this tool was built from is gone",
+                )
+            })?,
+    };
+    let options = ExportOptions {
+        out: out.to_path_buf(),
+        replace,
+        notices_manifest,
+    };
+    // Progress goes to stderr so --json output stays one object.
+    let mut log = |line: &str| {
+        if !json_output {
+            eprintln!("{line}");
+        }
+    };
+    let report = export(&project, &target, &options, &mut log).map_err(|e| Failure::new(1, e))?;
+    let mut text = format!(
+        "exported {} to {}\n  {} files, {:.1} MiB, {} third-party crates in NOTICES.txt\n",
+        project.file.name,
+        report.out.display(),
+        report.files,
+        report.bytes as f64 / (1024.0 * 1024.0),
+        report.crates
+    );
+    let verified = if no_verify {
+        text.push_str("  post-export check skipped (--no-verify)\n");
+        Value::Null
+    } else {
+        let run = verify_export(&report.executable, script, 120).map_err(|e| Failure::new(1, e))?;
+        text.push_str(&format!(
+            "  checked: the exported game ran {} ticks headless from another folder\n",
+            run["ticks"]
+        ));
+        run
+    };
+    Ok(Success {
+        payload: json!({
+            "out": report.out.display().to_string(),
+            "executable": report.executable.display().to_string(),
+            "files": report.files,
+            "bytes": report.bytes,
+            "crates": report.crates,
+            "verified": verified,
+        }),
+        text,
+    })
 }
 
 fn validate(root: &Path) -> Result<Success, Failure> {
@@ -302,6 +601,12 @@ fn import(root: &Path, file: Option<&Path>) -> Result<Success, Failure> {
                         "textures": m.textures.len(),
                     }),
                     ImportedAsset::Texture(t) => json!({"width": t.width, "height": t.height}),
+                    ImportedAsset::Audio(a) => json!({
+                        "format": a.format,
+                        "channels": a.channels,
+                        "sample_rate": a.sample_rate,
+                        "duration_secs": a.duration_secs,
+                    }),
                 };
                 text.push_str(&format!(
                     "{} {} ({}) {detail}\n",

@@ -5,14 +5,19 @@
 //! - [`project`]: project layout (`project.json`, `assets/`, `scenes/`),
 //!   the asset database, the editor lock, and project validation shared by
 //!   the editor and the CLI.
+//! - [`game`]: finding, building and running a project's game executable.
+//! - [`export`]: host-platform export of a game and its data.
 //!
 //! No window or GPU dependencies.
 
+pub mod export;
 pub mod fixtures;
+pub mod game;
 pub mod import;
 pub mod meta;
 pub mod project;
 
+pub use import::audio::{AudioFormat, ImportedAudio, import_audio};
 pub use import::gltf::import_gltf;
 pub use import::texture::import_texture;
 pub use import::{

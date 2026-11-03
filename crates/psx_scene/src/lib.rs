@@ -1,7 +1,8 @@
 //! Authored scene model for PSX Engine.
 //!
 //! - [`Scene`]: entities with persistent [`psx_core::EntityId`]s, a parent
-//!   hierarchy with local transforms, mesh components and scene settings.
+//!   hierarchy with local transforms, mesh, collider, audio and behaviour
+//!   components ([`components`]) and scene settings.
 //! - [`file`]: the versioned `psx_scene` JSON format (atomic saves).
 //! - [`command`]: every authoring edit as a validated [`Command`] that
 //!   produces an exactly reversible [`Change`].
@@ -13,6 +14,7 @@
 
 pub mod batch;
 pub mod command;
+pub mod components;
 pub mod file;
 pub mod history;
 pub mod scene;
@@ -20,6 +22,9 @@ pub mod transform;
 
 pub use batch::{BatchError, BatchReport, CommandBatch, apply_batch, parse_batch};
 pub use command::{Change, Command, CommandError, apply};
+pub use components::{
+    AudioBus, AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
+};
 pub use file::{SceneFileError, load_scene, parse_scene, save_scene, scene_to_json};
 pub use history::History;
 pub use scene::{

@@ -1,0 +1,31 @@
+{
+  "format": "psx_script",
+  "version": 1,
+  "steps": [
+    { "ticks": 72, "hold": ["move_forward"] },
+    { "ticks": 10, "look": [3.87, 0] },
+    { "ticks": 1, "press": ["interact"] },
+    { "ticks": 10, "look": [-3.87, 0] },
+    { "ticks": 123, "hold": ["move_forward"] },
+    { "ticks": 1, "press": ["interact"] },
+    { "ticks": 10, "look": [-7.54, -1.27] },
+    { "ticks": 1, "press": ["interact"] },
+    { "ticks": 10, "look": [7.54, 1.27] },
+    { "ticks": 90 },
+    { "ticks": 300, "hold": ["move_forward"] }
+  ],
+  "expect": {
+    "finished": true,
+    "events": [
+      { "event": "custom", "name": "inspected", "detail": "Crate" },
+      { "event": "message", "text": "It won't budge. There must be a mechanism nearby." },
+      { "event": "custom", "name": "lever_pulled" },
+      { "event": "custom", "name": "door_opened", "detail": "Door" },
+      { "event": "sound_started", "entity": "Door" },
+      { "event": "sound_started", "entity": "Machine" },
+      { "event": "trigger_entered", "sensor": "Corridor camera zone", "other": "Player" },
+      { "event": "trigger_entered", "sensor": "Exit" },
+      { "event": "finished" }
+    ]
+  }
+}

@@ -17,9 +17,14 @@ use thiserror::Error;
 use crate::scene::{Scene, SceneProblem};
 
 pub const SCENE_FORMAT: &str = "psx_scene";
-/// Current scene file version. Older versions would be migrated in
+/// Current scene file version. Older versions are migrated in
 /// [`parse_scene`]; newer versions are rejected.
-pub const SCENE_VERSION: u32 = 1;
+///
+/// - 1: entities with transform, mesh and material override.
+/// - 2: adds the optional `collider`, `audio` and `behaviors` entity
+///   fields. A version 1 file is a valid version 2 file without them, so
+///   the migration only changes the header on the next save.
+pub const SCENE_VERSION: u32 = 2;
 /// Conventional file extension.
 pub const SCENE_EXTENSION: &str = "scene.json";
 
@@ -104,7 +109,8 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
             source: serde::de::Error::custom(format!("unknown top-level field `{extra}`")),
         });
     }
-    // Version 1 is current; migrations from older versions go here.
+    // Migrations from older versions go here. 1 -> 2 only added optional
+    // fields, so the version 1 document deserialises unchanged.
     let scene_value = value
         .get("scene")
         .cloned()
@@ -220,12 +226,12 @@ mod tests {
     fn rejects_future_versions_wrong_format_and_unknown_fields() {
         let p = Path::new("x");
         let text = scene_to_json(&sample(), p).unwrap();
-        let future = text.replace("\"version\": 1", "\"version\": 99");
+        let future = text.replace("\"version\": 2", "\"version\": 99");
         assert!(matches!(
             parse_scene(&future, p),
             Err(SceneFileError::UnsupportedVersion { found: 99, .. })
         ));
-        let zero = text.replace("\"version\": 1", "\"version\": 0");
+        let zero = text.replace("\"version\": 2", "\"version\": 0");
         assert!(matches!(
             parse_scene(&zero, p),
             Err(SceneFileError::UnsupportedVersion { found: 0, .. })
@@ -243,6 +249,24 @@ mod tests {
             parse_scene("{", p),
             Err(SceneFileError::Json { .. })
         ));
+    }
+
+    #[test]
+    fn version_1_files_load_and_save_as_version_2() {
+        let p = Path::new("old.scene.json");
+        // The example room as committed with scene version 1 (Milestone 3).
+        let v1 = include_str!("../fixtures/v1_room.scene.json");
+        assert!(v1.contains("\"version\": 1"));
+        let scene = match parse_scene(v1, p) {
+            Ok(scene) => scene,
+            Err(err) => panic!("version 1 fixture no longer loads: {err}"),
+        };
+        assert_eq!(scene.revision, 1);
+        assert_eq!(scene.entities.len(), 14);
+        assert!(scene.entities[0].collider.is_none());
+        assert!(scene.entities[0].behaviors.is_empty());
+        let text = scene_to_json(&scene, p).unwrap();
+        assert!(text.contains("\"version\": 2"));
     }
 
     #[test]

@@ -1,0 +1,34 @@
+[package]
+name = "psx_game"
+description = "Gameplay runtime: game API and behaviour registry, runtime world (hecs), input actions, physics (rapier3d), audio (kira), menus, headless simulation and the standalone game player."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+psx_core.workspace = true
+psx_scene.workspace = true
+psx_assets.workspace = true
+psx_render.workspace = true
+psx_runtime.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+glam.workspace = true
+hecs.workspace = true
+rapier3d.workspace = true
+kira.workspace = true
+directories.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

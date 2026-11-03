@@ -16,6 +16,7 @@ use psx_scene::{
     AlphaSetting, Command, MeshComponent, MeshSource, PrimitiveShape, quat_to_euler_deg,
 };
 
+use crate::gameplay::{self, GameTools};
 use crate::session::{EditorSession, LogLevel, SaveOutcome};
 use crate::viewport::{AXES, EditorCamera, ViewportGeometry, axis_drag_distance, snap};
 
@@ -58,6 +59,7 @@ pub struct UiState {
     snap_rotate: f32,
     snap_scale: f32,
     keep_world_on_reparent: bool,
+    show_colliders: bool,
     name_buffer: Option<(EntityId, String)>,
     gizmo: Option<GizmoDrag>,
     confirm_close: bool,
@@ -74,6 +76,7 @@ impl Default for UiState {
             snap_rotate: 15.0,
             snap_scale: 0.1,
             keep_world_on_reparent: true,
+            show_colliders: true,
             name_buffer: None,
             gizmo: None,
             confirm_close: false,
@@ -106,6 +109,7 @@ pub struct UiOutput {
 /// Everything the panels read or change.
 pub struct UiContext<'a> {
     pub session: &'a mut EditorSession,
+    pub tools: &'a mut GameTools,
     pub state: &'a mut UiState,
     pub camera: &'a mut EditorCamera,
     pub resources: &'a SceneResources,
@@ -115,16 +119,17 @@ pub struct UiContext<'a> {
 pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
     let UiContext {
         session,
+        tools,
         state,
         camera,
         resources,
         dt,
     } = cx;
     let mut actions = Vec::new();
-    shortcuts(ui.ctx(), session, state);
+    shortcuts(ui.ctx(), session, state, tools);
 
     egui::Panel::top("menu").show(ui, |ui| {
-        menu_bar(ui, session, state, camera, &mut actions);
+        menu_bar(ui, session, state, camera, tools, &mut actions);
     });
     egui::Panel::bottom("status")
         .resizable(false)
@@ -144,7 +149,7 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         .default_size(320.0)
         .show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
-                inspector(ui, session, state, resources);
+                inspector(ui, session, state, resources, tools);
                 ui.separator();
                 scene_settings(ui, session, camera);
             });
@@ -164,7 +169,19 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
     UiOutput { viewport, actions }
 }
 
-fn shortcuts(ctx: &egui::Context, session: &mut EditorSession, state: &mut UiState) {
+fn shortcuts(
+    ctx: &egui::Context,
+    session: &mut EditorSession,
+    state: &mut UiState,
+    tools: &mut GameTools,
+) {
+    if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F5)) {
+        if tools.is_playing() {
+            tools.stop(session);
+        } else {
+            tools.play(session);
+        }
+    }
     let cmd = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
     let cmd_shift = |key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key);
     if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::S))) {
@@ -201,6 +218,7 @@ fn menu_bar(
     session: &mut EditorSession,
     state: &mut UiState,
     camera: &EditorCamera,
+    tools: &mut GameTools,
     actions: &mut Vec<Action>,
 ) {
     egui::MenuBar::new().ui(ui, |ui| {
@@ -248,6 +266,7 @@ fn menu_bar(
                 session.delete_selected();
             }
             ui.separator();
+            ui.checkbox(&mut state.show_colliders, "Show colliders");
             ui.checkbox(&mut state.snap_enabled, "Snap");
             ui.add(egui::DragValue::new(&mut state.snap_translate).speed(0.01).range(0.01..=10.0).prefix("move "));
             ui.add(egui::DragValue::new(&mut state.snap_rotate).speed(0.5).range(1.0..=90.0).prefix("rotate ").suffix("°"));
@@ -264,12 +283,67 @@ fn menu_bar(
                 }
             }
         });
+        ui.menu_button("Game", |ui| {
+            if tools.is_playing() {
+                if ui.button("Stop   F5").clicked() {
+                    tools.stop(session);
+                }
+            } else if ui.button("Play   F5").clicked() {
+                tools.play(session);
+            }
+            if ui.button("Reload behaviour kinds").clicked() {
+                tools.refresh_schema(session);
+            }
+            ui.separator();
+            ui.label("Export folder");
+            ui.text_edit_singleline(&mut tools.export_dir);
+            let label = if session.is_dirty() {
+                "Save and export"
+            } else {
+                "Export"
+            };
+            if ui
+                .add_enabled(tools.busy_label().is_none(), egui::Button::new(label))
+                .on_hover_text(
+                    "Release build + project data + licence notices; replaces an earlier \
+                     export in that folder, then checks the export starts.",
+                )
+                .clicked()
+            {
+                save(session, state, false);
+                if session.is_dirty() {
+                    session.error("export cancelled: the scene could not be saved");
+                } else {
+                    tools.export(session);
+                }
+            }
+        });
+        // Play/Stop where it is always visible.
+        ui.separator();
+        if tools.is_playing() {
+            if ui
+                .button(egui::RichText::new("Stop").color(Color32::from_rgb(235, 110, 90)))
+                .clicked()
+            {
+                tools.stop(session);
+            }
+        } else if ui
+            .button(egui::RichText::new("Play").color(Color32::from_rgb(120, 210, 120)))
+            .on_hover_text("Run the game on a copy of this scene (F5)")
+            .clicked()
+        {
+            tools.play(session);
+        }
+        if let Some(busy) = tools.busy_label() {
+            ui.label(egui::RichText::new(busy).weak());
+        }
         ui.menu_button("Help", |ui| {
             ui.label(
                 "Viewport: left click selects, drag a coloured arrow to move along an axis.\n\
                  Hold the right mouse button to look; WASD/QE fly while held, Shift is faster;\n\
                  the wheel moves forward/back.\n\
-                 Ctrl+S save, Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+D duplicate, Del delete.",
+                 Ctrl+S save, Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+D duplicate, Del delete.\n\
+                 F5 plays the scene in a separate game window (unsaved edits included) and stops it.",
             );
         });
     });
@@ -358,6 +432,7 @@ fn inspector(
     session: &mut EditorSession,
     state: &mut UiState,
     resources: &SceneResources,
+    tools: &mut GameTools,
 ) {
     ui.heading("Inspector");
     let Some(id) = session.selection else {
@@ -433,6 +508,17 @@ fn inspector(
     transform_editor(ui, session, state, id);
     ui.separator();
     mesh_editor(ui, session, resources, id, entity.mesh.as_ref());
+    // Gameplay components (the mesh editor may have changed the entity).
+    let Some(entity) = session.scene.get(id).cloned() else {
+        return;
+    };
+    ui.separator();
+    gameplay::collider_editor(ui, session, &entity);
+    ui.separator();
+    let sounds = gameplay::sounds(session);
+    gameplay::audio_editor(ui, session, &entity, &sounds);
+    ui.separator();
+    gameplay::behaviors_editor(ui, session, tools, &entity);
 }
 
 fn transform_editor(ui: &mut egui::Ui, session: &mut EditorSession, state: &UiState, id: EntityId) {
@@ -907,7 +993,7 @@ fn bottom_panel(
                         if entry.kind == AssetKind::Gltf && ui.button("Add to scene").clicked() {
                             session.add_model(entry.id, camera.spawn_point(4.0));
                         }
-                        if ui.button("Reimport").clicked() {
+                        if entry.kind != AssetKind::Audio && ui.button("Reimport").clicked() {
                             actions.push(Action::Reimport(entry.id));
                         }
                         ui.end_row();
@@ -977,6 +1063,33 @@ fn viewport(
 
     let painter = ui.painter_at(rect);
     let world = session.scene.world_matrices();
+
+    // Collider wireframes (green static, orange dynamic, blue kinematic,
+    // yellow sensor).
+    if state.show_colliders {
+        for e in &session.scene.entities {
+            let (Some(c), Some(&m)) = (&e.collider, world.get(&e.id)) else {
+                continue;
+            };
+            let bounds = (c.shape == psx_scene::ColliderShape::Mesh)
+                .then(|| resources.local_bounds(&session.scene, e.id))
+                .flatten();
+            let width = if session.selection == Some(e.id) {
+                1.5
+            } else {
+                1.0
+            };
+            let stroke = Stroke::new(width, gameplay::collider_color(c).gamma_multiply(0.8));
+            for (a, b) in gameplay::collider_lines(c, m, bounds) {
+                if let (Some(pa), Some(pb)) = (
+                    geometry.project(view_proj, a),
+                    geometry.project(view_proj, b),
+                ) {
+                    painter.line_segment([to_pos(pa), to_pos(pb)], stroke);
+                }
+            }
+        }
+    }
 
     // Selection outline (local bounds box) and gizmo.
     let mut gizmo_axes: Vec<(usize, Vec2, Vec2)> = Vec::new();

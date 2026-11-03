@@ -27,6 +27,8 @@ pub enum AssetKind {
     Gltf,
     /// PNG or JPEG image.
     Texture,
+    /// WAV or Ogg Vorbis sound.
+    Audio,
 }
 
 impl AssetKind {
@@ -36,6 +38,7 @@ impl AssetKind {
         match ext.as_str() {
             "gltf" | "glb" => Some(AssetKind::Gltf),
             "png" | "jpg" | "jpeg" => Some(AssetKind::Texture),
+            "wav" | "ogg" => Some(AssetKind::Audio),
             _ => None,
         }
     }
@@ -44,6 +47,7 @@ impl AssetKind {
         match self {
             AssetKind::Gltf => "model",
             AssetKind::Texture => "texture",
+            AssetKind::Audio => "sound",
         }
     }
 }

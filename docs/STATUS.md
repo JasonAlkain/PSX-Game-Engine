@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-03 (Milestone 3).
+Last updated: 2026-11-03 (Milestone 4: PS1-style MVP; PS2 work remains for Milestone 5).
 
 ## Working
 
@@ -76,6 +76,52 @@ Completion criteria from the brief:
 | It can be modified through the CLI | same test applies a batch with `psx_scene::apply_batch`; `apps/psx_cli/tests/cli.rs` runs `psx new/import/apply/validate/inspect` end to end, including lock refusal |
 | It stays valid after undo/redo and failed imports | same test undoes/redoes every step and validates; `scene_resources` GPU test breaks a model file and checks the last import is kept and drawn; 10 glTF fixture failure tests |
 
+## Milestone 4: playable PS1-style MVP
+
+This is a **PS1-style MVP**. PS2-style features (filtered textures, skeletal
+animation, local lights, shadows) are Milestone 5.
+
+- **Gameplay runtime (`psx_game`):** `Game`/`Behavior` API with a registry
+  and typed behaviour schemas; `Simulation` builds a `hecs` world from a
+  scene and runs fixed 60 Hz ticks in a documented order; state map,
+  messages, spawn/despawn, finish. Built-in `psx.player` (first-person
+  character), `psx.camera_zone` (fixed cameras) and `psx.spin`.
+- **Scene format v2:** collider, audio source and behaviour components,
+  with v1 migration. Editor inspectors for all three (behaviour fields come
+  from the game's schema) and collider wireframes (Edit > Show colliders).
+- **Physics:** rapier3d static/kinematic/dynamic bodies, sensors with
+  enter/exit events, ray casts, capsule character controller that also
+  stops against moving kinematic bodies.
+- **Input:** named actions in `input.json`, user rebinding in settings,
+  mouse sensitivity and invert-Y, cursor capture, focus loss pauses.
+- **Audio:** kira music/effects buses with volumes, looping, fades,
+  spatial emitters and one listener; a missing audio device is a warning,
+  not an error.
+- **Player:** title screen, HUD (crosshair, prompts, messages), pause,
+  settings, Continue from a save, finished screen; settings and saves in the
+  OS user folders.
+- **Headless runs:** `--headless --script` and `psx test-scene` run the
+  same simulation without window, GPU or audio and print a JSON report.
+- **Editor play mode:** F5 / Play runs the game as a child process on a
+  copy of the current scene; Stop kills it; console shows its logs.
+- **Export:** `psx build` and Game > Export produce a standalone folder
+  (executable, data, licence notices) and verify it by running it.
+- **Templates:** `psx new` writes a game crate (`game/`) with an example
+  behaviour; `--no-game` projects use the stock `psx_player`.
+- **Demo:** `examples/room` is "The Lever Room": walk, inspect objects, a
+  locked door, pull a lever to open it, walk a corridor under a fixed
+  camera with a humming machine, reach the exit.
+
+Completion criteria from the brief:
+
+| Criterion | Evidence |
+| --- | --- |
+| Edit the demo | Editor under Xvfb: inspector shows collider, audio and behaviour components with schema fields; collider wireframes; `apply` batches `build_demo` and `fixed_camera` build the demo through the command layer |
+| Play it | Editor F5 launched the game on the `.psx/play` copy, logs streamed into the console, Stop ended it. Windowed player under Xvfb: title, walking, mouse look, "It won't budge" interaction, pause, settings, rebinding saved, quit-to-title save and Continue, fixed camera showing the player body, finished screen |
+| Stop without changing the authored scene | `examples/room/game/tests/walkthrough.rs` checks the scene file bytes are unchanged after a full play; the simulation never writes the `Scene` |
+| Export it | `psx build --project examples/room --out "<dir>/Lever Room"`: 18 files, 29.3 MiB, notices for 464 crates |
+| Complete it in the standalone package | The exported executable, run from a folder whose path has spaces, completed `scripts/walkthrough.script.json` (535 ticks, `Finished`, all expected events). A windowed run of the export started, reached the game, and received keyboard input; completing it by synthetic mouse input under Xvfb was not achieved (see Not verified) |
+
 ## Verification record
 
 Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
@@ -85,7 +131,11 @@ Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
 | --- | --- |
 | `cargo fmt --all -- --check` | pass |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | pass |
-| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 134 tests (118 unit, 11 offscreen image, 2 comparison-scene GPU, 1 scene-resources GPU, 2 CLI end-to-end) |
+| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 171 tests, 1 ignored (a documentation example) |
+| `psx test-scene --project examples/room --script examples/room/scripts/walkthrough.script.json` | pass, 535 ticks, finished |
+| `psx build` of `examples/room` (release) with the walkthrough verification | pass |
+| `psx new` then `psx test-scene`, with and without a game crate | pass |
+| M4 windowed player and editor play mode under Xvfb (see the table above) | pass, screenshots inspected |
 | `cargo build --workspace --release --locked` | pass |
 | `psx validate --project examples/room` | pass, 0 errors, 0 warnings |
 | M3 image test: emissive adds after lighting and is fogged | pass |
@@ -109,7 +159,7 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 
 ## Not verified
 
-- **Windows 11 runtime** (primary target): not run for Milestone 1 or 2. CI
+- **Windows 11 runtime** (primary target): not run for Milestones 1 to 4. CI
   builds and tests on a Windows runner. Manual check:
   `cargo run -p psx_sandbox --release`, then press `C` for the split view,
   1–7 to toggle effects, F5 to save (`psx_style.json` appears in the working
@@ -129,6 +179,22 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   and unit tests, but only scale 1.0 was run.
 - Hardware GPUs, DX12 and Metal backends: only lavapipe was available.
 - Performance: not measured (software rendering FPS is not meaningful).
+- **Audio output:** the container has no sound device. Audio playback paths
+  are exercised headless (emitters, buses, fades are computed) and the
+  missing-device path was seen in every windowed run; hearing the demo
+  needs a real machine. Windows manual check:
+  `cargo run -p lever_room --release`, confirm the machine hum gets louder
+  near the machine and the volume sliders work.
+- **Completing the demo windowed in the exported package:** under Xvfb the
+  game received synthetic keys, but synthetic relative mouse motion arrives
+  through the X server's pointer acceleration and cursor capture, so the
+  scripted view turns were not reproducible and the lever could not be
+  aimed at. The same executable completed the walkthrough headless.
+  Windows manual check: `cargo run -p psx_cli --release -- build --project
+  examples/room --out "%USERPROFILE%\Desktop\Lever Room"`, run
+  `lever_room.exe` from that folder, finish the demo, quit, and confirm
+  settings appear under `%APPDATA%\PSX Engine\the-lever-room\config`.
+- Gamepads: not implemented.
 
 ## Known limitations
 
@@ -154,9 +220,20 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   primitive; texture samplers are ignored (nearest, no mipmaps).
 - Picking tests triangles on the CPU every click; fine for small rooms, not
   for scenes with millions of triangles.
-- Game HUD is not implemented; when it is, it will render at native
-  resolution after the composite pass.
-- Key bindings are fixed; named input actions arrive with Milestone 4.
+- Saves hold the scene and the game state map, not the player's position;
+  Continue restarts the saved scene at its start with the saved state.
+- Collider sizes are multiplied by the entity's scale, so scaling an entity
+  in the editor scales its collider too.
+- The demo floor's texture is stretched over the whole floor (no UV
+  tiling control yet).
+- Software rendering can run slower than 60 Hz; the simulation then drops
+  ticks rather than spiralling, so walks take longer in wall-clock time.
+- A generated game crate depends on the engine by path, so it builds only
+  while the engine checkout it was created from exists.
+- Exports are about 30 MB because binaries are not stripped.
+- Editor Game > Export needs a game crate; projects without one export with
+  `psx build`.
+- Gamepad input is not implemented.
 - If `wgpu-hal` fails to create a replacement surface on Vulkan/X11 it panics
   internally (`expect` in wgpu-hal 30.0.1); this can only be reached when a
   live window's surface is lost twice in a row.
