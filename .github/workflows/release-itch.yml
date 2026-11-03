@@ -106,6 +106,10 @@ jobs:
           # Launch action for the itch.io app: "Launch" opens the example project.
           cat > "$out/.itch.toml" <<EOF
           [[actions]]
+          name = "Copperframe editor"
+          path = "$BIN_EDITOR.exe"
+
+          [[actions]]
           name = "Open the example project"
           path = "$BIN_EDITOR.exe"
           args = ["examples/room"]
@@ -121,13 +125,13 @@ jobs:
           A Rust engine and scene editor for PS1- and PS2-style 3D games.
 
           Getting started
-            Double-click "Open example project.bat" to open the example room
-            in the editor, or run:
-              $BIN_EDITOR.exe examples\\room
+            Double-click $BIN_EDITOR.exe. It opens the project hub: click
+            "New project..." to create a game from a template, or "Open the
+            example project" to look at The Lever Room. New files you copy
+            into a project's assets folder are imported automatically, and
+            Build > Export Game makes a standalone copy of your game.
 
-            Make a new project with the command-line tool, then open it:
-              $BIN_CLI.exe new my_game --no-game
-              $BIN_EDITOR.exe my_game
+            "Open example project.bat" opens the example room directly.
 
           What is in this folder
             $BIN_EDITOR.exe
@@ -139,8 +143,8 @@ jobs:
             examples\\room
                 The example project's data.
 
-          Exporting a standalone game ($BIN_CLI.exe build) and writing game
-          code in Rust need the engine source and a Rust toolchain:
+          Writing your own game code in Rust needs the engine source and a
+          Rust toolchain:
             https://github.com/JasonAlkain/PSX-Game-Engine
 
           Licence: MIT (LICENSE.txt). Third-party licences: NOTICES.txt.

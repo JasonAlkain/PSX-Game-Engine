@@ -29,13 +29,16 @@ move the source **and its `.meta.json` together**; every scene reference
 keeps working. Deleting a sidecar gives the file a new ID on the next
 registration and breaks references to the old one.
 
-Register new files with either:
+New files are registered automatically while the project is open in the
+editor: copy them into `assets/` and they appear in the **Assets** tab
+within a second or two. Saving a changed file reimports it in place. See
+[Automatic import](editor.md#automatic-import).
 
-- the editor's **Assets** tab, **Rescan assets folder**; or
-- `copperframe import --project DIR [FILE]`, which also test-imports and
-  reports problems (with no file it registers everything unregistered).
+Without the editor, `copperframe import --project DIR [FILE]` registers
+files too; it also test-imports them and reports problems (with no file it
+registers everything unregistered).
 
-`copperframe validate` reports duplicate IDs, sidecars without a source,
+**Build > Validate Project** (or `copperframe validate`) reports duplicate IDs, sidecars without a source,
 sources without a sidecar, failed imports and scene references to unknown
 assets or assets of the wrong kind.
 

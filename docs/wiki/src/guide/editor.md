@@ -1,12 +1,19 @@
 # The editor
 
+Start the editor by double-clicking `copperframe_editor.exe` (the itch.io
+download) or with `cargo editor` in the engine folder. It opens at the
+[project hub](projects.md), where you create or open a project.
+
+From a command line you can also open a project directly:
+
 ```sh
-cargo run -p copperframe_editor --release -- PROJECT_DIR [--scene PATH] [--steal-lock] [--frames N]
+copperframe_editor [PROJECT_DIR] [--scene PATH] [--steal-lock] [--frames N]
+cargo editor [PROJECT_DIR] [...]       # the same, from the engine source
 ```
 
-`PROJECT_DIR` defaults to the current folder. `--scene` opens a scene other
-than the project's startup scene. `--steal-lock` takes over a project whose
-lock is held by a hung editor (see [Project lock](#project-lock)).
+Without `PROJECT_DIR` the editor starts at the hub. `--scene` opens a scene
+other than the project's startup scene. `--steal-lock` takes over a project
+whose lock is held by a hung editor (see [Project lock](#project-lock)).
 `--frames N` exits after N frames, for smoke tests.
 
 ![The editor with The Lever Room open: hierarchy on the left, the viewport with a crate selected and its move gizmo, the inspector on the right showing the crate's mesh, material overrides, blob shadow and collider, and the Assets and Console tabs at the bottom](../images/editor_lever_room.png)
@@ -15,7 +22,7 @@ lock is held by a hung editor (see [Project lock](#project-lock)).
 
 | Area | What it does |
 | --- | --- |
-| Menu bar | **File**, **Edit**, **Create**, **Game**, a **Play**/**Stop** button that is always visible, and **Help** |
+| Menu bar | **File**, **Edit**, **Create**, **Game**, **Build**, a **Play**/**Stop** button that is always visible, and **Help** |
 | Hierarchy (left) | Every entity in the scene, children indented under parents. Click to select |
 | Viewport (centre) | The scene rendered with its own retro style, with the selection gizmo and optional collider wireframes |
 | Inspector (right) | The selected entity's components, or **Scene settings** when nothing is selected |
@@ -47,14 +54,35 @@ inspector.
 
 ## Menus
 
-- **File**: Save; Reload from disk (discard changes); Quit.
+- **File**:
+  - **New Project…**, **Open Project…**, **Recent Projects** and **Close
+    Project** (back to the hub). See [Projects and the project
+    hub](projects.md#switching-projects).
+  - **New Scene…** creates `scenes/<name>.scene.json`, an empty scene with
+    the current scene's style, lighting and camera, and opens it.
+    **Open Scene** lists every scene in `scenes/` (the startup scene is
+    marked). **Set as Startup Scene** makes the open scene the one the
+    game starts with.
+  - Save; Reload from disk (discard changes); Quit.
+
+  Anything that leaves the open scene asks first if it has unsaved changes.
 - **Edit**: Undo and Redo (the menu names the step), Duplicate, Delete,
   **Show colliders** (wireframes) and **Snap** (gizmo steps).
 - **Create**: Empty, Cube, Plane, Sphere, Quad. New entities appear a few
   metres in front of the editor camera and are selected.
-- **Game**: Play/Stop, **Reload behaviour kinds** (rebuilds the game and
-  re-reads the behaviours it registers), the **Export folder** and
-  **Export** (or **Save and export** when there are unsaved changes).
+- **Game**: Play/Stop and **Reload behaviour kinds** (rebuilds the game and
+  re-reads the behaviours it registers).
+- **Build** (each saves unsaved changes first and runs in the background;
+  the result opens in its own window with **Copy** and, for exports,
+  **Open folder**):
+  - **Validate Project**: the checks of `copperframe validate`.
+  - **Export folder** (with **Browse…**) and **Export Game**. See
+    [Exporting a game](exporting.md).
+  - **Run Test Script**: lists the project's `*.script.json` files, plus
+    **Choose a script file…** and **Idle run** (5 seconds, no script). See
+    [Testing gameplay headless](testing.md).
+  - **Advanced > Benchmark Scene**: a release build measured offscreen in
+    three styles. See [Benchmarking](../reference/game-options.md#benchmarking).
 - **Help**: a summary of the controls and **Report a bug…** (see
   [Crash reports and logs](../help/crash-reports.md)).
 
@@ -105,14 +133,28 @@ With nothing selected the inspector shows **Scene settings**:
 Lists every file in `assets/` with its kind (model, texture, sound) and
 import status (*ok*, a warning count, *failed* or *missing*).
 
-- **Rescan assets folder** registers new files (writes their
-  `.meta.json`) and refreshes the list.
+- New files are registered automatically (see below). **Rescan now** does
+  it at once, and **Show in folder** opens `assets/` in Explorer.
 - **Add to scene** (models) creates an entity using the model.
 - **Reimport** (models and textures) reads the file again after you changed
   it. If the new import fails, the last good version stays on screen and
   the error appears in the console.
 
-There is no file watching yet: after editing a source file, use Reimport.
+### Automatic import
+
+The editor watches `assets/` while a project is open, checking once a
+second:
+
+- **New files** are registered (their `.meta.json` is written) and appear
+  in the list.
+- **Changed files** that are loaded in the scene are reimported in place,
+  so a texture you save in your paint program updates in the viewport. A
+  file is picked up once it has stopped changing for a second, so large
+  exports are not read half-written.
+- **Deleted files** are reported in the Console; entities using them show
+  the missing-asset checker until you replace or remove them.
+
+Hidden files and `*.tmp` files are ignored.
 
 ## Saving, undo and conflicts
 
@@ -126,8 +168,13 @@ scene's **revision**. If the file on disk has a different revision than the
 one the editor loaded (for example `copperframe apply` changed it), Save
 stops and offers to overwrite with your version or reload from disk.
 
-Closing with unsaved changes asks *Save and quit*, *Quit without saving* or
-*Cancel*.
+The editor also watches `scenes/`. When another program changes the open
+scene and you have no unsaved edits, the editor reloads it and says so in
+the Console. With unsaved edits it asks: **Reload from disk** or **Keep my
+version**.
+
+Closing, or switching scene or project, with unsaved changes asks
+**Save**, **Don't save** or **Cancel**.
 
 ## Play mode
 
@@ -139,7 +186,9 @@ undo history, or the game's saves.
 
 If the project has a `game/` crate, Play runs it with `cargo run` (so the
 first Play compiles it). Without one, the stock `copperframe_player` is
-used.
+used. A project with a `game/` crate needs Rust; if it is not installed,
+Play, Build and Export show a prompt with a link to
+[rustup.rs](https://rustup.rs) and a **Check again** button.
 
 If the game crashes, the editor shows its crash report. See
 [Crash reports and logs](../help/crash-reports.md).
@@ -150,8 +199,9 @@ While open, the editor holds `.psx/editor.lock` in the project with an OS
 file lock. A second editor, or `copperframe apply`, refuses to edit the
 project while it is held. The OS releases the lock when the editor exits or
 crashes, so a lock file left behind by a crash is detected and replaced
-automatically. `--steal-lock` is only for an editor that is still running
-but hung.
+automatically. If an editor is still running (or hung) with the project
+open, the hub says so and offers **Open anyway**, the same as
+`--steal-lock`.
 
 ## Performance
 

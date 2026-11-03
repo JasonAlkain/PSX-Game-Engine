@@ -24,9 +24,12 @@ every effect is a switch you can turn on, off or tune.
   mipmapped textures, per-vertex or per-pixel lighting, up to 8 point
   lights and blob shadows. The same content renders in either style
   without being rebuilt.
-- **A scene editor** (egui) with a hierarchy, inspector, translate gizmo,
-  undo/redo, asset browser, and a Play button that runs your game in its
-  own window on a copy of the scene.
+- **A scene editor** (egui) with a project hub for creating and opening
+  projects, a hierarchy, inspector, translate gizmo, undo/redo, an asset
+  browser that picks up new and changed files by itself, a Play button
+  that runs your game in its own window on a copy of the scene, and a
+  Build menu to validate, test and export. You can make a game without
+  touching a command line.
 - **A command-line tool**, `copperframe`, that creates, validates, inspects
   and edits projects through the same command layer as the editor, so
   scripts and AI agents can build scenes too.

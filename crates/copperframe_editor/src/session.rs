@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use copperframe_assets::project::{AssetDatabase, EditorLock, Project, ProjectError};
+use copperframe_assets::project::{AssetDatabase, EditorLock, Project, ProjectError, SCENES_DIR};
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
     Command, History, MeshComponent, MeshSource, PrimitiveShape, Scene, SceneFileError, Transform,
@@ -232,6 +232,98 @@ impl EditorSession {
             self.scene.revision
         ));
         Ok(())
+    }
+
+    /// Revision of the scene file as the editor last loaded or saved it.
+    pub fn disk_revision(&self) -> u64 {
+        self.disk_revision
+    }
+
+    /// Every `*.scene.json` under `scenes/`, sorted.
+    pub fn scene_files(&self) -> Vec<PathBuf> {
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.to_string_lossy().ends_with(".scene.json") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.project.resolve(SCENES_DIR), &mut out);
+        out.sort();
+        out
+    }
+
+    /// Switches to another scene file, discarding unsaved edits and the undo
+    /// history of the current one (the caller asks first).
+    pub fn open_scene(&mut self, path: &Path) -> Result<(), SceneFileError> {
+        let scene = load_scene(path)?;
+        self.disk_revision = scene.revision;
+        self.scene = scene;
+        self.scene_path = path.to_path_buf();
+        self.history.clear();
+        self.selection = None;
+        self.info(format!(
+            "opened {} (revision {}, {} entities)",
+            self.project.relative(&self.scene_path),
+            self.scene.revision,
+            self.scene.entities.len()
+        ));
+        Ok(())
+    }
+
+    /// Creates `scenes/<name>.scene.json` with the current scene's style,
+    /// lighting and camera and no entities, and opens it.
+    pub fn new_scene(&mut self, name: &str) -> Result<PathBuf, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("the scene needs a name".into());
+        }
+        let stem: String = name
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c.to_ascii_lowercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = self
+            .project
+            .resolve(SCENES_DIR)
+            .join(format!("{stem}.scene.json"));
+        if path.exists() {
+            return Err(format!("{} already exists", self.project.relative(&path)));
+        }
+        let mut scene = Scene::new(name);
+        scene.settings = self.scene.settings.clone();
+        save_scene(&scene, &path).map_err(|e| e.to_string())?;
+        self.open_scene(&path).map_err(|e| e.to_string())?;
+        Ok(path)
+    }
+
+    pub fn is_startup_scene(&self) -> bool {
+        self.project.startup_scene_path() == self.scene_path
+    }
+
+    /// Makes the open scene the one the game starts with.
+    pub fn set_startup_scene(&mut self) {
+        let rel = self.project.relative(&self.scene_path);
+        let previous = std::mem::replace(&mut self.project.file.startup_scene, rel.clone());
+        match self.project.save() {
+            Ok(()) => self.info(format!("the game now starts with {rel}")),
+            Err(e) => {
+                self.project.file.startup_scene = previous;
+                self.error(e.to_string());
+            }
+        }
     }
 
     /// Rescans `assets/`, registering new source files.
@@ -460,6 +552,35 @@ mod tests {
             report.diagnostics
         );
         drop(s);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn scenes_can_be_created_opened_and_made_startup() {
+        let root = temp("scenes");
+        Project::create(&root, "T").unwrap();
+        let mut s = EditorSession::open(&root, None, false, false).unwrap();
+        let main = s.scene_path.clone();
+        assert!(s.is_startup_scene());
+        let level = s.new_scene("Level 2").unwrap();
+        assert!(level.ends_with("scenes/level_2.scene.json"));
+        assert_eq!(s.scene_path, level);
+        assert!(s.scene.entities.is_empty());
+        assert!(!s.is_dirty());
+        assert!(
+            s.new_scene("Level 2")
+                .unwrap_err()
+                .contains("already exists")
+        );
+        assert_eq!(s.scene_files(), vec![level.clone(), main.clone()]);
+        s.set_startup_scene();
+        assert_eq!(
+            Project::open(&root).unwrap().file.startup_scene,
+            "scenes/level_2.scene.json"
+        );
+        s.open_scene(&main).unwrap();
+        assert_eq!(s.scene.entities.len(), 3);
+        assert!(!s.is_startup_scene());
         std::fs::remove_dir_all(&root).unwrap();
     }
 

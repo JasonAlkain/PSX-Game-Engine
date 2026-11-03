@@ -61,7 +61,18 @@ monitor setup).
    folder and finish the game.
 6. `cargo run -p copperframe_cli --release -- bench --project examples/room`:
    record the report in STATUS.
-7. Crash reporting: put any text file named `test.txt` in
+7. Project hub: start the editor with no arguments (double-click
+   `target\release\copperframe_editor.exe` or `cargo editor`). The hub
+   opens; **New project…** → Browse… shows the Windows folder picker; create
+   a Starter project with and without Rust game code, and a Lever Room
+   project; each opens straight away and appears under Recent projects on
+   the next start. Copy a PNG into the project's `assets` folder from
+   Explorer and confirm it appears in the Assets tab within about two
+   seconds; edit a texture used in the scene in Paint, save, and confirm the
+   viewport updates. Build > Validate, Run Test Script and Export Game show
+   results; **Open folder** opens Explorer. File > Close Project returns to
+   the hub.
+8. Crash reporting: put any text file named `test.txt` in
    `%APPDATA%\Copperframe Engine\copperframe-engine\data\crash_reports`,
    start the editor, and confirm the "closed unexpectedly" dialog shows it;
    "Email report…" opens a draft in the default mail program addressed to

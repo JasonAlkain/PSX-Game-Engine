@@ -9,6 +9,7 @@
 //!   the editor and the CLI.
 //! - [`game`]: finding, building and running a project's game executable.
 //! - [`export`]: host-platform export of a game and its data.
+//! - [`template`]: new projects from templates, and their Rust game crate.
 //!
 //! No window or GPU dependencies.
 
@@ -19,6 +20,7 @@ pub mod game;
 pub mod import;
 pub mod meta;
 pub mod project;
+pub mod template;
 
 pub use import::audio::{AudioFormat, ImportedAudio, import_audio};
 pub use import::gltf::import_gltf;

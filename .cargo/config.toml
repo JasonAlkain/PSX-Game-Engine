@@ -1,0 +1,4 @@
+# `cargo editor` builds and starts the editor (at the project hub) from the
+# engine folder; `cargo editor path/to/project` opens a project directly.
+[alias]
+editor = "run -p copperframe_editor --release --"

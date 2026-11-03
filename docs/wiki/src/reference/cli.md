@@ -4,6 +4,11 @@
 layer as the editor, so anything you can do to a scene in the editor you
 can script.
 
+You do not need it to make games: the editor's [project
+hub](../guide/projects.md) and **Build** menu do what `new`, `import`,
+`validate`, `test-scene`, `build` and `bench` do. The tool is for scripts,
+CI and automated agents; `inspect`, `apply` and `schema` exist only here.
+
 ```sh
 cargo run -p copperframe_cli --release -- <command> [options]
 # or, after cargo build --release:
@@ -26,13 +31,17 @@ and `--project DIR` (default: the current folder) where it applies.
 ## `new`
 
 ```sh
-copperframe new DIR [--name NAME] [--no-game]
+copperframe new DIR [--name NAME] [--template empty|starter|lever-room] [--no-game]
 ```
 
-Creates a project: `project.json`, `assets/`, `scenes/main.scene.json` (a
-playable starter scene) and `game/`, a Rust crate with an example behaviour
-that depends on this engine checkout by path. `--no-game` skips the crate;
+Creates a project: `project.json`, `assets/`, `scenes/main.scene.json` and
+`game/`, a Rust crate with an example behaviour that depends on this engine
+checkout by path. `--template` picks what the project starts with (default
+`starter`, a playable scene; see
+[Templates](../guide/projects.md#templates)). `--no-game` skips the crate;
 the project then plays in the stock player with engine behaviours only.
+Without the engine source (a downloaded build) `new` needs `--no-game`.
+`DIR` must not exist or must be empty.
 
 ## `validate`
 

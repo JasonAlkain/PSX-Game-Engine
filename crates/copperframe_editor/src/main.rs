@@ -1,7 +1,7 @@
 //! `copperframe_editor [PROJECT_DIR] [--scene PATH] [--steal-lock] [--frames N]`
 //!
-//! Opens a project (default: the current directory) in the scene editor.
-//! Create a project first with `copperframe new DIR`.
+//! Opens a project in the scene editor. Without `PROJECT_DIR` the editor
+//! starts at the project hub, where projects are created and opened.
 
 use std::path::PathBuf;
 
@@ -13,12 +13,11 @@ const USAGE: &str =
 
 fn parse(args: impl Iterator<Item = String>) -> anyhow::Result<EditorConfig> {
     let mut config = EditorConfig {
-        project: PathBuf::from("."),
+        project: None,
         scene: None,
         steal_lock: false,
         exit_after_frames: None,
     };
-    let mut project_set = false;
     let mut args = args.skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -36,10 +35,7 @@ fn parse(args: impl Iterator<Item = String>) -> anyhow::Result<EditorConfig> {
                 std::process::exit(0);
             }
             other if other.starts_with('-') => bail!("unknown argument `{other}` ({USAGE})"),
-            other if !project_set => {
-                config.project = PathBuf::from(other);
-                project_set = true;
-            }
+            other if config.project.is_none() => config.project = Some(PathBuf::from(other)),
             other => bail!("unexpected argument `{other}` ({USAGE})"),
         }
     }
@@ -72,11 +68,11 @@ mod tests {
     #[test]
     fn parses_arguments() {
         let c = p(&["my game", "--frames", "3", "--steal-lock"]).unwrap();
-        assert_eq!(c.project, PathBuf::from("my game"));
+        assert_eq!(c.project, Some(PathBuf::from("my game")));
         assert_eq!(c.exit_after_frames, Some(3));
         assert!(c.steal_lock);
         assert!(p(&["a", "b"]).is_err());
         assert!(p(&["--bogus"]).is_err());
-        assert_eq!(p(&[]).unwrap().project, PathBuf::from("."));
+        assert_eq!(p(&[]).unwrap().project, None, "no project: the hub");
     }
 }

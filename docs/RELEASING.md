@@ -48,8 +48,9 @@ download and test. Tick it to also push that build (versioned
 - `examples/room` project data (not its Rust game crate, which needs the
   engine source to build)
 - `Open example project.bat`, and a `.itch.toml` so the itch.io app's Launch
-  button opens the example project
+  button offers the editor (project hub) or the example project
 - `README.txt`, `LICENSE.txt` and `NOTICES.txt` (third-party crate licences,
-  generated from `cargo metadata`)
+  generated from `cargo metadata`; the editor copies it into exports of
+  projects without game code)
 
 Executable and package names are set once in the workflow's `env:` block.

@@ -1,6 +1,7 @@
 //! Gameplay authoring in the editor: inspectors for colliders, audio
 //! sources and behaviours, Play/Stop (the game runs as a child process on a
-//! temporary copy of the scene), the behaviour schema, and export.
+//! temporary copy of the scene), the behaviour schema, and the Build menu's
+//! background jobs (validate, export, test scripts, benchmark).
 //!
 //! Play never touches the authored scene: the current in-memory scene,
 //! including unsaved edits, is written to `.psx/play/` and the game is
@@ -14,8 +15,10 @@ use std::process::{Child, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use copperframe_assets::AssetKind;
-use copperframe_assets::export::{ExportOptions, export, verify_export};
-use copperframe_assets::game::{GameTarget, cached_schema, write_schema_cache};
+use copperframe_assets::export::{ExportOptions, Notices, export, verify_export};
+use copperframe_assets::game::{
+    GameTarget, HeadlessRun, bench_summary, cached_schema, test_summary, write_schema_cache,
+};
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
     AudioBus, AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
@@ -33,7 +36,49 @@ pub const PLAY_DIR: &str = ".psx/play";
 enum Msg {
     Log(LogLevel, String),
     Schema(Result<Value, String>),
-    ExportDone(Result<String, String>),
+    JobDone(JobResult),
+}
+
+/// A Build menu job running in the background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Job {
+    Validate,
+    Export,
+    Test,
+    Bench,
+}
+
+impl Job {
+    pub fn title(self) -> &'static str {
+        match self {
+            Job::Validate => "Validate project",
+            Job::Export => "Export game",
+            Job::Test => "Test script",
+            Job::Bench => "Benchmark",
+        }
+    }
+
+    fn busy(self) -> &'static str {
+        match self {
+            Job::Validate => "validating…",
+            Job::Export => "exporting…",
+            Job::Test => "running the test…",
+            Job::Bench => "benchmarking…",
+        }
+    }
+}
+
+/// The outcome of a finished [`Job`], shown in the results window.
+#[derive(Debug, Clone)]
+pub struct JobResult {
+    pub job: Job,
+    pub passed: bool,
+    /// One line for the console.
+    pub headline: String,
+    /// The full report.
+    pub details: String,
+    /// A folder to offer opening (the export).
+    pub folder: Option<PathBuf>,
 }
 
 /// Child processes and background jobs started from the editor.
@@ -43,7 +88,13 @@ pub struct GameTools {
     play: Option<Child>,
     schema: Option<Value>,
     schema_busy: bool,
-    export_busy: bool,
+    job: Option<Job>,
+    /// The last finished job, until the results window is closed.
+    pub result: Option<JobResult>,
+    /// `cargo` was checked once; `Some(false)` shows the install prompt.
+    rust: Option<bool>,
+    /// Show the "Rust is not installed" prompt.
+    pub rust_prompt: bool,
     /// Set when a Play session exits with an error, so the app can look
     /// for its crash report.
     game_failed: bool,
@@ -51,7 +102,7 @@ pub struct GameTools {
 }
 
 impl GameTools {
-    pub fn new(session: &EditorSession) -> Self {
+    pub fn new(session: &mut EditorSession) -> Self {
         let (tx, rx) = channel();
         let export_dir = session
             .project
@@ -66,14 +117,53 @@ impl GameTools {
             play: None,
             schema: cached_schema(&session.project),
             schema_busy: false,
-            export_busy: false,
+            job: None,
+            result: None,
+            rust: None,
+            rust_prompt: false,
             game_failed: false,
             export_dir,
         };
-        if tools.schema.is_none() {
+        if tools.schema.is_none() && tools.can_build(session, false) {
             tools.refresh_schema(session);
         }
         tools
+    }
+
+    /// Whether the project's game can be built: always for the stock
+    /// player; for a game crate only if Rust is installed. With `prompt`,
+    /// a missing Rust shows the install prompt.
+    pub fn can_build(&mut self, session: &mut EditorSession, prompt: bool) -> bool {
+        if !matches!(
+            GameTarget::for_project(&session.project),
+            Ok(GameTarget::Crate { .. })
+        ) {
+            return true;
+        }
+        let ok = *self
+            .rust
+            .get_or_insert_with(copperframe_assets::game::rust_available);
+        if !ok {
+            if prompt {
+                self.rust_prompt = true;
+            }
+            session.warn(
+                "this project has Rust game code (game/), but Rust is not installed; \
+                 install it from https://rustup.rs and restart the editor",
+            );
+        }
+        ok
+    }
+
+    /// Checks for Rust again (after the user installed it).
+    pub fn recheck_rust(&mut self, session: &mut EditorSession) -> bool {
+        self.rust = None;
+        let ok = self.can_build(session, false);
+        if ok {
+            self.rust_prompt = false;
+            session.info("Rust found");
+        }
+        ok
     }
 
     pub fn is_playing(&self) -> bool {
@@ -81,8 +171,8 @@ impl GameTools {
     }
 
     pub fn busy_label(&self) -> Option<&'static str> {
-        if self.export_busy {
-            Some("exporting…")
+        if let Some(job) = self.job {
+            Some(job.busy())
         } else if self.schema_busy {
             Some("reading behaviours…")
         } else {
@@ -114,12 +204,15 @@ impl GameTools {
                         Err(e) => session.error(e),
                     }
                 }
-                Msg::ExportDone(result) => {
-                    self.export_busy = false;
-                    match result {
-                        Ok(text) => session.info(text),
-                        Err(e) => session.error(format!("export failed: {e}")),
-                    }
+                Msg::JobDone(result) => {
+                    self.job = None;
+                    let level = if result.passed {
+                        LogLevel::Info
+                    } else {
+                        LogLevel::Error
+                    };
+                    session.push_log(level, &result.headline);
+                    self.result = Some(result);
                 }
             }
         }
@@ -146,7 +239,7 @@ impl GameTools {
 
     /// Starts the game on a copy of the current scene.
     pub fn play(&mut self, session: &mut EditorSession) {
-        if self.play.is_some() {
+        if self.play.is_some() || !self.can_build(session, true) {
             return;
         }
         let target = match GameTarget::for_project(&session.project) {
@@ -275,11 +368,72 @@ impl GameTools {
         });
     }
 
+    pub fn is_busy(&self) -> bool {
+        self.job.is_some()
+    }
+
+    /// Runs `work` on a background thread as `job`; its log lines stream
+    /// into the console.
+    fn spawn_job(
+        &mut self,
+        job: Job,
+        work: impl FnOnce(&mut dyn FnMut(&str)) -> JobResult + Send + 'static,
+    ) {
+        self.job = Some(job);
+        self.result = None;
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let log_tx = tx.clone();
+            let mut log = |line: &str| {
+                let _ = log_tx.send(Msg::Log(
+                    LogLevel::Info,
+                    format!("[{}] {}", job.title().to_lowercase(), strip_ansi(line)),
+                ));
+            };
+            let result = work(&mut log);
+            let _ = tx.send(Msg::JobDone(result));
+        });
+    }
+
+    /// Checks the project (Build > Validate): the project file, every asset
+    /// and every scene. Uses the files on disk; the caller saves first.
+    pub fn validate(&mut self, session: &mut EditorSession) {
+        if self.is_busy() {
+            return;
+        }
+        let root = session.project.root.clone();
+        session.info("validating the project…");
+        self.spawn_job(Job::Validate, move |_| {
+            let report = copperframe_assets::validate_project(&root);
+            let mut details = String::new();
+            for d in &report.diagnostics {
+                details.push_str(&format!("{d}\n"));
+            }
+            let headline = format!(
+                "validation: {} assets, {} scenes: {} errors, {} warnings",
+                report.assets.len(),
+                report.scenes.len(),
+                report.errors,
+                report.warnings
+            );
+            if details.is_empty() {
+                details = "No problems found.\n".into();
+            }
+            JobResult {
+                job: Job::Validate,
+                passed: report.ok(),
+                headline,
+                details,
+                folder: None,
+            }
+        });
+    }
+
     /// Exports to [`GameTools::export_dir`] in the background, replacing an
     /// earlier export there, then runs the export headless as a check.
     /// Unsaved changes are not exported; the caller saves first.
     pub fn export(&mut self, session: &mut EditorSession) {
-        if self.export_busy {
+        if self.is_busy() || !self.can_build(session, true) {
             return;
         }
         let target = match GameTarget::for_project(&session.project) {
@@ -289,47 +443,180 @@ impl GameTools {
                 return;
             }
         };
-        let notices_manifest = match &target {
-            GameTarget::Crate { manifest } => manifest.clone(),
-            GameTarget::Executable { .. } => {
-                session.error(
-                    "export of projects without a game crate is done with `copperframe build` \
-                     (it needs the engine source to list licences)",
-                );
+        let notices = match Notices::for_target(&target) {
+            Ok(n) => n,
+            Err(e) => {
+                session.error(format!("export: {e}"));
                 return;
             }
         };
         let project = session.project.clone();
         let out = PathBuf::from(self.export_dir.trim());
-        let tx = self.tx.clone();
-        self.export_busy = true;
         session.info(format!("exporting to {} …", out.display()));
-        std::thread::spawn(move || {
+        self.spawn_job(Job::Export, move |log| {
             let options = ExportOptions {
                 out,
                 replace: true,
-                notices_manifest,
+                notices,
             };
-            let log_tx = tx.clone();
-            let mut log = |line: &str| {
-                let _ = log_tx.send(Msg::Log(
-                    LogLevel::Info,
-                    format!("[export] {}", strip_ansi(line)),
-                ));
-            };
-            let result = export(&project, &target, &options, &mut log).and_then(|r| {
-                verify_export(&r.executable, None, 120).map(|_| {
-                    format!(
+            let result = export(&project, &target, &options, log)
+                .and_then(|r| verify_export(&r.executable, None, 120).map(|_| r));
+            match result {
+                Ok(r) => JobResult {
+                    job: Job::Export,
+                    passed: true,
+                    headline: format!(
                         "exported to {} ({} files, {:.1} MiB) and checked that it starts",
                         r.out.display(),
                         r.files,
                         r.bytes as f64 / (1024.0 * 1024.0)
-                    )
-                })
-            });
-            let _ = tx.send(Msg::ExportDone(result));
+                    ),
+                    details: format!(
+                        "The game is in {}.\nRun {} to play it; zip the folder to share it.\n",
+                        r.out.display(),
+                        r.executable.display()
+                    ),
+                    folder: Some(r.out),
+                },
+                Err(e) => JobResult {
+                    job: Job::Export,
+                    passed: false,
+                    headline: "export failed".into(),
+                    details: e,
+                    folder: None,
+                },
+            }
         });
     }
+
+    /// Test scripts in the project (`*.script.json`, outside `assets/`).
+    pub fn test_scripts(session: &EditorSession) -> Vec<PathBuf> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>, depth: u32) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().into_owned();
+                if p.is_dir() {
+                    if depth < 3
+                        && !name.starts_with('.')
+                        && !["target", "dist", "assets", "game"].contains(&name.as_str())
+                    {
+                        walk(&p, out, depth + 1);
+                    }
+                } else if name.ends_with(".script.json") {
+                    out.push(p);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&session.project.root, &mut out, 0);
+        out.sort();
+        out
+    }
+
+    /// Plays the open scene headless, driven by `script` (or idle for a few
+    /// seconds without one), and reports whether its expectations passed.
+    /// Uses the scene on disk; the caller saves first.
+    pub fn run_test(&mut self, session: &mut EditorSession, script: Option<PathBuf>) {
+        if self.is_busy() || !self.can_build(session, true) {
+            return;
+        }
+        let Some(target) = self.target(session) else {
+            return;
+        };
+        let Some(run) = headless_run(session, script.clone()) else {
+            return;
+        };
+        let label = script
+            .as_deref()
+            .map_or("an idle run".to_owned(), |s| session.project.relative(s));
+        session.info(format!(
+            "testing {label} (builds the game first if needed)…"
+        ));
+        self.spawn_job(Job::Test, move |_| match run.test(&target) {
+            Ok(report) => {
+                let (passed, details) = test_summary(&report);
+                JobResult {
+                    job: Job::Test,
+                    passed,
+                    headline: format!("test {label}: {}", if passed { "passed" } else { "FAILED" }),
+                    details,
+                    folder: None,
+                }
+            }
+            Err(e) => JobResult {
+                job: Job::Test,
+                passed: false,
+                headline: format!("test {label}: could not run"),
+                details: e,
+                folder: None,
+            },
+        });
+    }
+
+    /// Measures frame and tick times of the open scene with a release build
+    /// (Build > Advanced > Benchmark).
+    pub fn bench(&mut self, session: &mut EditorSession) {
+        if self.is_busy() || !self.can_build(session, true) {
+            return;
+        }
+        let Some(target) = self.target(session) else {
+            return;
+        };
+        let Some(run) = headless_run(session, None) else {
+            return;
+        };
+        session.info("benchmarking (release build first; this can take a few minutes)…");
+        self.spawn_job(Job::Bench, move |log| {
+            let result = target
+                .build_release(log)
+                .and_then(|exe| run.bench(&exe, 300, "1280x720"));
+            match result {
+                Ok(report) => {
+                    let details = bench_summary(&report);
+                    JobResult {
+                        job: Job::Bench,
+                        passed: true,
+                        headline: format!(
+                            "benchmark: {}",
+                            details.lines().next().unwrap_or_default()
+                        ),
+                        details,
+                        folder: None,
+                    }
+                }
+                Err(e) => JobResult {
+                    job: Job::Bench,
+                    passed: false,
+                    headline: "benchmark failed".into(),
+                    details: e,
+                    folder: None,
+                },
+            }
+        });
+    }
+
+    fn target(&self, session: &mut EditorSession) -> Option<GameTarget> {
+        GameTarget::for_project(&session.project)
+            .map_err(|e| session.error(e))
+            .ok()
+    }
+}
+
+/// A headless run of the open scene file.
+fn headless_run(session: &mut EditorSession, script: Option<PathBuf>) -> Option<HeadlessRun> {
+    let abs = |p: &std::path::Path| std::path::absolute(p).map_err(|e| e.to_string());
+    let run = (|| {
+        Ok::<_, String>(HeadlessRun {
+            project_root: abs(&session.project.root)?,
+            scene: Some(abs(&session.scene_path)?),
+            script: script.as_deref().map(abs).transpose()?,
+            ticks: 300,
+        })
+    })();
+    run.map_err(|e| session.error(e)).ok()
 }
 
 impl Drop for GameTools {

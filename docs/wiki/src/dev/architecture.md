@@ -88,5 +88,6 @@ ARCHITECTURE.md "Conventions".
 | Style settings | `crates/copperframe_core/src/style.rs` |
 | Scene data and commands | `crates/copperframe_scene/src/scene.rs`, `command.rs`, `batch.rs` |
 | The game API | `crates/copperframe_game/src/api.rs`, then `sim.rs` |
-| The editor | `crates/copperframe_editor/src/session.rs` (logic), `ui.rs` (panels) |
+| The editor | `crates/copperframe_editor/src/session.rs` (logic), `ui.rs` (panels), `hub.rs` (project hub), `watch.rs` (folder watcher), `gameplay.rs` (Play and Build jobs) |
+| Project templates | `crates/copperframe_assets/src/template.rs` (shared by the hub and `copperframe new`) |
 | A complete game | `examples/room/game/src/lib.rs` |

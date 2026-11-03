@@ -57,7 +57,8 @@ make the window a multiple of the internal resolution.
 ## Scenes and the editor
 
 **A magenta and black checker cube.** The entity's asset is missing or failed
-to import. Check the Assets tab and the Console; run `copperframe validate`.
+to import. Check the Assets tab and the Console; run **Build > Validate
+Project**.
 
 **`copperframe apply` exits with code 3.** Either the editor has the project
 open (close it, or save and use the editor instead), or the batch's
@@ -67,16 +68,27 @@ open (close it, or save and use the editor instead), or the batch's
 since the editor loaded it. Choose **Overwrite with my version** or reload
 and lose your unsaved edits.
 
-**"The project is open in a running editor".** The lock is released
-by the OS when the editor exits, so this means an editor is still running.
-Close it, or start with `--steal-lock` if it is hung.
+**"Already open in another editor window".** The lock is released by the
+OS when the editor exits, so this means an editor is still running. Close
+it, or click **Open anyway** on the hub if it is hung.
 
 **The behaviour list is empty or missing a new behaviour.** Use **Game >
 Reload behaviour kinds** (or press Play), which rebuilds the game and reads
 its schema. Build errors appear in the Console.
 
-**Changed an asset file but the editor shows the old one.** There is no
-file watching yet; click **Reimport** in the Assets tab.
+**Changed an asset file but the editor shows the old one.** The editor
+reimports changed files that are in the scene within a second or two of
+the last write. If a program keeps the file open or writes it somewhere
+else first, click **Reimport** in the Assets tab.
+
+**"Rust is needed for this project".** The project has a `game/` crate
+and Rust is not installed. Install it from [rustup.rs](https://rustup.rs),
+then click **Check again** (or restart the editor).
+
+**New project: "Include Rust game code" is greyed out.** The editor was
+not built from the engine source (for example the itch.io download), so it
+cannot write a game crate that depends on it. Create the project without
+game code, or build the engine from source.
 
 ## Gameplay
 

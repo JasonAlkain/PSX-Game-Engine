@@ -27,6 +27,9 @@ anyhow.workspace = true
 thiserror.workspace = true
 wgpu.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+rfd.workspace = true
+directories.workspace = true
 
 [dev-dependencies]
 copperframe_assets.workspace = true

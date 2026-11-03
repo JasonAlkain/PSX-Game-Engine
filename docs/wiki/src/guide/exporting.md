@@ -3,6 +3,21 @@
 An export is a self-contained folder you can zip and share. It builds for
 the platform you run it on: export on Windows for a Windows build.
 
+## From the editor
+
+1. Set the **Export folder** in the **Build** menu (default `dist/<name>`
+   in the project). **Browse…** picks another folder.
+2. Click **Build > Export Game**.
+
+The editor saves unsaved changes, exports in the background (build output
+streams into the Console), replaces an earlier export in that folder, and
+runs the result once to check it starts. A results window shows where the
+game is; **Open folder** opens it.
+
+Projects without a `game/` crate export the stock player renamed after the
+game, so they need no Rust. The itch.io download exports these projects
+too, using the licence list it ships in `NOTICES.txt`.
+
 ## From the command line
 
 ```sh
@@ -17,17 +32,9 @@ copperframe build --project my_game --out "my_game/dist/My Game"
 | `--no-verify` | Skip the check run |
 | `--json` | Machine-readable result |
 
-## From the editor
-
-**Game > Export** uses the **Export folder** shown above it (default
-`dist/<name>` in the project). It saves first if there are unsaved changes
-(the button then reads **Save and export**), replaces an earlier export in
-that folder, and reports progress in the Console. Editor export needs a
-game crate; export projects without one with `copperframe build`.
-
 ## What happens
 
-1. The project is validated (the same checks as `copperframe validate`); errors stop the export.
+1. The project is validated (the same checks as **Build > Validate Project**); errors stop the export.
 2. The game crate is built in release mode.
 3. The output folder is written:
 
@@ -61,10 +68,10 @@ is MIT-licensed.
 
 ## Checklist before shipping
 
-- `copperframe validate --project my_game` reports no errors.
-- Your walkthrough script passes: `copperframe test-scene --script …`.
+- **Build > Validate Project** reports no errors.
+- Your walkthrough script passes: **Build > Run Test Script**.
 - Play the exported executable from its folder, not from the project.
 - Check settings and saves appear in the user folder (see
   [Where files go](player.md#where-files-go)).
-- Run `copperframe bench --project my_game` on the slowest machine you
+- Run **Build > Advanced > Benchmark Scene** on the slowest machine you
   want to support.
