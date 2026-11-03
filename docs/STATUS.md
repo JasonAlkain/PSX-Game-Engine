@@ -1,6 +1,36 @@
 # Status
 
-Last updated: 2026-11-03 (crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+Last updated: 2026-11-03 (editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+
+## Editor-only workflow (2026-11-03)
+
+Making a game no longer needs the command line. Started without a project,
+the editor opens a **project hub**: recent projects (open, show in folder,
+remove), Open project (native folder picker via `rfd`), and New project
+(name, location, template Empty / Starter / Lever Room, optional Rust game
+code); a new project opens at once. `cargo editor` (alias in
+`.cargo/config.toml`) starts it from the source tree. The editor watches
+`assets/` and `scenes/` (1 s polling, reported once files are stable):
+new files are registered, changed loaded assets are reimported in place, and
+a scene changed on disk reloads (or asks, with unsaved edits). New **File**
+items switch project and scene (New/Open Scene, Set as Startup Scene). A
+**Build** menu runs Validate, Export Game (with Browse…), Run Test Script and
+Advanced > Benchmark in the background with a results window. Projects with
+game code show an install prompt when Rust is missing. Projects without
+game code can now be exported from the editor, including from the itch.io
+bundle (it copies the bundle's `NOTICES.txt`). Templates and the headless
+runners moved into `copperframe_assets` and are shared with the CLI
+(`copperframe new --template`).
+
+Verified on Linux under Xvfb with lavapipe: hub start, New project
+(Lever Room) opens the project and records it in `recent_projects.json`, a
+PNG copied into `assets/` registers within the poll interval, Build >
+Validate and Run Test Script show results, Build > Export Game on a
+starter project without game code exports and passes its check run, and an
+external scene edit reloads. Unit tests cover templates, the recent list,
+the watcher and scene switching. Keyboard input to the hub form could not
+be driven under Xvfb (no window manager), and the native folder picker and
+the Windows behaviour are not verified.
 
 ## Editor responsiveness and lock recovery (2026-11-03)
 

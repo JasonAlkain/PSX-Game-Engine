@@ -18,16 +18,16 @@
 //! `test-scene` and `build` run the project's game: its `game/` crate (built
 //! with cargo) or, without one, the stock `copperframe_player` next to this tool.
 
-mod template;
-
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{ExitCode, Stdio};
+use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use copperframe_assets::export::{ExportOptions, check_output_folder, export, verify_export};
-use copperframe_assets::game::GameTarget;
+use copperframe_assets::export::{
+    ExportOptions, Notices, check_output_folder, export, verify_export,
+};
+use copperframe_assets::game::{GameTarget, HeadlessRun, bench_summary, test_summary};
 use copperframe_assets::project::{AssetDatabase, ImportedAsset, Project, ProjectError};
+use copperframe_assets::template::{NewProject, ProjectTemplate, create_project};
 use copperframe_assets::validate_project;
 use copperframe_scene::batch::{BATCH_FORMAT, BATCH_VERSION, BatchError, parse_batch};
 use copperframe_scene::file::{SCENE_FORMAT, SCENE_VERSION};
@@ -55,6 +55,10 @@ enum Cmd {
         dir: PathBuf,
         #[arg(long)]
         name: Option<String>,
+        /// What the project starts with: empty, starter (a playable scene)
+        /// or lever-room (a copy of the example project).
+        #[arg(long, default_value = "starter")]
+        template: String,
         /// Do not create the Rust game crate (`game/`); the project then
         /// plays in the stock player with engine behaviours only.
         #[arg(long)]
@@ -211,7 +215,12 @@ fn main() -> ExitCode {
         Cmd::Apply { .. } => "apply",
     };
     let result = match cli.command {
-        Cmd::New { dir, name, no_game } => new(&dir, name, no_game),
+        Cmd::New {
+            dir,
+            name,
+            template,
+            no_game,
+        } => new(&dir, name, &template, no_game),
         Cmd::Schema { project } => schema(project.as_deref()),
         Cmd::TestScene {
             scene,
@@ -280,48 +289,58 @@ fn merge(into: &mut Value, from: Value) {
     }
 }
 
-fn new(dir: &Path, name: Option<String>, no_game: bool) -> Result<Success, Failure> {
+fn new(
+    dir: &Path,
+    name: Option<String>,
+    template: &str,
+    no_game: bool,
+) -> Result<Success, Failure> {
     let name = name.unwrap_or_else(|| {
         dir.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Untitled".to_owned())
     });
-    let project = Project::create(dir, &name)?;
+    let template = ProjectTemplate::from_id(template).ok_or_else(|| {
+        let names: Vec<&str> = ProjectTemplate::ALL.iter().map(|t| t.id()).collect();
+        Failure::new(
+            2,
+            format!(
+                "unknown template `{template}` (use one of: {})",
+                names.join(", ")
+            ),
+        )
+    })?;
+    let created = create_project(&NewProject {
+        dir: dir.to_path_buf(),
+        name: name.clone(),
+        template,
+        game_code: !no_game,
+    })
+    .map_err(|e| {
+        let hint = if no_game { "" } else { " (or pass --no-game)" };
+        Failure::new(4, format!("{e}{hint}"))
+    })?;
+    let project = created.project;
     let scene = project.startup_scene_path();
-    let game = if no_game {
-        "none (plays in the stock copperframe_player)".to_owned()
-    } else {
-        match template::engine_root() {
-            Some(engine) => {
-                template::write_game_crate(dir, &name, &engine).map_err(|e| Failure::new(4, e))?;
-                format!(
-                    "game/ (Rust crate using the engine at {})",
-                    engine.display()
-                )
-            }
-            None => {
-                return Err(Failure::new(
-                    4,
-                    format!(
-                        "created the project, but not its game crate: the engine source this \
-                         tool was built from is gone. Use --no-game, or rebuild copperframe from an \
-                         engine checkout. Project: {}",
-                        dir.display()
-                    ),
-                ));
-            }
-        }
+    let game = match &created.game_crate_engine {
+        None => "none (plays in the stock copperframe_player)".to_owned(),
+        Some(engine) => format!(
+            "game/ (Rust crate using the engine at {})",
+            engine.display()
+        ),
     };
     Ok(Success {
         payload: json!({
             "project": dir.display().to_string(),
             "name": name,
+            "template": template.id(),
             "startup_scene": project.file.startup_scene,
-            "game_crate": !no_game,
+            "game_crate": created.game_crate_engine.is_some(),
         }),
         text: format!(
-            "created project \"{name}\" in {}\n  startup scene: {}\n  gameplay code: {game}\n",
+            "created project \"{name}\" in {}\n  template: {}\n  startup scene: {}\n  gameplay code: {game}\n",
             dir.display(),
+            template.label(),
             scene.display()
         ),
     })
@@ -446,6 +465,22 @@ fn absolute(p: &Path) -> Result<PathBuf, Failure> {
     std::path::absolute(p).map_err(|e| Failure::new(4, format!("{}: {e}", p.display())))
 }
 
+/// A relative scene path is relative to the current folder, like the other
+/// commands' paths.
+fn headless_run(
+    root: &Path,
+    scene: Option<&Path>,
+    script: Option<&Path>,
+    ticks: u64,
+) -> Result<HeadlessRun, Failure> {
+    Ok(HeadlessRun {
+        project_root: absolute(root)?,
+        scene: scene.map(absolute).transpose()?,
+        script: script.map(absolute).transpose()?,
+        ticks,
+    })
+}
+
 fn test_scene(
     root: &Path,
     scene: Option<&Path>,
@@ -454,75 +489,19 @@ fn test_scene(
 ) -> Result<Success, Failure> {
     let project = Project::open(root)?;
     let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
-    let mut args: Vec<OsString> = vec![
-        "--project".into(),
-        absolute(root)?.into(),
-        "--headless".into(),
-    ];
-    if let Some(scene) = scene {
-        // Like the other commands, a relative scene path is relative to the
-        // current folder.
-        let path = if scene.is_absolute() {
-            scene.to_path_buf()
-        } else {
-            absolute(scene)?
-        };
-        args.extend(["--scene".into(), path.into()]);
-    }
-    match script {
-        Some(s) => args.extend(["--script".into(), absolute(s)?.into()]),
-        None => args.extend(["--ticks".into(), ticks.to_string().into()]),
-    }
-    let out = target
-        .command(&args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| Failure::new(4, format!("could not run {}: {e}", target.describe())))?;
-    let report: Value = serde_json::from_slice(&out.stdout).map_err(|_| {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let tail: Vec<&str> = err.lines().rev().take(20).collect();
-        Failure::new(
-            4,
-            format!(
-                "{} did not produce a report ({}):\n{}",
-                target.describe(),
-                out.status,
-                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
-            ),
-        )
-    })?;
-    let mut text = format!(
-        "{} ran {} ticks ({:.1} s) of {}\n",
-        report["game"].as_str().unwrap_or("game"),
-        report["ticks"],
-        report["seconds"].as_f64().unwrap_or(0.0),
-        report["scene"].as_str().unwrap_or("?")
-    );
-    for e in report["events"].as_array().into_iter().flatten() {
-        text.push_str(&format!("  {e}\n"));
-    }
-    for w in report["warnings"].as_array().into_iter().flatten() {
-        text.push_str(&format!("  warning: {}\n", w.as_str().unwrap_or_default()));
-    }
-    if let Some(o) = report["outcome"].as_object() {
-        text.push_str(&format!("outcome: {}\n", Value::Object(o.clone())));
-    }
-    if report["passed"] == true {
-        text.push_str("passed\n");
+    let report = headless_run(root, scene, script, ticks)?
+        .test(&target)
+        .map_err(|e| Failure::new(4, e))?;
+    let (passed, text) = test_summary(&report);
+    if passed {
         Ok(Success {
             payload: json!({"report": report}),
             text,
         })
     } else {
-        let failures: Vec<String> = report["failures"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|f| f.as_str().map(str::to_owned))
-            .collect();
         Err(Failure {
             code: 1,
-            message: format!("{text}failed:\n  {}", failures.join("\n  ")),
+            message: text,
             extra: json!({"report": report}),
         })
     }
@@ -537,78 +516,17 @@ fn bench(
 ) -> Result<Success, Failure> {
     let project = Project::open(root)?;
     let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
+    let run = headless_run(root, scene, script, 0)?;
     eprintln!("building the release executable…");
     let exe = target
         .build_release(&mut |line| eprintln!("{line}"))
         .map_err(|e| Failure::new(1, e))?;
-    let mut args: Vec<OsString> = vec![
-        "--project".into(),
-        absolute(root)?.into(),
-        "--bench".into(),
-        "--frames".into(),
-        frames.to_string().into(),
-        "--bench-size".into(),
-        size.into(),
-    ];
-    if let Some(scene) = scene {
-        let path = if scene.is_absolute() {
-            scene.to_path_buf()
-        } else {
-            absolute(scene)?
-        };
-        args.extend(["--scene".into(), path.into()]);
-    }
-    if let Some(s) = script {
-        args.extend(["--script".into(), absolute(s)?.into()]);
-    }
-    let out = std::process::Command::new(&exe)
-        .args(&args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| Failure::new(4, format!("could not run {}: {e}", exe.display())))?;
-    let report: Value = serde_json::from_slice(&out.stdout).map_err(|_| {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let tail: Vec<&str> = err.lines().rev().take(20).collect();
-        Failure::new(
-            1,
-            format!(
-                "the benchmark did not produce a report ({}):\n{}",
-                out.status,
-                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
-            ),
-        )
-    })?;
-    let mut text = format!(
-        "{} on {} ({}, {}), {} build, {}x{} output, {} frames per style\n",
-        report["scene"].as_str().unwrap_or("?"),
-        report["adapter"]["name"].as_str().unwrap_or("?"),
-        report["adapter"]["backend"].as_str().unwrap_or("?"),
-        report["adapter"]["device_type"].as_str().unwrap_or("?"),
-        report["build"].as_str().unwrap_or("?"),
-        report["output"][0],
-        report["output"][1],
-        report["frames_per_style"],
-    );
-    for s in report["styles"].as_array().into_iter().flatten() {
-        text.push_str(&format!(
-            "  {:<6} {}x{} internal, {} draws, {} triangles: frame mean {} ms, p95 {} ms, max {} ms; tick mean {} ms\n",
-            s["style"].as_str().unwrap_or("?"),
-            s["internal"][0],
-            s["internal"][1],
-            s["draws"],
-            s["triangles"],
-            s["frame"]["mean_ms"],
-            s["frame"]["p95_ms"],
-            s["frame"]["max_ms"],
-            s["tick"]["mean_ms"],
-        ));
-    }
-    for w in report["warnings"].as_array().into_iter().flatten() {
-        text.push_str(&format!("  warning: {}\n", w.as_str().unwrap_or_default()));
-    }
+    let report = run
+        .bench(&exe, frames, size)
+        .map_err(|e| Failure::new(1, e))?;
     Ok(Success {
+        text: bench_summary(&report),
         payload: json!({"report": report}),
-        text,
     })
 }
 
@@ -624,22 +542,11 @@ fn build(
     // Refuse an unusable output folder before finding or building the game.
     check_output_folder(out, replace).map_err(|e| Failure::new(1, e))?;
     let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
-    let notices_manifest = match &target {
-        GameTarget::Crate { manifest } => manifest.clone(),
-        GameTarget::Executable { .. } => template::engine_root()
-            .map(|r| r.join("apps/copperframe_player/Cargo.toml"))
-            .ok_or_else(|| {
-                Failure::new(
-                    4,
-                    "cannot list the stock player's third-party licences: the engine source \
-                     this tool was built from is gone",
-                )
-            })?,
-    };
+    let notices = Notices::for_target(&target).map_err(|e| Failure::new(4, e))?;
     let options = ExportOptions {
         out: out.to_path_buf(),
         replace,
-        notices_manifest,
+        notices,
     };
     // Progress goes to stderr so --json output stays one object.
     let mut log = |line: &str| {

@@ -16,19 +16,56 @@ use copperframe_scene::{
 use egui::{Color32, Key, KeyboardShortcut, Modifiers, Pos2, Sense, Stroke};
 use glam::{Mat4, Vec2, Vec3};
 
+use std::path::PathBuf;
+
 use crate::gameplay::{self, GameTools};
+use crate::hub::{self, RecentProject};
 use crate::reporting::Reporting;
 use crate::session::{EditorSession, LogLevel, SaveOutcome};
 use crate::viewport::{AXES, EditorCamera, ViewportGeometry, axis_drag_distance, snap};
 use crate::visuals;
 
-/// Requests the app must carry out (they need the GPU or the event loop).
+/// Requests the app must carry out (they need the GPU, the event loop or
+/// another project).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     Reimport(AssetId),
     /// Asset database was rescanned; retry assets that failed to load.
     AssetsChanged,
+    /// Switch to another scene of this project.
+    OpenScene(PathBuf),
+    /// Close this project and open another.
+    OpenProject(PathBuf),
+    /// Close this project and show the project hub.
+    CloseProject,
+    /// Close this project and show the hub's new project form.
+    NewProject,
     Quit,
+}
+
+impl Action {
+    /// Whether the action throws away the open scene's unsaved edits (so
+    /// the user is asked first).
+    fn leaves_scene(&self) -> bool {
+        matches!(
+            self,
+            Action::OpenScene(_)
+                | Action::OpenProject(_)
+                | Action::CloseProject
+                | Action::NewProject
+                | Action::Quit
+        )
+    }
+
+    fn verb(&self) -> &'static str {
+        match self {
+            Action::Quit => "quit",
+            Action::OpenScene(_) => "open the other scene",
+            Action::OpenProject(_) | Action::NewProject => "switch project",
+            Action::CloseProject => "close the project",
+            Action::Reimport(_) | Action::AssetsChanged => "continue",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,8 +105,13 @@ pub struct UiState {
     gizmo: Option<GizmoDrag>,
     /// The viewport camera is being flown (right mouse held).
     camera_active: bool,
-    confirm_close: bool,
+    /// An action waiting for "save or discard?" (unsaved changes).
+    confirm: Option<Action>,
     conflict: Option<u64>,
+    /// Another program changed the open scene file (its revision).
+    pub disk_changed: Option<u64>,
+    /// Name typed into File > New Scene.
+    new_scene: Option<String>,
     pub stats: Stats,
     /// Crash prompt and bug report dialog.
     pub reporting: Reporting,
@@ -88,8 +130,10 @@ impl Default for UiState {
             name_buffer: None,
             gizmo: None,
             camera_active: false,
-            confirm_close: false,
+            confirm: None,
             conflict: None,
+            disk_changed: None,
+            new_scene: None,
             stats: Stats::default(),
             reporting: Reporting::default(),
         }
@@ -108,10 +152,19 @@ impl UiState {
     /// the app may quit now.
     pub fn request_close(&mut self, session: &EditorSession) -> bool {
         if session.is_dirty() {
-            self.confirm_close = true;
+            self.confirm = Some(Action::Quit);
             false
         } else {
             true
+        }
+    }
+
+    /// Queues `action`, asking first if it would discard unsaved edits.
+    pub fn request(&mut self, session: &EditorSession, action: Action, actions: &mut Vec<Action>) {
+        if action.leaves_scene() && session.is_dirty() {
+            self.confirm = Some(action);
+        } else {
+            actions.push(action);
         }
     }
 }
@@ -130,6 +183,8 @@ pub struct UiContext<'a> {
     pub state: &'a mut UiState,
     pub camera: &'a mut EditorCamera,
     pub resources: &'a SceneResources,
+    /// Recently opened projects, for File > Recent Projects.
+    pub recent: &'a [RecentProject],
     pub dt: f32,
 }
 
@@ -140,13 +195,14 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         state,
         camera,
         resources,
+        recent,
         dt,
     } = cx;
     let mut actions = Vec::new();
     shortcuts(ui.ctx(), session, state, tools);
 
     egui::Panel::top("menu").show(ui, |ui| {
-        menu_bar(ui, session, state, camera, tools, &mut actions);
+        menu_bar(ui, session, state, camera, tools, recent, &mut actions);
     });
     egui::Panel::bottom("status")
         .resizable(false)
@@ -183,6 +239,7 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         });
 
     modals(ui.ctx(), session, state, &mut actions);
+    build_dialogs(ui.ctx(), session, tools);
     state.reporting.show(ui.ctx(), session);
     UiOutput { viewport, actions }
 }
@@ -223,6 +280,19 @@ fn shortcuts(
     }
 }
 
+/// Saves unsaved edits before a job that reads the files on disk. Returns
+/// false (and logs why) if the scene could not be saved.
+fn save_for(session: &mut EditorSession, state: &mut UiState, what: &str) -> bool {
+    if session.is_dirty() {
+        save(session, state, false);
+    }
+    if session.is_dirty() {
+        session.error(format!("{what} cancelled: the scene could not be saved"));
+        return false;
+    }
+    true
+}
+
 fn save(session: &mut EditorSession, state: &mut UiState, force: bool) {
     match session.save(force) {
         Ok(SaveOutcome::Saved { .. }) => state.conflict = None,
@@ -237,22 +307,12 @@ fn menu_bar(
     state: &mut UiState,
     camera: &EditorCamera,
     tools: &mut GameTools,
+    recent: &[RecentProject],
     actions: &mut Vec<Action>,
 ) {
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if ui.button("Save   Ctrl+S").clicked() {
-                save(session, state, false);
-            }
-            if ui.button("Reload from disk (discard changes)").clicked()
-                && let Err(e) = session.reload()
-            {
-                session.error(e.to_string());
-            }
-            ui.separator();
-            if ui.button("Quit").clicked() && state.request_close(session) {
-                actions.push(Action::Quit);
-            }
+            file_menu(ui, session, state, recent, actions);
         });
         ui.menu_button("Edit", |ui| {
             let undo = session
@@ -312,30 +372,8 @@ fn menu_bar(
             if ui.button("Reload behaviour kinds").clicked() {
                 tools.refresh_schema(session);
             }
-            ui.separator();
-            ui.label("Export folder");
-            ui.text_edit_singleline(&mut tools.export_dir);
-            let label = if session.is_dirty() {
-                "Save and export"
-            } else {
-                "Export"
-            };
-            if ui
-                .add_enabled(tools.busy_label().is_none(), egui::Button::new(label))
-                .on_hover_text(
-                    "Release build + project data + licence notices; replaces an earlier \
-                     export in that folder, then checks the export starts.",
-                )
-                .clicked()
-            {
-                save(session, state, false);
-                if session.is_dirty() {
-                    session.error("export cancelled: the scene could not be saved");
-                } else {
-                    tools.export(session);
-                }
-            }
         });
+        ui.menu_button("Build", |ui| build_menu(ui, session, state, tools));
         // Play/Stop where it is always visible.
         ui.separator();
         if tools.is_playing() {
@@ -361,7 +399,8 @@ fn menu_bar(
                  Hold the right mouse button to look; WASD/QE fly while held, Shift is faster;\n\
                  the wheel moves forward/back.\n\
                  Ctrl+S save, Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+D duplicate, Del delete.\n\
-                 F5 plays the scene in a separate game window (unsaved edits included) and stops it.",
+                 F5 plays the scene in a separate game window (unsaved edits included) and stops it.\n\
+                 New and changed files in assets/ are imported automatically.",
             );
             ui.separator();
             if ui
@@ -374,6 +413,262 @@ fn menu_bar(
             }
         });
     });
+}
+
+fn file_menu(
+    ui: &mut egui::Ui,
+    session: &mut EditorSession,
+    state: &mut UiState,
+    recent: &[RecentProject],
+    actions: &mut Vec<Action>,
+) {
+    if ui.button("New Project…").clicked() {
+        state.request(session, Action::NewProject, actions);
+    }
+    if ui.button("Open Project…").clicked()
+        && let Some(dir) =
+            hub::pick_folder("Open a Copperframe project", session.project.root.parent())
+    {
+        state.request(session, Action::OpenProject(dir), actions);
+    }
+    let current = std::fs::canonicalize(&session.project.root).ok();
+    let others: Vec<&RecentProject> = recent
+        .iter()
+        .filter(|p| Some(&p.path) != current.as_ref())
+        .take(10)
+        .collect();
+    ui.add_enabled_ui(!others.is_empty(), |ui| {
+        ui.menu_button("Recent Projects", |ui| {
+            for p in others {
+                if ui
+                    .button(&p.name)
+                    .on_hover_text(p.path.display().to_string())
+                    .clicked()
+                {
+                    state.request(session, Action::OpenProject(p.path.clone()), actions);
+                }
+            }
+        });
+    });
+    if ui
+        .button("Close Project")
+        .on_hover_text("Back to the project hub")
+        .clicked()
+    {
+        state.request(session, Action::CloseProject, actions);
+    }
+    ui.separator();
+    if ui.button("New Scene…").clicked() {
+        state.new_scene = Some("New scene".into());
+    }
+    let scenes = session.scene_files();
+    ui.menu_button("Open Scene", |ui| {
+        for path in scenes {
+            let rel = session.project.relative(&path);
+            let current = path == session.scene_path;
+            let startup = path == session.project.startup_scene_path();
+            let label = if startup {
+                format!("{rel}  (startup)")
+            } else {
+                rel
+            };
+            if ui.add_enabled(!current, egui::Button::new(label)).clicked() {
+                state.request(session, Action::OpenScene(path), actions);
+            }
+        }
+    });
+    if ui
+        .add_enabled(
+            !session.is_startup_scene(),
+            egui::Button::new("Set as Startup Scene"),
+        )
+        .on_hover_text("The exported game starts with this scene")
+        .clicked()
+    {
+        session.set_startup_scene();
+    }
+    ui.separator();
+    if ui.button("Save   Ctrl+S").clicked() {
+        save(session, state, false);
+    }
+    if ui.button("Reload from disk (discard changes)").clicked()
+        && let Err(e) = session.reload()
+    {
+        session.error(e.to_string());
+    }
+    ui.separator();
+    if ui.button("Quit").clicked() {
+        state.request(session, Action::Quit, actions);
+    }
+}
+
+fn build_menu(
+    ui: &mut egui::Ui,
+    session: &mut EditorSession,
+    state: &mut UiState,
+    tools: &mut GameTools,
+) {
+    let idle = !tools.is_busy();
+    if ui
+        .add_enabled(idle, egui::Button::new("Validate Project"))
+        .on_hover_text("Checks the project file, every asset and every scene (saves first)")
+        .clicked()
+        && save_for(session, state, "validation")
+    {
+        tools.validate(session);
+    }
+    ui.separator();
+    ui.label("Export folder");
+    ui.horizontal(|ui| {
+        ui.add(egui::TextEdit::singleline(&mut tools.export_dir).desired_width(260.0));
+        if ui.button("Browse…").clicked()
+            && let Some(dir) = hub::pick_folder(
+                "Export the game into this folder",
+                std::path::Path::new(tools.export_dir.trim()).parent(),
+            )
+        {
+            tools.export_dir = dir.display().to_string();
+        }
+    });
+    if ui
+        .add_enabled(idle, egui::Button::new("Export Game"))
+        .on_hover_text(
+            "Saves, then writes a standalone copy of the game (release build, project data, \
+             licence notices) into the export folder, replacing an earlier export there, and \
+             checks that it starts.",
+        )
+        .clicked()
+        && save_for(session, state, "export")
+    {
+        tools.export(session);
+    }
+    ui.separator();
+    ui.menu_button("Run Test Script", |ui| {
+        let scripts = GameTools::test_scripts(session);
+        if scripts.is_empty() {
+            ui.label(egui::RichText::new("No *.script.json files in this project").weak());
+        }
+        for script in scripts {
+            let rel = session.project.relative(&script);
+            if ui.add_enabled(idle, egui::Button::new(rel)).clicked()
+                && save_for(session, state, "the test")
+            {
+                tools.run_test(session, Some(script));
+            }
+        }
+        ui.separator();
+        if ui
+            .add_enabled(idle, egui::Button::new("Choose a script file…"))
+            .clicked()
+            && let Some(script) = hub::pick_file(
+                "Choose a test script",
+                Some(&session.project.root),
+                "Test script",
+                &["json"],
+            )
+            && save_for(session, state, "the test")
+        {
+            tools.run_test(session, Some(script));
+        }
+        if ui
+            .add_enabled(idle, egui::Button::new("Idle run (no script)"))
+            .on_hover_text("Plays the scene headless for 5 seconds and reports errors")
+            .clicked()
+            && save_for(session, state, "the test")
+        {
+            tools.run_test(session, None);
+        }
+    });
+    ui.menu_button("Advanced", |ui| {
+        if ui
+            .add_enabled(idle, egui::Button::new("Benchmark Scene"))
+            .on_hover_text(
+                "Release build, then 300 frames offscreen at 1280x720 in the authored, PS1 and \
+                 PS2 styles. Needs a graphics adapter.",
+            )
+            .clicked()
+            && save_for(session, state, "the benchmark")
+        {
+            tools.bench(session);
+        }
+    });
+    if tools.result.is_some() {
+        ui.separator();
+        ui.label(egui::RichText::new("The last result is open in its own window").weak());
+    }
+}
+
+/// The Build results window and the "Rust is not installed" prompt.
+fn build_dialogs(ctx: &egui::Context, session: &mut EditorSession, tools: &mut GameTools) {
+    let mut close = false;
+    if let Some(result) = &tools.result {
+        let mut open = true;
+        egui::Window::new(result.job.title())
+            .id(egui::Id::unique("copperframe-build-result"))
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .open(&mut open)
+            .default_width(560.0)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                let color = if result.passed {
+                    Color32::from_rgb(120, 210, 120)
+                } else {
+                    level_color(LogLevel::Error)
+                };
+                ui.colored_label(color, &result.headline);
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_height(320.0)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&result.details).monospace())
+                                .wrap(),
+                        );
+                    });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Copy").clicked() {
+                        ctx.copy_text(format!("{}\n\n{}", result.headline, result.details));
+                    }
+                    if let Some(folder) = &result.folder
+                        && ui.button("Open folder").clicked()
+                        && let Err(e) =
+                            copperframe_core::report::open_external(&folder.display().to_string())
+                    {
+                        session.error(format!("could not open the folder: {e}"));
+                    }
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+        close |= !open;
+    }
+    if close {
+        tools.result = None;
+    }
+    if tools.rust_prompt {
+        egui::Modal::new(egui::Id::unique("copperframe-rust-missing")).show(ctx, |ui| {
+            ui.set_width(440.0);
+            ui.heading("Rust is needed for this project");
+            ui.label(
+                "This project has Rust game code (the game/ folder). Play, tests and export \
+                 compile it, which needs Rust.",
+            );
+            ui.add_space(4.0);
+            hub::rust_missing_note(ui);
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Check again").clicked() {
+                    tools.recheck_rust(session);
+                }
+                if ui.button("Close").clicked() {
+                    tools.rust_prompt = false;
+                }
+            });
+        });
+    }
 }
 
 fn status_bar(ui: &mut egui::Ui, session: &EditorSession, state: &UiState) {
@@ -1026,11 +1321,25 @@ fn bottom_panel(
     match state.bottom {
         BottomTab::Assets => {
             ui.horizontal(|ui| {
-                if ui.button("Rescan assets folder").clicked() {
+                if ui
+                    .button("Rescan now")
+                    .on_hover_text(
+                        "The assets folder is watched: new and changed files are imported \
+                         automatically within a second or two",
+                    )
+                    .clicked()
+                {
                     session.rescan_assets();
                     actions.push(Action::AssetsChanged);
                 }
                 ui.label(format!("{}", session.project.assets_dir().display()));
+                if ui.button("Show in folder").clicked()
+                    && let Err(e) = copperframe_core::report::open_external(
+                        &session.project.assets_dir().display().to_string(),
+                    )
+                {
+                    session.error(format!("could not open the folder: {e}"));
+                }
             });
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("assets").striped(true).show(ui, |ui| {
@@ -1305,27 +1614,87 @@ fn modals(
     state: &mut UiState,
     actions: &mut Vec<Action>,
 ) {
-    if state.confirm_close {
+    if let Some(pending) = state.confirm.clone() {
         egui::Modal::new(egui::Id::unique("copperframe-confirm-close")).show(ctx, |ui| {
             ui.heading("Unsaved changes");
             ui.label(format!(
-                "{} has unsaved changes.",
-                session.project.relative(&session.scene_path)
+                "{} has unsaved changes. Save them before you {}?",
+                session.project.relative(&session.scene_path),
+                pending.verb()
             ));
             ui.horizontal(|ui| {
-                if ui.button("Save and quit").clicked() {
+                if ui.button("Save").clicked() {
                     save(session, state, false);
                     if !session.is_dirty() {
-                        actions.push(Action::Quit);
+                        actions.push(pending.clone());
                     }
-                    state.confirm_close = false;
+                    state.confirm = None;
                 }
-                if ui.button("Quit without saving").clicked() {
-                    actions.push(Action::Quit);
-                    state.confirm_close = false;
+                if ui.button("Don't save").clicked() {
+                    actions.push(pending.clone());
+                    state.confirm = None;
                 }
                 if ui.button("Cancel").clicked() {
-                    state.confirm_close = false;
+                    state.confirm = None;
+                }
+            });
+        });
+    }
+    if let Some(name) = &mut state.new_scene {
+        let mut done = false;
+        let mut create = false;
+        egui::Modal::new(egui::Id::unique("copperframe-new-scene")).show(ctx, |ui| {
+            ui.heading("New scene");
+            ui.label("An empty scene with this scene's style, lighting and camera.");
+            let edit = ui.text_edit_singleline(name);
+            edit.request_focus();
+            ui.horizontal(|ui| {
+                if ui.button("Create").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                    create = true;
+                }
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    done = true;
+                }
+            });
+        });
+        if create {
+            let name = name.clone();
+            done = true;
+            if session.is_dirty() {
+                save(session, state, false);
+            }
+            if session.is_dirty() {
+                session.error("new scene cancelled: the current scene could not be saved");
+            } else if let Err(e) = session.new_scene(&name) {
+                session.error(e);
+            } else {
+                actions.push(Action::OpenScene(session.scene_path.clone()));
+            }
+        }
+        if done {
+            state.new_scene = None;
+        }
+    }
+    if let Some(disk) = state.disk_changed {
+        egui::Modal::new(egui::Id::unique("copperframe-disk-changed")).show(ctx, |ui| {
+            ui.heading("Scene changed by another program");
+            ui.label(format!(
+                "{} was changed on disk (revision {disk}) while you have unsaved edits.",
+                session.project.relative(&session.scene_path),
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("Reload from disk (discard my changes)").clicked() {
+                    if let Err(e) = session.reload() {
+                        session.error(e.to_string());
+                    }
+                    state.disk_changed = None;
+                }
+                if ui
+                    .button("Keep my version")
+                    .on_hover_text("Saving later asks whether to overwrite the other version")
+                    .clicked()
+                {
+                    state.disk_changed = None;
                 }
             });
         });

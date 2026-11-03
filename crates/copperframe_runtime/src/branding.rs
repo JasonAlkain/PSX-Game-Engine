@@ -34,6 +34,15 @@ pub fn window_icon() -> Option<winit::window::Icon> {
         .ok()
 }
 
+/// The Copperframe header artwork as an egui texture (the project hub's
+/// banner). `None` if it could not be decoded.
+pub fn header_texture(ctx: &egui::Context) -> Option<egui::TextureHandle> {
+    let img = decode(SPLASH_PNG)?;
+    let size = [img.width() as usize, img.height() as usize];
+    let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+    Some(ctx.load_texture("copperframe-header", color, egui::TextureOptions::LINEAR))
+}
+
 /// The launch splash: the Copperframe header over the whole window for a
 /// moment, then a fade. Any key press or click skips it, and the input that
 /// skips it does not reach the UI underneath.

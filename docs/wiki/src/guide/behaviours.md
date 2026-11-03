@@ -13,7 +13,8 @@ the editor.
 
 ## The game crate
 
-`copperframe new` writes this layout:
+A new project with **Include Rust game code** ticked (or `copperframe new`)
+writes this layout:
 
 ```rust
 // game/src/main.rs

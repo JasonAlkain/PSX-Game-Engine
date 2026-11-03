@@ -8,7 +8,14 @@ your game.
 
 ## Running
 
-From the project, through the CLI (it builds the game crate first):
+In the editor, use **Build > Run Test Script**. It lists every
+`*.script.json` in the project (outside `assets/` and `game/`), has
+**Choose a script file…** for others, and **Idle run** plays the scene for
+5 seconds with no input. The run uses the open scene as saved (the editor
+saves first), builds the game crate if needed, and shows the report in a
+results window: **passed**, or the failed expectations.
+
+From a command line (it builds the game crate first):
 
 ```sh
 copperframe test-scene --project my_game --script my_game/scripts/walkthrough.script.json

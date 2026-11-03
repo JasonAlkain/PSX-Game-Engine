@@ -10,6 +10,7 @@
 
 # Making games
 
+- [Projects and the project hub](guide/projects.md)
 - [The editor](guide/editor.md)
 - [Scenes, entities and components](guide/scenes.md)
 - [PS1 and PS2 style settings](guide/style.md)

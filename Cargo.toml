@@ -58,6 +58,10 @@ rapier3d = "0.36.1"
 kira = { version = "0.12.6", default-features = false, features = ["cpal", "wav", "pcm", "ogg", "vorbis"] }
 directories = "6.0"
 
+# Native folder and file pickers in the editor (Windows: system dialogs;
+# Linux: the desktop portal, no GTK needed).
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+
 # Command-line interface
 clap = { version = "4.6", features = ["derive"] }
 

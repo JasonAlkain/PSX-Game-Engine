@@ -46,6 +46,10 @@ cargo run -p lever_room --release -- --bench --frames 600 --bench-size 1920x1080
 copperframe bench --project examples/room --script examples/room/scripts/walkthrough.script.json
 ```
 
+In the editor, **Build > Advanced > Benchmark Scene** runs the same on the
+open scene (300 frames at 1280x720) and shows the report in a results
+window.
+
 The benchmark plays the scene with the real simulation (idle, or driven by
 `--script`) and renders every tick offscreen in three styles: the scene's
 own, PS1 and PS2. The first 10 frames per style are not measured (pipeline

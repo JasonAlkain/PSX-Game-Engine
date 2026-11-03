@@ -56,4 +56,3 @@ together with what has and has not been verified on each platform.
 - A generated game crate depends on the engine checkout by path.
 - Exports are about 30 MB because binaries keep line tables for crash
   backtraces.
-- Editor export needs a game crate; use `copperframe build` otherwise.

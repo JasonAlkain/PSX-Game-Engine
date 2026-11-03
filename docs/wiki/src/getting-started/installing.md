@@ -2,7 +2,11 @@
 
 Copperframe is distributed as source. You build it with Cargo, Rust's build
 tool. Prebuilt Windows editor downloads will be published on
-[itch.io](https://allyn-david.itch.io/copperframe-engine) once releases start.
+[itch.io](https://allyn-david.itch.io/copperframe-engine) once releases start:
+unzip one and double-click `copperframe_editor.exe` to start at the
+[project hub](../guide/projects.md). The download makes and exports games
+with the built-in behaviours; writing your own behaviours in Rust needs the
+source build below.
 
 ## Requirements
 
@@ -30,9 +34,9 @@ git clone https://github.com/JasonAlkain/PSX-Game-Engine.git
 cd PSX-Game-Engine
 ```
 
-Keep the checkout somewhere permanent. Projects you create with
-`copperframe new` point their game crate at this folder by path, so moving
-or deleting it breaks those projects' builds.
+Keep the checkout somewhere permanent. Projects you create with Rust game
+code point their game crate at this folder by path, so moving or deleting
+it breaks those projects' builds.
 
 ## Building
 
@@ -51,12 +55,17 @@ minutes. Release binaries land in `target/release/`:
 | `copperframe_sandbox` | The renderer comparison scene, for trying style effects |
 | `lever_room` | The example game, *The Lever Room* |
 
-You can also skip the separate build step and let `cargo run` build what it
-needs, as the rest of this wiki does:
+## Starting the editor
 
 ```sh
-cargo run -p copperframe_editor --release -- examples/room
+cargo editor
 ```
+
+`cargo editor` is an alias (in `.cargo/config.toml`) for `cargo run -p
+copperframe_editor --release --`: it builds the editor if needed and opens
+the [project hub](../guide/projects.md). `cargo editor examples/room` opens
+a project directly. Other programs are started the same way, for example
+`cargo run -p lever_room --release`.
 
 Use `--release` for anything interactive. Debug builds work but render and
 simulate much more slowly.

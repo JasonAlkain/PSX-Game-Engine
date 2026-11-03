@@ -31,9 +31,12 @@ download the bundle from the run's artifacts.
   with `.pdb` files so crash backtraces have line numbers);
 - the example project's data (not its game crate, which needs the engine
   source to build);
-- a launcher that opens the example project, and `.itch.toml` so the
-  itch.io app's Launch button does the same;
-- `README.txt`, `LICENSE.txt` and `NOTICES.txt`.
+- `.itch.toml`, so the itch.io app's Launch button offers the editor (which
+  starts at the project hub) or the example project, and a launcher
+  (`Open example project.bat`) that opens the example directly;
+- `README.txt`, `LICENSE.txt` and `NOTICES.txt`. The editor copies
+  `NOTICES.txt` into exports of projects without game code, so the
+  download can export games without Rust or the engine source.
 
 ## Before tagging
 

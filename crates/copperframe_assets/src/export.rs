@@ -32,8 +32,44 @@ pub struct ExportOptions {
     pub out: PathBuf,
     /// Replace an earlier export in `out`.
     pub replace: bool,
-    /// Cargo manifest whose dependency graph is listed in NOTICES.txt.
-    pub notices_manifest: PathBuf,
+    /// Where NOTICES.txt comes from.
+    pub notices: Notices,
+}
+
+/// The source of an export's third-party notices.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notices {
+    /// List the dependency graph of this Cargo manifest (needs `cargo`).
+    Manifest(PathBuf),
+    /// Copy this prepared file: the NOTICES.txt shipped next to a
+    /// downloaded editor, which covers the stock player.
+    File(PathBuf),
+}
+
+impl Notices {
+    /// The notices for `target`: its crate's dependency graph, or for the
+    /// stock player the engine source's player manifest, else the
+    /// NOTICES.txt next to the running program.
+    pub fn for_target(target: &GameTarget) -> Result<Notices, String> {
+        if let GameTarget::Crate { manifest } = target {
+            return Ok(Notices::Manifest(manifest.clone()));
+        }
+        if let Some(root) = crate::template::engine_root() {
+            return Ok(Notices::Manifest(
+                root.join("apps/copperframe_player/Cargo.toml"),
+            ));
+        }
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.join("NOTICES.txt")))
+            .filter(|p| p.is_file())
+            .map(Notices::File)
+            .ok_or_else(|| {
+                "cannot list the stock player's third-party licences: neither the engine \
+                 source nor the NOTICES.txt of a downloaded build was found"
+                    .to_owned()
+            })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -101,27 +137,20 @@ pub fn export(
     }
 
     log("listing third-party licences…");
-    let crates = dependency_notices(&options.notices_manifest)?;
-    let mut notices = String::from(
-        "Third-party software in this game\n\
-         =================================\n\n\
-         Built with Copperframe Engine (MIT licence). The executable links the following\n\
-         Rust crates (the list is the full dependency graph, so it may include\n\
-         platform-specific crates not used on this platform):\n\n",
-    );
-    for c in &crates {
-        notices.push_str(&format!(
-            "{} {} — {}{}\n",
-            c.name,
-            c.version,
-            c.license,
-            c.repository
-                .as_deref()
-                .map(|r| format!(" — {r}"))
-                .unwrap_or_default()
-        ));
-    }
-    write(&out.join("NOTICES.txt"), &notices)?;
+    let crates = match &options.notices {
+        Notices::Manifest(manifest) => {
+            let crates = dependency_notices(manifest)?;
+            write(&out.join("NOTICES.txt"), &notices_text(&crates))?;
+            crates.len()
+        }
+        Notices::File(file) => {
+            let text =
+                std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+            write(&out.join("NOTICES.txt"), &text)?;
+            // One crate per line: "name version - licence - repository".
+            text.lines().filter(|l| l.contains(" - ")).count()
+        }
+    };
     write(
         &out.join("README.txt"),
         &format!(
@@ -141,7 +170,7 @@ pub fn export(
         "platform": format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
         "files": files,
         "bytes": bytes,
-        "crates": crates.len(),
+        "crates": crates,
     });
     write(
         &out.join(EXPORT_MARKER),
@@ -152,7 +181,7 @@ pub fn export(
         executable: exe,
         files: files + 3,
         bytes,
-        crates: crates.len(),
+        crates,
     })
 }
 
@@ -301,6 +330,30 @@ pub struct CrateNotice {
     pub version: String,
     pub license: String,
     pub repository: Option<String>,
+}
+
+/// NOTICES.txt for a dependency list.
+fn notices_text(crates: &[CrateNotice]) -> String {
+    let mut notices = String::from(
+        "Third-party software in this game\n\
+         =================================\n\n\
+         Built with Copperframe Engine (MIT licence). The executable links the following\n\
+         Rust crates (the list is the full dependency graph, so it may include\n\
+         platform-specific crates not used on this platform):\n\n",
+    );
+    for c in crates {
+        notices.push_str(&format!(
+            "{} {} — {}{}\n",
+            c.name,
+            c.version,
+            c.license,
+            c.repository
+                .as_deref()
+                .map(|r| format!(" — {r}"))
+                .unwrap_or_default()
+        ));
+    }
+    notices
 }
 
 /// Crates reachable through normal and build dependencies from the package
