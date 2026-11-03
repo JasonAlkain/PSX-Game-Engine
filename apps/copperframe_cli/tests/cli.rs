@@ -146,15 +146,22 @@ fn project_round_trip_through_the_cli() {
     assert_eq!(code, 0, "{out}");
     assert_eq!(std::fs::read(&scene_file).unwrap(), before_bytes);
 
-    // While the editor holds the lock, mutations are refused.
-    std::fs::create_dir_all(root.join(".psx")).unwrap();
-    std::fs::write(root.join(".psx/editor.lock"), "12345").unwrap();
+    // While a running editor holds the lock, mutations are refused.
+    let project = copperframe_assets::Project::open(&root).unwrap();
+    let lock = copperframe_assets::EditorLock::acquire(&project, false).unwrap();
     let (code, out) = copperframe(&["apply", &rename, "--project", &r]);
     assert_eq!(code, 3, "{out}");
-    assert!(out["error"].as_str().unwrap().contains("open in an editor"));
-    std::fs::remove_file(root.join(".psx/editor.lock")).unwrap();
-    let (code, _) = copperframe(&["apply", &rename, "--project", &r]);
-    assert_eq!(code, 0);
+    assert!(
+        out["error"]
+            .as_str()
+            .unwrap()
+            .contains("open in a running editor")
+    );
+    drop(lock);
+    // A lock file left by an editor that crashed is ignored.
+    std::fs::write(root.join(".psx/editor.lock"), "12345").unwrap();
+    let (code, out) = copperframe(&["apply", &rename, "--project", &r]);
+    assert_eq!(code, 0, "{out}");
 
     // A broken model is an import error; the scene stays valid on disk.
     std::fs::write(&model, b"not a model").unwrap();

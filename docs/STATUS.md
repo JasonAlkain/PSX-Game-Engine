@@ -2,6 +2,15 @@
 
 Last updated: 2026-11-03 (crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
 
+## Editor responsiveness and lock recovery (2026-11-03)
+
+The editor redraws on demand instead of every frame (idle new project: about
+2.3 CPU cores to 0 on lavapipe; example room with its animation preview: 2.3
+to 0.3). A lock file left by a crashed editor no longer blocks the project:
+the editor holds an OS file lock, so a leftover file is detected and
+replaced. CI cancels superseded runs and has timeouts; Dependabot proposes
+weekly updates. Verified on Linux (Xvfb + lavapipe); unverified on Windows 11.
+
 ## Crash and bug reporting (2026-11-03)
 
 Every engine binary saves a crash report and a log file in the user's data

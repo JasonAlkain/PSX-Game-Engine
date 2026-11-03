@@ -387,8 +387,19 @@ egui area), then egui draws on top using a non-sRGB view of the swapchain
 (`Presenter::overlay_format`) because egui outputs gamma-space colours.
 `EditorSession` owns the scene, history, asset database and log; the UI only
 issues commands through it. While open the editor holds
-`<project>/.psx/editor.lock` (holding its pid); a second editor or `copperframe apply`
-refuses, `--steal-lock` overrides a stale lock. Closing with unsaved changes
+`<project>/.psx/editor.lock` (its pid, under an exclusive OS file lock); a
+second editor or `copperframe apply` refuses while a running editor holds
+it. The OS drops the lock when the editor exits or crashes, so a leftover
+file is ignored and replaced automatically; `--steal-lock` only matters for
+a hung editor that is still running.
+
+The editor redraws on demand: on input, when egui asks for a repaint (with
+its delay), and every frame only while something moves (splash, viewport
+camera, gizmo drag). The animation preview runs at 30 Hz (10 Hz when the
+window is in the background). While a game runs or a background job
+reports, it wakes at 10 Hz to read their output. The status bar shows
+"idle" when it is not redrawing continuously. Smoke runs with
+`--frames` always redraw continuously. Closing with unsaved changes
 asks Save / Quit without saving / Cancel.
 
 ## Gameplay runtime (Milestone 4)

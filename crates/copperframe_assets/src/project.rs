@@ -64,8 +64,8 @@ pub enum ProjectError {
     #[error("{0} is outside the project's assets folder")]
     OutsideAssets(PathBuf),
     #[error(
-        "the project is open in an editor (lock file {path}, pid {pid}). Close the editor first, \
-         or if it crashed, delete the lock file"
+        "the project is open in a running editor (lock file {path}, pid {pid}). Close that \
+         editor first"
     )]
     Locked { path: PathBuf, pid: u32 },
 }
@@ -237,13 +237,28 @@ impl Project {
         self.root.join(LOCK_FILE)
     }
 
-    /// The pid recorded in an existing editor lock.
+    /// The pid of the running editor that has the project open, if any
+    /// (0 when the pid cannot be read). A lock file left behind by an
+    /// editor that crashed or was killed is ignored: the editor holds an OS
+    /// file lock on it, which the OS releases when the process ends.
     pub fn editor_lock(&self) -> Option<u32> {
-        let text = std::fs::read_to_string(self.lock_path()).ok()?;
-        Some(text.trim().parse().unwrap_or(0))
+        let path = self.lock_path();
+        let file = std::fs::File::open(&path).ok()?;
+        match file.try_lock_shared() {
+            Ok(()) => {
+                // Nobody holds it: a stale lock from a dead editor.
+                let _ = file.unlock();
+                None
+            }
+            Err(std::fs::TryLockError::WouldBlock) => Some(read_pid(&path)),
+            // The file system has no locks (some network shares): trust
+            // the file, as before.
+            Err(std::fs::TryLockError::Error(_)) => Some(read_pid(&path)),
+        }
     }
 
-    /// Fails with [`ProjectError::Locked`] while an editor has the project open.
+    /// Fails with [`ProjectError::Locked`] while a running editor has the
+    /// project open.
     pub fn check_unlocked(&self) -> Result<(), ProjectError> {
         match self.editor_lock() {
             Some(pid) => Err(ProjectError::Locked {
@@ -286,31 +301,89 @@ fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
     }
 }
 
-/// Held by the editor while a project is open. Removing the lock file is
-/// how the CLI knows it may write scene files.
+/// The pid written in a lock file (0 if unreadable; Windows refuses reads
+/// of a file another process has locked).
+fn read_pid(path: &Path) -> u32 {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| t.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// Held by the editor while a project is open: the lock file records the
+/// editor's pid and stays exclusively locked (an OS file lock) until the
+/// editor closes or dies. The CLI writes scene files only when no running
+/// editor holds it.
 #[derive(Debug)]
 pub struct EditorLock {
     path: PathBuf,
+    /// Holds the OS lock; closed before the file is removed.
+    file: Option<std::fs::File>,
 }
 
 impl EditorLock {
-    /// Creates the lock. With `steal`, an existing lock (e.g. left by a
-    /// crashed editor) is replaced.
+    /// Takes the lock. A lock file left by an editor that is no longer
+    /// running is replaced automatically. With `steal`, the lock file of a
+    /// running editor is replaced too (both editors then think they own the
+    /// project; only for recovering from a hung editor).
     pub fn acquire(project: &Project, steal: bool) -> Result<EditorLock, ProjectError> {
         let path = project.lock_path();
-        if !steal {
-            project.check_unlocked()?;
-        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(io_err(dir))?;
         }
-        std::fs::write(&path, std::process::id().to_string()).map_err(io_err(&path))?;
-        Ok(EditorLock { path })
+        let open = || {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .read(true)
+                .write(true)
+                .open(&path)
+        };
+        let mut file = open().map_err(io_err(&path))?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) if steal => {
+                drop(file);
+                std::fs::remove_file(&path).map_err(io_err(&path))?;
+                file = open().map_err(io_err(&path))?;
+                file.try_lock().map_err(|e| ProjectError::Io {
+                    path: path.clone(),
+                    source: e.into(),
+                })?;
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(ProjectError::Locked {
+                    path: path.clone(),
+                    pid: read_pid(&path),
+                });
+            }
+            Err(std::fs::TryLockError::Error(_)) => {
+                // No OS locks on this file system: fall back to the file's
+                // presence, as before.
+                if !steal && std::fs::metadata(&path).is_ok_and(|m| m.len() > 0) {
+                    return Err(ProjectError::Locked {
+                        path: path.clone(),
+                        pid: read_pid(&path),
+                    });
+                }
+            }
+        }
+        let pid = std::process::id().to_string();
+        file.set_len(0)
+            .and_then(|()| std::io::Write::write_all(&mut file, pid.as_bytes()))
+            .and_then(|()| file.sync_data())
+            .map_err(io_err(&path))?;
+        Ok(EditorLock {
+            path,
+            file: Some(file),
+        })
     }
 }
 
 impl Drop for EditorLock {
     fn drop(&mut self) {
+        // Close (and unlock) first: Windows cannot delete an open file.
+        drop(self.file.take());
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -962,6 +1035,18 @@ mod tests {
         assert!(EditorLock::acquire(&project, false).is_err());
         drop(lock);
         assert!(project.check_unlocked().is_ok());
+        assert!(!project.lock_path().exists());
+
+        // A lock file nobody holds (the editor crashed) is ignored and
+        // replaced without --steal-lock.
+        std::fs::write(project.lock_path(), "4242").unwrap();
+        assert!(project.check_unlocked().is_ok());
+        let lock = EditorLock::acquire(&project, false).unwrap();
+        let pid = project.editor_lock().expect("held");
+        // Windows does not let another handle read a locked file.
+        assert!(pid == std::process::id() || (cfg!(windows) && pid == 0));
+        assert!(project.check_unlocked().is_err());
+        drop(lock);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

@@ -508,6 +508,25 @@ impl SceneResources {
     /// advance, others hold their first frame (as the game runtime does
     /// before gameplay code plays something). Unknown clips keep the rest
     /// pose. Used by the editor viewport preview.
+    /// Whether [`SceneResources::preview_poses`] changes over time for
+    /// `scene` (some loaded clip autoplays at a non-zero speed). The editor
+    /// redraws continuously only then.
+    pub fn has_animation_preview(&self, scene: &Scene) -> bool {
+        scene.entities.iter().any(|e| {
+            let (Some(animator), Some(mesh)) = (&e.animator, &e.mesh) else {
+                return false;
+            };
+            let MeshSource::Model { asset } = mesh.source else {
+                return false;
+            };
+            animator.autoplay
+                && animator.speed != 0.0
+                && self
+                    .animation(asset)
+                    .is_some_and(|a| a.clips.iter().any(|c| c.name == animator.clip))
+        })
+    }
+
     pub fn preview_poses(&self, scene: &Scene, seconds: f32) -> HashMap<EntityId, Vec<Mat4>> {
         let mut out = HashMap::new();
         for e in &scene.entities {

@@ -1,0 +1,24 @@
+# Weekly dependency update PRs. CI must pass before merging; read
+# docs/ARCHITECTURE.md "Dependency set" before taking a wgpu/winit/egui bump,
+# because those three must stay mutually compatible.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Graphics and UI move together or not at all.
+      graphics-ui:
+        patterns: ["wgpu*", "naga", "winit", "egui*"]
+      patch-updates:
+        update-types: ["patch"]
