@@ -20,6 +20,9 @@ use glam::{Mat4, Vec3};
 use psx_core::{AssetId, EntityId, RetroStyle, SceneId};
 use serde::{Deserialize, Serialize};
 
+use crate::components::{
+    AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
+};
 use crate::transform::Transform;
 
 /// Hierarchies deeper than this are rejected (protects recursion and
@@ -115,6 +118,15 @@ pub struct Entity {
     pub transform: Transform,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mesh: Option<MeshComponent>,
+    /// Since scene version 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collider: Option<ColliderComponent>,
+    /// Since scene version 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioSourceComponent>,
+    /// Since scene version 2. At most one of each kind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub behaviors: Vec<BehaviorComponent>,
 }
 
 impl Entity {
@@ -125,7 +137,59 @@ impl Entity {
             parent: None,
             transform: Transform::IDENTITY,
             mesh: None,
+            collider: None,
+            audio: None,
+            behaviors: Vec::new(),
         }
+    }
+
+    pub fn behavior(&self, kind: &str) -> Option<&BehaviorComponent> {
+        self.behaviors.iter().find(|b| b.kind == kind)
+    }
+
+    /// Problems that can be seen from the entity alone plus whether it is a
+    /// root (moving bodies must be roots).
+    pub fn local_problems(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.name.len() > MAX_NAME_LEN {
+            out.push(format!("name is longer than {MAX_NAME_LEN} bytes"));
+        }
+        if let Some(p) = self.transform.problem() {
+            out.push(format!("transform {p}"));
+        }
+        if let Some(mesh) = &self.mesh
+            && let Some(p) = mesh.material.problem()
+        {
+            out.push(format!("material: {p}"));
+        }
+        if let Some(c) = &self.collider {
+            if let Some(p) = c.problem() {
+                out.push(format!("collider: {p}"));
+            }
+            if c.body != BodyKind::Static && self.parent.is_some() {
+                out.push(format!(
+                    "collider: {} bodies must be root entities (no parent)",
+                    c.body.label().to_lowercase()
+                ));
+            }
+            if c.shape == ColliderShape::Mesh && self.mesh.is_none() {
+                out.push("collider: a mesh collider needs a mesh component".into());
+            }
+        }
+        if let Some(a) = &self.audio
+            && let Some(p) = a.problem()
+        {
+            out.push(format!("audio: {p}"));
+        }
+        for (i, b) in self.behaviors.iter().enumerate() {
+            if let Some(p) = b.problem() {
+                out.push(format!("behaviour: {p}"));
+            }
+            if self.behaviors[..i].iter().any(|o| o.kind == b.kind) {
+                out.push(format!("behaviour `{}` is attached twice", b.kind));
+            }
+        }
+        out
     }
 }
 
@@ -422,16 +486,8 @@ impl Scene {
         }
         for e in &self.entities {
             let id = Some(e.id);
-            if e.name.len() > MAX_NAME_LEN {
-                push(id, format!("name is longer than {MAX_NAME_LEN} bytes"));
-            }
-            if let Some(p) = e.transform.problem() {
-                push(id, format!("transform {p}"));
-            }
-            if let Some(mesh) = &e.mesh
-                && let Some(p) = mesh.material.problem()
-            {
-                push(id, format!("material: {p}"));
+            for p in e.local_problems() {
+                push(id, p);
             }
             match e.parent {
                 Some(p) if p == e.id => push(id, "is its own parent".to_owned()),
@@ -464,11 +520,40 @@ impl Scene {
 
     /// Every asset ID referenced by the scene, with the entities using it.
     pub fn asset_refs(&self) -> Vec<(EntityId, AssetId)> {
-        self.entities
+        let mut out: Vec<(EntityId, AssetId)> = self
+            .entities
             .iter()
             .filter_map(|e| e.mesh.as_ref().map(|m| (e.id, m)))
             .flat_map(|(id, m)| m.source.asset_refs().map(move |a| (id, a)))
-            .collect()
+            .collect();
+        out.extend(
+            self.entities
+                .iter()
+                .filter_map(|e| e.audio.as_ref().map(|a| (e.id, a.sound))),
+        );
+        out
+    }
+
+    /// Behaviour parameters that name an entity which does not exist:
+    /// `(entity, "kind.param", missing id)`.
+    pub fn dangling_entity_refs(&self) -> Vec<(EntityId, String, EntityId)> {
+        let ids: HashSet<EntityId> = self.entities.iter().map(|e| e.id).collect();
+        let mut out = Vec::new();
+        for e in &self.entities {
+            for b in &e.behaviors {
+                for (key, target) in b.entity_refs() {
+                    if !ids.contains(&target) {
+                        out.push((e.id, format!("{}.{key}", b.kind), target));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The first entity with a behaviour of `kind`.
+    pub fn find_behavior(&self, kind: &str) -> Option<&Entity> {
+        self.entities.iter().find(|e| e.behavior(kind).is_some())
     }
 }
 

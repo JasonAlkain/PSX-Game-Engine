@@ -300,13 +300,14 @@ pub struct AssetEntry {
 pub enum ImportedAsset {
     Model(ImportedModel),
     Texture(CpuTexture),
+    Audio(crate::ImportedAudio),
 }
 
 impl ImportedAsset {
     pub fn warnings(&self) -> &[String] {
         match self {
             ImportedAsset::Model(m) => &m.warnings,
-            ImportedAsset::Texture(_) => &[],
+            ImportedAsset::Texture(_) | ImportedAsset::Audio(_) => &[],
         }
     }
 }
@@ -498,6 +499,9 @@ impl AssetDatabase {
             AssetKind::Texture => {
                 crate::import_texture(&entry.source, &entry.settings).map(ImportedAsset::Texture)
             }
+            AssetKind::Audio => {
+                crate::import_audio(&entry.source, &entry.settings).map(ImportedAsset::Audio)
+            }
         }
     }
 }
@@ -512,6 +516,8 @@ pub struct AssetSummary {
     pub triangles: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub texture_size: Option<(u32, u32)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -548,16 +554,19 @@ pub fn check_scene_refs(
     file: Option<String>,
 ) -> Vec<Diagnostic> {
     let mut out = Vec::new();
-    for e in &scene.entities {
-        let Some(mesh) = &e.mesh else { continue };
-        let (asset, want) = match mesh.source {
-            MeshSource::Model { asset } => (asset, AssetKind::Gltf),
+    let refs = scene.entities.iter().flat_map(|e| {
+        let mesh = e.mesh.as_ref().and_then(|m| match m.source {
+            MeshSource::Model { asset } => Some((asset, AssetKind::Gltf)),
             MeshSource::Primitive {
                 texture: Some(asset),
                 ..
-            } => (asset, AssetKind::Texture),
-            MeshSource::Primitive { texture: None, .. } => continue,
-        };
+            } => Some((asset, AssetKind::Texture)),
+            MeshSource::Primitive { texture: None, .. } => None,
+        });
+        let audio = e.audio.as_ref().map(|a| (a.sound, AssetKind::Audio));
+        mesh.into_iter().chain(audio).map(move |r| (e, r))
+    });
+    for (e, (asset, want)) in refs {
         let mut d = |severity, message: String| {
             let mut d = Diagnostic::new(severity, file.clone(), message);
             d.entity = Some(e.id);
@@ -582,12 +591,27 @@ pub fn check_scene_refs(
             Some(entry) if failed.contains(&asset) => d(
                 Severity::Warning,
                 format!(
-                    "\"{}\" uses {} which failed to import; a fallback is drawn",
-                    e.name, entry.relative
+                    "\"{}\" uses {} which failed to import; {}",
+                    e.name,
+                    entry.relative,
+                    if want == AssetKind::Audio {
+                        "it stays silent"
+                    } else {
+                        "a fallback is drawn"
+                    }
                 ),
             ),
             Some(_) => {}
         }
+    }
+    for (entity, param, target) in scene.dangling_entity_refs() {
+        let mut d = Diagnostic::new(
+            Severity::Warning,
+            file.clone(),
+            format!("behaviour parameter {param} names entity {target}, which does not exist"),
+        );
+        d.entity = Some(entity);
+        out.push(d);
     }
     out
 }
@@ -620,6 +644,7 @@ pub fn validate_project(root: &Path) -> ValidationReport {
             imported: false,
             triangles: None,
             texture_size: None,
+            duration_secs: None,
         };
         match AssetDatabase::import(&project, entry) {
             Ok(imported) => {
@@ -633,6 +658,7 @@ pub fn validate_project(root: &Path) -> ValidationReport {
                 match imported {
                     ImportedAsset::Model(m) => summary.triangles = Some(m.triangle_count()),
                     ImportedAsset::Texture(t) => summary.texture_size = Some((t.width, t.height)),
+                    ImportedAsset::Audio(a) => summary.duration_secs = Some(a.duration_secs),
                 }
             }
             Err(e) => {

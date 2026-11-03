@@ -302,6 +302,12 @@ fn import(root: &Path, file: Option<&Path>) -> Result<Success, Failure> {
                         "textures": m.textures.len(),
                     }),
                     ImportedAsset::Texture(t) => json!({"width": t.width, "height": t.height}),
+                    ImportedAsset::Audio(a) => json!({
+                        "format": a.format,
+                        "channels": a.channels,
+                        "sample_rate": a.sample_rate,
+                        "duration_secs": a.duration_secs,
+                    }),
                 };
                 text.push_str(&format!(
                     "{} {} ({}) {detail}\n",

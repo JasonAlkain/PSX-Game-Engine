@@ -25,7 +25,7 @@ use psx_render::{
     AlphaMode, DrawItem, GpuMesh, GpuTexture, Material, MeshData, RetroRenderer, TextureData,
     Vertex,
 };
-use psx_scene::{AlphaSetting, MaterialOverride, MeshSource, PrimitiveShape, Scene};
+use psx_scene::{AlphaSetting, MaterialOverride, MeshComponent, MeshSource, PrimitiveShape, Scene};
 
 /// Positions and triangles kept for ray picking (local space).
 #[derive(Debug, Clone, Default)]
@@ -277,8 +277,32 @@ impl SceneResources {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Vec<String> {
+        self.sync_meshes(
+            project,
+            db,
+            scene.entities.iter().filter_map(|e| e.mesh.as_ref()),
+            renderer,
+            device,
+            queue,
+        )
+    }
+
+    /// [`SceneResources::sync`] for an explicit set of mesh components.
+    pub fn sync_meshes<'m>(
+        &mut self,
+        project: &Project,
+        db: &AssetDatabase,
+        meshes: impl IntoIterator<Item = &'m MeshComponent>,
+        renderer: &RetroRenderer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Vec<String> {
         let mut messages = Vec::new();
-        for (_, asset) in scene.asset_refs() {
+        let refs: Vec<AssetId> = meshes
+            .into_iter()
+            .flat_map(|m| m.source.asset_refs())
+            .collect();
+        for asset in refs {
             if self.status.contains_key(&asset) {
                 continue;
             }
@@ -327,6 +351,10 @@ impl SceneResources {
                         Vec::new()
                     })
                     .map_err(|e| format!("{}: {e}", entry.relative)),
+                ImportedAsset::Audio(_) => Err(format!(
+                    "{} is a sound, not a model or texture",
+                    entry.relative
+                )),
             });
         match result {
             Ok(warnings) => {
@@ -414,13 +442,26 @@ impl SceneResources {
         scene: &Scene,
         world: &HashMap<EntityId, Mat4>,
     ) -> Vec<SceneDraw<'a>> {
+        let items = scene.entities.iter().filter_map(|e| {
+            let (Some(mesh), Some(&model)) = (&e.mesh, world.get(&e.id)) else {
+                return None;
+            };
+            Some((e.id, mesh, model))
+        });
+        self.draws_from(items)
+    }
+
+    /// Draw items for explicit `(entity, mesh, world matrix)` triples (the
+    /// game runtime, whose entities live in an ECS rather than a `Scene`).
+    pub fn draws_from<'a, 'm>(
+        &'a mut self,
+        items: impl IntoIterator<Item = (EntityId, &'m MeshComponent, Mat4)>,
+    ) -> Vec<SceneDraw<'a>> {
         // Materials are computed first so draw items can borrow them.
         let mut plan: Vec<(EntityId, DrawRef, Mat4, usize)> = Vec::new();
         self.scratch_materials.clear();
-        for e in &scene.entities {
-            let (Some(mesh), Some(&model)) = (&e.mesh, world.get(&e.id)) else {
-                continue;
-            };
+        for (id, mesh, model) in items {
+            let e_id = id;
             match &mesh.source {
                 MeshSource::Primitive { shape, texture } => {
                     let tex = match texture {
@@ -437,7 +478,7 @@ impl SceneResources {
                     };
                     self.scratch_materials.push(material);
                     plan.push((
-                        e.id,
+                        e_id,
                         DrawRef::Shape(*shape, tex),
                         model,
                         self.scratch_materials.len() - 1,
@@ -449,7 +490,7 @@ impl SceneResources {
                             self.scratch_materials
                                 .push(apply_override(part.material, &mesh.material));
                             plan.push((
-                                e.id,
+                                e_id,
                                 DrawRef::Part(*asset, i),
                                 model,
                                 self.scratch_materials.len() - 1,
@@ -464,7 +505,7 @@ impl SceneResources {
                             ..Material::default()
                         });
                         plan.push((
-                            e.id,
+                            e_id,
                             DrawRef::Shape(PrimitiveShape::Cube, TexRef::Missing),
                             model,
                             self.scratch_materials.len() - 1,

@@ -13,6 +13,7 @@ pub mod import;
 pub mod meta;
 pub mod project;
 
+pub use import::audio::{AudioFormat, ImportedAudio, import_audio};
 pub use import::gltf::import_gltf;
 pub use import::texture::import_texture;
 pub use import::{
