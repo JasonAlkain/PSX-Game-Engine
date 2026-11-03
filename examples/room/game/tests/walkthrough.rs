@@ -135,3 +135,43 @@ fn the_caretaker_waves_then_returns_to_idle() {
     );
     assert_eq!(clip(&sim).as_deref(), Some("idle"));
 }
+
+#[test]
+fn benchmark_renders_every_style_offscreen() {
+    let project = Project::open(&project_root()).expect("example project");
+    let scene = PathBuf::from(&project.file.startup_scene);
+    let options = psx_game::bench::BenchOptions {
+        frames: 3,
+        size: (160, 120),
+        script: None,
+    };
+    let report = match psx_game::bench::run(
+        project,
+        &scene,
+        || Box::new(lever_room::LeverRoom),
+        &options,
+    ) {
+        Ok(r) => r,
+        Err(e)
+            if e.contains("no graphics adapter")
+                && std::env::var("PSX_REQUIRE_GPU").as_deref() != Ok("1") =>
+        {
+            eprintln!("SKIPPED: {e}");
+            return;
+        }
+        Err(e) => panic!("{e}"),
+    };
+    assert_eq!(report["format"], "psx_bench");
+    let styles = report["styles"].as_array().unwrap();
+    let names: Vec<&str> = styles.iter().filter_map(|s| s["style"].as_str()).collect();
+    assert_eq!(names, ["scene", "ps1", "ps2"]);
+    for s in styles {
+        assert!(s["draws"].as_u64().unwrap() > 20, "{s}");
+        assert!(s["frame"]["mean_ms"].as_f64().unwrap() > 0.0, "{s}");
+    }
+    assert_eq!(styles[2]["internal"], serde_json::json!([640, 448]));
+    assert!(
+        report["warnings"].as_array().unwrap().is_empty(),
+        "{report:#}"
+    );
+}

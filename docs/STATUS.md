@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-03 (Milestone 5: PS2 workflow; Milestone 6 hardening is next).
+Last updated: 2026-11-03 (Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
 
 ## Working
 
@@ -163,6 +163,45 @@ Completion criteria from the brief:
 | An animated character works | `psx_game` animation unit tests (clip end reported once, crossfade midpoint, reversed and held playback, non-finite input); `simulation::animated_models_play_crossfade_and_report_finished_clips`; `walkthrough::the_caretaker_waves_then_returns_to_idle` (scripted walk up, talk, `wave`, `AnimationFinished`, back to `idle`); GPU test `skinned_models_draw_in_their_animated_pose`; renderer image test `skinning_moves_vertices`; editor under Xvfb shows the caretaker's animator, light and shadow inspectors with the model's clips |
 | Geometry and UVs are stable under the PS2 preset | Image test `ps2_preset_keeps_geometry_and_uvs_where_perspective_puts_them`: over six sub-pixel camera moves the far edge stays within 1 px and the texture boundary within 1.5 px of the perspective projection, while the same content under PS1 is off by more than 4 px (affine warping) |
 
+## Milestone 6: hardening and platforms
+
+- **Performance measurement:** every game executable has `--bench`
+  (offscreen, no window or audio; real simulation; authored, PS1 and PS2
+  styles; mean/p50/p95/max tick and frame times; adapter and driver in the
+  report) and `psx bench --project` builds the game in release and runs it.
+  CI runs a short benchmark on Linux as a smoke test.
+- **Lifecycle:** a scene change frees cached CPU models and decoded sounds
+  the new scene does not use, and the player releases GPU models and
+  textures of the previous scene (`SceneResources::release_unused`). A
+  soak test restarts the scene 50 times and checks entity, body, emitter
+  and cache counts stay constant.
+- **Regression coverage:** reference images of the example room (two
+  poses × PS1/PS2, 320×240, caretaker mid-idle) in
+  `crates/psx_runtime/tests/golden/`, compared with a tolerance on the
+  llvmpipe reference adapter (as on CI); committed fixtures for scene v1
+  and v2, style v1 and Milestone 4 player settings.
+- **Docs:** [MIGRATION.md](MIGRATION.md) (every format version, importer
+  versions, game API changes per milestone) and
+  [PLATFORMS.md](PLATFORMS.md) (what ran where, and the Windows/macOS/
+  hardware-Linux checklists).
+
+Performance on the reference software adapter (llvmpipe, LLVM 20.1.2, 256
+bits, Vulkan, in a container; release build; the walkthrough script as
+input; 300 measured frames per style; frame = tick + render + wait for the
+GPU):
+
+| Output | Style (internal) | Frame mean | Frame p95 | Frame max | Tick mean |
+| --- | --- | --- | --- | --- | --- |
+| 1280×720 | PS1 (320×240) | 8.3 ms | 10.4 ms | 14.4 ms | 0.14 ms |
+| 1280×720 | PS2 (640×448) | 12.1 ms | 14.9 ms | 20.8 ms | 0.16 ms |
+| 640×480 | PS1 (320×240) | 5.4 ms | 7.2 ms | 13.9 ms | 0.12 ms |
+| 640×480 | PS2 (640×448) | 8.3 ms | 10.0 ms | 22.7 ms | 0.14 ms |
+
+The scene has 27 draws and 786 triangles. The simulation tick is far below
+its 16.7 ms budget; on this CPU rasteriser even the PS2 style at 720p stays
+under 16.7 ms at the 95th percentile. Hardware GPU numbers have not been
+measured.
+
 ## Verification record
 
 Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
@@ -172,11 +211,12 @@ Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
 | --- | --- |
 | `cargo fmt --all -- --check` | pass |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | pass |
-| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 200 tests, 1 ignored (a documentation example) |
+| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 207 tests, 1 ignored (a documentation example) |
 | M5 image tests: linear filtering, mip averaging (trilinear distant texels ≈ the texture mean), point lights bounded and lit per vertex or per pixel, blob shadows (on lit floors only), skinning, PS2 geometry/UV stability | pass |
 | M5 GPU tests: skinned model drawn in its animated pose; example room in PS1 and PS2 from the same resources, no validation errors | pass, captures inspected |
 | M5 editor under Xvfb (debug): opens `examples/room`, Scene settings show PS2 and the new style switches, selecting Caretaker shows Animator (clip list from the model), Point light and Blob shadow inspectors; `--frames` exit, no wgpu validation errors | pass, screenshots inspected |
 | M5 player under Xvfb (debug): `lever_room --play --frames 900` with graphics style "as authored" and "PS2" | pass, screenshots inspected |
+| M6 reference images (example room, 2 poses × PS1/PS2) on llvmpipe; soak test of 50 restarts; `--bench` and `psx bench` (release, numbers above); migration fixtures | pass |
 | M5 `psx build` of `examples/room` (release): 20 files, 29.6 MiB, 464 crates in NOTICES; the exported executable completed the walkthrough script headless (535 ticks, finished, no warnings) | pass |
 | `psx test-scene --project examples/room --script examples/room/scripts/walkthrough.script.json` | pass, 535 ticks, finished |
 | `psx build` of `examples/room` (release) with the walkthrough verification | pass |
@@ -205,7 +245,8 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 
 ## Not verified
 
-- **Windows 11 runtime** (primary target): not run for Milestones 1 to 5. CI
+- **Windows 11 runtime** (primary target): not run for Milestones 1 to 6;
+  see the checklist in [PLATFORMS.md](PLATFORMS.md). CI
   builds and tests on a Windows runner. Manual check:
   `cargo run -p psx_sandbox --release`, then press `C` for the split view,
   1–7 to toggle effects, F5 to save (`psx_style.json` appears in the working
@@ -223,8 +264,11 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   `cargo run -p psx_cli --release -- inspect --project examples/room`.
 - **High-DPI editor layout:** picking accounts for the scale factor in code
   and unit tests, but only scale 1.0 was run.
-- Hardware GPUs, DX12 and Metal backends: only lavapipe was available.
-- Performance: not measured (software rendering FPS is not meaningful).
+- Hardware GPUs, DX12 and Metal backends, macOS: only lavapipe on Linux
+  was available.
+- Performance on hardware GPUs: only the software adapter was measured
+  (table above). Run `psx bench --project examples/room` on the target
+  machine.
 - **Audio output:** the container has no sound device. Audio playback paths
   are exercised headless (emitters, buses, fades are computed) and the
   missing-device path was seen in every windowed run; hearing the demo

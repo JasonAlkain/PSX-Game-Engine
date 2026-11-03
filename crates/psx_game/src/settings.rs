@@ -311,6 +311,37 @@ mod tests {
     }
 
     #[test]
+    fn milestone_4_settings_files_load_with_the_authored_graphics_style() {
+        let dir = std::env::temp_dir().join(format!("psx_settings_m4_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(SETTINGS_FILE),
+            include_str!("../fixtures/m4_settings.json"),
+        )
+        .unwrap();
+        let mut warnings = Vec::new();
+        let s = UserDirs::at(&dir).load_settings(&mut warnings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(s.graphics_style, GraphicsStyle::Scene);
+        assert_eq!(s.music_volume, 0.5);
+        assert!(s.invert_y);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn graphics_style_keeps_the_scene_fog_and_atmosphere() {
+        let mut authored = psx_core::RetroStyle::ps1();
+        authored.fog.start = 2.0;
+        authored.atmosphere.background = [1, 2, 3];
+        let ps2 = GraphicsStyle::Ps2.apply(&authored);
+        assert_eq!(ps2.fog, authored.fog);
+        assert_eq!(ps2.atmosphere, authored.atmosphere);
+        assert_eq!(ps2.textures, psx_core::RetroStyle::ps2().textures);
+        assert_eq!(GraphicsStyle::Scene.apply(&authored), authored);
+    }
+
+    #[test]
     fn settings_and_saves_round_trip_and_damaged_files_are_kept_aside() {
         let root = temp("rt");
         let dirs = UserDirs::at(&root);

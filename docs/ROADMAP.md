@@ -10,18 +10,17 @@ the project runnable.
 | 3 | Authoring loop: versioned scenes, persistent IDs, static glTF import, editor panels (egui), transform editing, undo/redo, save/load, CLI validate/batch | Implemented; Windows runtime check pending (see STATUS) |
 | 4 | Playable PS1 MVP: game template, input actions, physics, audio, interactions, menus, child-process play mode, host export, exploration demo | Implemented as a PS1-style MVP; Windows runtime check pending (see STATUS) |
 | 5 | PS2 workflow: PS2 preset, filtered/mipmapped textures, skeletal animation, local lights, shadow option | Implemented; Windows runtime check pending (see STATUS) |
-| 6 | Hardening and platforms: performance measurement, regression coverage, Linux/macOS validation | Not started |
+| 6 | Hardening and platforms: performance measurement, lifecycle fixes, regression coverage, migration docs, platform validation evidence | Implemented; Linux validated on a software adapter, Windows/macOS checklists pending (see PLATFORMS) |
 
-## Next increment (Milestone 6: hardening and platforms)
+## After Milestone 6
 
-1. Performance measurement: frame-time and tick-time capture in the player
-   and sandbox (`--bench`), a headless render benchmark over the example
-   room, and recorded numbers per backend.
-2. Lifecycle fixes found while measuring (resource churn on scene change,
-   surface loss, long sessions).
-3. Regression coverage: golden-image checks with tolerances for the PS1 and
-   PS2 renders of the example room, and format migration fixtures for every
-   version.
-4. Migration documentation for every file format version.
-5. Platform validation evidence for Linux (this container), with Windows and
-   macOS manual checklists.
+All six milestones of the brief are implemented. What remains before the
+engine can be called validated on its primary target:
+
+1. Run the Windows 11 checklist in `docs/PLATFORMS.md` and record the
+   results (and `psx bench` numbers on a hardware GPU) in STATUS.
+2. Fix whatever that run finds; the macOS checklist after that.
+
+Candidates for later work, not committed: gamepad input, a cooked asset
+cache, sprites/billboards, per-triangle transparency sorting, stripped
+release exports, interpolated animation palettes.

@@ -1,0 +1,49 @@
+{
+  "format": "psx_style",
+  "version": 1,
+  "style": {
+    "low_res": {
+      "enabled": true,
+      "width": 320,
+      "height": 240
+    },
+    "presentation": {
+      "scaling": "integer"
+    },
+    "vertex_snap": {
+      "enabled": true,
+      "grid": 2.0,
+      "strength": 1.0
+    },
+    "affine_uv": {
+      "enabled": true
+    },
+    "color_reduction": {
+      "enabled": true,
+      "bits": 4
+    },
+    "dither": {
+      "enabled": true,
+      "strength": 1.0
+    },
+    "fog": {
+      "enabled": true,
+      "color": [
+        24,
+        22,
+        32
+      ],
+      "start": 6.0,
+      "end": 22.0
+    },
+    "atmosphere": {
+      "background": [
+        24,
+        22,
+        32
+      ],
+      "near": 0.05,
+      "far": 60.0
+    }
+  }
+}

@@ -27,6 +27,10 @@ jobs:
         env:
           PSX_REQUIRE_GPU: "1"
           WGPU_BACKEND: vulkan
+      - name: Benchmark the example room (debug build, smoke run)
+        run: cargo run -p lever_room --locked -- --bench --frames 30 --bench-size 640x480
+        env:
+          WGPU_BACKEND: vulkan
 
   windows:
     name: Windows (clippy, test, release build)

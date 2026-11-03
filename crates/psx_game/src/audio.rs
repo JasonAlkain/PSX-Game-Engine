@@ -163,6 +163,14 @@ where
         Ok(())
     }
 
+    /// Forgets decoded sounds that are not in `keep` (scene change). Sounds
+    /// already playing finish normally. Returns how many were dropped.
+    pub fn retain_sounds(&mut self, keep: &std::collections::HashSet<AssetId>) -> usize {
+        let before = self.sounds.len();
+        self.sounds.retain(|id, _| keep.contains(id));
+        before - self.sounds.len()
+    }
+
     pub fn is_loaded(&self, asset: AssetId) -> bool {
         self.sounds.contains_key(&asset)
     }

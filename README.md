@@ -4,9 +4,10 @@ A Rust game engine for making original 3D games with PlayStation 1 and
 PlayStation 2-inspired visuals on modern PCs. It is not an emulator or a
 console SDK. "PSX Engine" is a working name.
 
-**Status: Milestone 5 — PS1 and PS2 styles from the same content.
-Milestone 6 (performance measurement, hardening, platform validation) is
-next.** Early prototype, not production-ready.
+**Status: all six milestones implemented (Milestone 6: performance
+measurement, hardening, regression images, migration guide). Validated on
+Linux with a software GPU; Windows 11 runtime checks are still
+outstanding.** Early prototype, not production-ready.
 
 What works: a retro renderer with PS1, PS2 and Clean presets (low internal
 resolution with integer or fit upscaling, vertex snapping, affine texture
@@ -64,6 +65,7 @@ Every game executable also accepts:
 | `--play` | editor play mode: no title screen, never writes saves |
 | `--user-dir DIR` | keep settings and saves in DIR |
 | `--frames N` | exit after N frames (smoke tests) |
+| `--bench [--frames N] [--bench-size WxH]` | measure tick and frame times offscreen in the authored, PS1 and PS2 styles (JSON report; uses `--script` as input if given) |
 
 ```sh
 cargo run -p lever_room -- --script examples/room/scripts/walkthrough.script.json
@@ -136,6 +138,7 @@ psx apply [--project DIR] [--scene SCENE] [--dry-run] BATCH  # all-or-nothing; B
 psx schema [--project DIR]                   # formats, components, commands (+ the game's behaviours)
 psx test-scene [--project DIR] [SCENE] [--script FILE | --ticks N]  # headless play, JSON report
 psx build --out DIR [--project DIR] [--replace] [--script FILE] [--no-verify]  # export
+psx bench [--project DIR] [SCENE] [--script FILE] [--frames N] [--size WxH]  # release build, frame/tick times
 ```
 
 `psx build` validates the project, builds the game in release mode, and
@@ -201,7 +204,13 @@ cargo test --workspace
 The offscreen image tests (one per effect), the comparison-scene camera
 sweep and the scene-resource test need a graphics adapter and print `SKIPPED` without one. Set
 `PSX_REQUIRE_GPU=1` to make a missing adapter a failure. Debug images land
-in `target/tmp/`. Gameplay tests (physics, audio state, the simulation and
+in `target/tmp/`. Reference images of the example room live in
+`crates/psx_runtime/tests/golden/` and are compared only on Mesa llvmpipe
+(the CI adapter); after an intended visual change, regenerate them with
+`PSX_UPDATE_GOLDEN=1 cargo test -p psx_runtime --test scene_resources` and
+review the PNGs. File format history and API changes per milestone are in
+[docs/MIGRATION.md](docs/MIGRATION.md); platform checklists in
+[docs/PLATFORMS.md](docs/PLATFORMS.md). Gameplay tests (physics, audio state, the simulation and
 the demo walkthrough in `examples/room/game/tests`) run headless and need
 neither a GPU nor an audio device.
 
@@ -211,10 +220,10 @@ neither a GPU nor an audio device.
 | --- | --- |
 | `crates/psx_core` | Fixed-step timing, stable IDs, atomic file writes, retro style settings and their JSON file format. No GPU/window deps. |
 | `crates/psx_scene` | Scene document (entities, hierarchy, transforms, mesh/material, collider, audio, behaviour, light, animator and shadow components), versioned scene file, commands, undo/redo history, command batches. No GPU/window deps. |
-| `crates/psx_assets` | Projects, asset metadata and database, static glTF and texture import, validation. No GPU/window deps. |
+| `crates/psx_assets` | Projects, asset metadata and database, glTF (static and skinned) and texture import, animation data, validation, export. No GPU/window deps. |
 | `crates/psx_render` | wgpu device, surface presenter, retro renderer (scene + composite passes), materials, fit policy, camera, mesh/texture data, WGSL shaders. |
 | `crates/psx_runtime` | winit event loop, input sampling, fly camera, comparison scene, style keys, frame loop, logging, GPU scene resources and picking. |
-| `crates/psx_game` | Gameplay runtime: behaviour registry and game API, hecs runtime world, physics (rapier3d), audio (kira), input actions, headless runner, the game window with menus, and the command line every game binary shares. |
+| `crates/psx_game` | Gameplay runtime: behaviour registry and game API, hecs runtime world, physics (rapier3d), audio (kira), input actions, headless runner, animation playback, benchmark, the game window with menus, and the command line every game binary shares. |
 | `crates/psx_editor` | egui scene editor (library + `psx_editor` binary). |
 | `apps/psx_cli` | `psx` command-line tool. |
 | `apps/psx_player` | Stock player for projects without a game crate. |

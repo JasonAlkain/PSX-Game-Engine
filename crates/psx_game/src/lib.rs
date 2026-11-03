@@ -8,6 +8,7 @@
 //!   sensors, ray casts).
 //! - [`animation`]: skeletal animation playback and crossfades.
 //! - [`audio`]: kira integration (buses, spatial emitters, listener).
+//! - [`bench`]: offscreen frame and tick timing (`--bench`).
 //! - [`builtin`]: engine behaviours (`psx.player`, `psx.camera_zone`,
 //!   `psx.spin`).
 
@@ -15,6 +16,7 @@ pub mod actions;
 pub mod animation;
 pub mod api;
 pub mod audio;
+pub mod bench;
 pub mod builtin;
 pub mod headless;
 pub mod launch;
