@@ -18,12 +18,12 @@
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use psx_core::RetroStyle;
-use psx_core::style::srgb8_to_linear;
+use psx_core::style::{MAX_BLOB_SHADOWS, MAX_LOCAL_LIGHTS, TextureFilter, srgb8_to_linear};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
 
 use crate::layout::Rect;
-use crate::{Camera, Material, MeshData, MeshError, TextureData, TextureError};
+use crate::{Camera, MAX_JOINTS, Material, MeshData, MeshError, TextureData, TextureError};
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Linear, high-precision scene colour so quantisation happens once, later.
@@ -44,6 +44,9 @@ pub struct FrameUniforms {
     pub fog_range: [f32; 4],
     pub snap: [f32; 4],
     pub options: [f32; 4],
+    pub shadow_params: [f32; 4],
+    pub lights: [[f32; 4]; 2 * MAX_LOCAL_LIGHTS],
+    pub blobs: [[f32; 4]; MAX_BLOB_SHADOWS],
 }
 
 /// Per-draw uniforms. Must match `DrawUniforms` in `shaders/scene.wgsl`.
@@ -55,6 +58,15 @@ pub struct DrawUniforms {
     pub tint: [f32; 4],
     pub params: [f32; 4],
     pub emissive: [f32; 4],
+    pub skin: [f32; 4],
+}
+
+/// One skinned draw's joints. Must match `JointPalette` in
+/// `shaders/scene.wgsl`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+pub struct JointPalette {
+    pub joints: [[[f32; 4]; 4]; MAX_JOINTS],
 }
 
 /// Per-slot composite uniforms. Must match `CompositeUniforms` in
@@ -67,13 +79,20 @@ pub struct CompositeUniforms {
     pub color: [f32; 4],
 }
 
-/// Simple directional + ambient lighting, all colours linear.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Lighting for one view, all colours linear: ambient, one directional
+/// light, local point lights and blob shadow casters.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Lighting {
     /// Direction the light travels *from* the light towards the scene.
     pub direction: Vec3,
     pub color: Vec3,
     pub ambient: Vec3,
+    /// Point lights. At most [`MAX_LOCAL_LIGHTS`] are used per view (the
+    /// nearest to the camera); none when the style turns local lights off.
+    pub points: Vec<PointLight>,
+    /// Blob shadow casters. At most [`MAX_BLOB_SHADOWS`] are used (the
+    /// nearest to the camera); none when the style turns shadows off.
+    pub blobs: Vec<BlobShadow>,
 }
 
 impl Default for Lighting {
@@ -82,8 +101,47 @@ impl Default for Lighting {
             direction: Vec3::new(-0.4, -1.0, -0.6),
             color: Vec3::splat(0.85),
             ambient: Vec3::splat(0.25),
+            points: Vec::new(),
+            blobs: Vec::new(),
         }
     }
+}
+
+/// A light with a bounded range: full strength at its position, fading to
+/// exactly zero at `range` (`(1 - (d/range)²)²`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PointLight {
+    pub position: Vec3,
+    /// Linear colour multiplied by intensity.
+    pub color: Vec3,
+    pub range: f32,
+}
+
+/// A soft dark disc on upward-facing surfaces below a caster.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BlobShadow {
+    /// Centre of the caster's footprint at its lowest point.
+    pub bottom: Vec3,
+    pub radius: f32,
+}
+
+/// The `limit` entries nearest to `eye` among the finite ones.
+fn nearest<T: Copy>(
+    items: &[T],
+    eye: Vec3,
+    limit: usize,
+    pos: impl Fn(&T) -> (Vec3, f32),
+) -> Vec<T> {
+    let mut v: Vec<(f32, T)> = items
+        .iter()
+        .filter_map(|t| {
+            let (p, size) = pos(t);
+            (p.is_finite() && size.is_finite() && size > 0.0)
+                .then(|| ((p.distance(eye) - size).max(0.0), *t))
+        })
+        .collect();
+    v.sort_by(|a, b| a.0.total_cmp(&b.0));
+    v.into_iter().take(limit).map(|(_, t)| t).collect()
 }
 
 impl FrameUniforms {
@@ -126,13 +184,43 @@ impl FrameUniforms {
                     0.0
                 },
             ],
-            options: [
-                if style.affine_uv.enabled { 1.0 } else { 0.0 },
-                0.0,
-                0.0,
-                0.0,
-            ],
+            options: [0.0; 4],
+            shadow_params: [style.shadows.opacity.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            lights: [[0.0; 4]; 2 * MAX_LOCAL_LIGHTS],
+            blobs: [[0.0; 4]; MAX_BLOB_SHADOWS],
         }
+        .with_locals(camera.position, lighting, style)
+    }
+
+    fn with_locals(mut self, eye: Vec3, lighting: &Lighting, style: &RetroStyle) -> Self {
+        let points = if style.shading.local_lights {
+            nearest(&lighting.points, eye, MAX_LOCAL_LIGHTS, |l| {
+                (l.position, l.range)
+            })
+        } else {
+            Vec::new()
+        };
+        for (i, l) in points.iter().enumerate() {
+            self.lights[i * 2] = l.position.extend(l.range).to_array();
+            self.lights[i * 2 + 1] = l.color.max(Vec3::ZERO).extend(0.0).to_array();
+        }
+        let blobs = if style.shadows.enabled {
+            nearest(&lighting.blobs, eye, MAX_BLOB_SHADOWS, |b| {
+                (b.bottom, b.radius)
+            })
+        } else {
+            Vec::new()
+        };
+        for (i, b) in blobs.iter().enumerate() {
+            self.blobs[i] = b.bottom.extend(b.radius).to_array();
+        }
+        self.options = [
+            if style.affine_uv.enabled { 1.0 } else { 0.0 },
+            if style.shading.per_pixel { 1.0 } else { 0.0 },
+            points.len() as f32,
+            blobs.len() as f32,
+        ];
+        self
     }
 }
 
@@ -163,7 +251,21 @@ impl DrawUniforms {
                 material.emissive[2],
                 0.0,
             ],
+            skin: [0.0; 4],
         }
+    }
+}
+
+impl JointPalette {
+    /// Up to [`MAX_JOINTS`] matrices; missing entries are identity.
+    pub fn new(joints: &[Mat4]) -> Self {
+        let mut out = [Mat4::IDENTITY.to_cols_array_2d(); MAX_JOINTS];
+        for (slot, m) in out.iter_mut().zip(joints) {
+            if m.is_finite() {
+                *slot = m.to_cols_array_2d();
+            }
+        }
+        Self { joints: out }
     }
 }
 
@@ -219,6 +321,9 @@ pub struct DrawItem<'a> {
     pub texture: &'a GpuTexture,
     pub material: &'a Material,
     pub model: Mat4,
+    /// Joint matrices (mesh space, at most [`MAX_JOINTS`]) for a skinned
+    /// mesh. `None` draws the vertices as stored.
+    pub joints: Option<&'a [Mat4]>,
 }
 
 /// One view's place in the composite output.
@@ -245,7 +350,11 @@ pub struct RenderView {
     color_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     frame_buffer: wgpu::Buffer,
-    frame_bind_group: wgpu::BindGroup,
+    /// One per sampler (see [`sampler_index`]).
+    frame_bind_groups: [wgpu::BindGroup; 4],
+    joint_buffer: wgpu::Buffer,
+    joint_bind_group: wgpu::BindGroup,
+    joint_capacity: u32,
     draw_buffer: wgpu::Buffer,
     draw_bind_group: wgpu::BindGroup,
     draw_capacity: u32,
@@ -272,13 +381,23 @@ pub struct RetroRenderer {
     frame_layout: wgpu::BindGroupLayout,
     draw_layout: wgpu::BindGroupLayout,
     texture_layout: wgpu::BindGroupLayout,
+    joint_layout: wgpu::BindGroupLayout,
     composite_layout: wgpu::BindGroupLayout,
-    sampler: wgpu::Sampler,
+    /// Indexed by [`sampler_index`].
+    samplers: [wgpu::Sampler; 4],
     draw_stride: u64,
+    joint_stride: u64,
     output_srgb: bool,
 }
 
 const INITIAL_DRAW_CAPACITY: u32 = 64;
+const INITIAL_JOINT_CAPACITY: u32 = 4;
+
+/// `linear * 2 + mipmaps`.
+fn sampler_index(style: &RetroStyle) -> usize {
+    usize::from(style.textures.filter == TextureFilter::Linear) * 2
+        + usize::from(style.textures.mipmaps)
+}
 
 fn uniform_entry(
     binding: u32,
@@ -314,11 +433,23 @@ impl RetroRenderer {
 
         let frame_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("frame uniforms"),
+            entries: &[
+                uniform_entry(0, vs_fs, std::mem::size_of::<FrameUniforms>(), false),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let joint_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("joint palette"),
             entries: &[uniform_entry(
                 0,
-                vs_fs,
-                std::mem::size_of::<FrameUniforms>(),
-                false,
+                wgpu::ShaderStages::VERTEX,
+                std::mem::size_of::<JointPalette>(),
+                true,
             )],
         });
         let draw_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -332,24 +463,16 @@ impl RetroRenderer {
         });
         let texture_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("base texture"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
+                count: None,
+            }],
         });
         let composite_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("composite"),
@@ -379,6 +502,7 @@ impl RetroRenderer {
                 Some(&frame_layout),
                 Some(&draw_layout),
                 Some(&texture_layout),
+                Some(&joint_layout),
             ],
             immediate_size: 0,
         });
@@ -469,18 +593,40 @@ impl RetroRenderer {
             cache: None,
         });
 
-        // Nearest sampling, no mipmaps: crisp texels for the retro look.
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("nearest repeat"),
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
+        // Every texture has a full mip chain; "no mipmaps" clamps sampling
+        // to level 0, so styles switch without re-uploading textures.
+        let sampler = |linear: bool, mipmaps: bool| {
+            let filter = if linear {
+                wgpu::FilterMode::Linear
+            } else {
+                wgpu::FilterMode::Nearest
+            };
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("base texture sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                mag_filter: filter,
+                min_filter: filter,
+                mipmap_filter: if linear {
+                    wgpu::MipmapFilterMode::Linear
+                } else {
+                    wgpu::MipmapFilterMode::Nearest
+                },
+                lod_min_clamp: 0.0,
+                lod_max_clamp: if mipmaps { 32.0 } else { 0.0 },
+                ..Default::default()
+            })
+        };
+        let samplers = [
+            sampler(false, false),
+            sampler(false, true),
+            sampler(true, false),
+            sampler(true, true),
+        ];
 
         let align = u64::from(device.limits().min_uniform_buffer_offset_alignment).max(1);
         let draw_stride = (std::mem::size_of::<DrawUniforms>() as u64).div_ceil(align) * align;
+        let joint_stride = (std::mem::size_of::<JointPalette>() as u64).div_ceil(align) * align;
 
         Self {
             scene_pipelines,
@@ -488,9 +634,11 @@ impl RetroRenderer {
             frame_layout,
             draw_layout,
             texture_layout,
+            joint_layout,
             composite_layout,
-            sampler,
+            samplers,
             draw_stride,
+            joint_stride,
             output_srgb: output_format.is_srgb(),
         }
     }
@@ -525,6 +673,10 @@ impl RetroRenderer {
         data: &TextureData,
     ) -> Result<GpuTexture, TextureError> {
         data.validate(device.limits().max_texture_dimension_2d)?;
+        let mut bytes = data.rgba.clone();
+        for level in data.mip_chain() {
+            bytes.extend_from_slice(&level.rgba);
+        }
         let texture = device.create_texture_with_data(
             queue,
             &wgpu::TextureDescriptor {
@@ -534,7 +686,7 @@ impl RetroRenderer {
                     height: data.height,
                     depth_or_array_layers: 1,
                 },
-                mip_level_count: 1,
+                mip_level_count: data.mip_level_count(),
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -542,22 +694,16 @@ impl RetroRenderer {
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            &data.rgba,
+            &bytes,
         );
         let view = texture.create_view(&Default::default());
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("base texture"),
             layout: &self.texture_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
         });
         Ok(GpuTexture { bind_group })
     }
@@ -610,15 +756,25 @@ impl RetroRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("frame uniforms"),
-            layout: &self.frame_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: frame_buffer.as_entire_binding(),
-            }],
+        let frame_bind_groups = self.samplers.each_ref().map(|sampler| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("frame uniforms"),
+                layout: &self.frame_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: frame_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            })
         });
         let (draw_buffer, draw_bind_group) = self.create_draw_buffer(device, INITIAL_DRAW_CAPACITY);
+        let (joint_buffer, joint_bind_group) =
+            self.create_joint_buffer(device, INITIAL_JOINT_CAPACITY);
 
         let composite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("composite uniforms"),
@@ -647,7 +803,10 @@ impl RetroRenderer {
             color_view,
             depth_view,
             frame_buffer,
-            frame_bind_group,
+            frame_bind_groups,
+            joint_buffer,
+            joint_bind_group,
+            joint_capacity: INITIAL_JOINT_CAPACITY,
             draw_buffer,
             draw_bind_group,
             draw_capacity: INITIAL_DRAW_CAPACITY,
@@ -696,6 +855,32 @@ impl RetroRenderer {
         (buffer, bind_group)
     }
 
+    fn create_joint_buffer(
+        &self,
+        device: &wgpu::Device,
+        capacity: u32,
+    ) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("joint palettes"),
+            size: self.joint_stride * u64::from(capacity.max(1)),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("joint palettes"),
+            layout: &self.joint_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(std::mem::size_of::<JointPalette>() as u64),
+                }),
+            }],
+        });
+        (buffer, bind_group)
+    }
+
     /// Records the scene pass for `view`: clears to the style's background,
     /// draws opaque/cutout items in order, then blended items back-to-front.
     #[allow(clippy::too_many_arguments)]
@@ -722,11 +907,41 @@ impl RetroRenderer {
             view.draw_bind_group = bind_group;
             view.draw_capacity = capacity;
         }
+        // Joint palette slot per draw (unskinned draws share slot 0 and
+        // never read it).
+        let mut joint_slots = vec![0u32; order.len()];
+        let mut palettes: Vec<JointPalette> = Vec::new();
+        for (slot, &i) in order.iter().enumerate() {
+            if let Some(joints) = items[i].joints {
+                joint_slots[slot] = palettes.len() as u32;
+                palettes.push(JointPalette::new(joints));
+            }
+        }
+        let joint_count = u32::try_from(palettes.len()).unwrap_or(u32::MAX);
+        if joint_count > view.joint_capacity {
+            let capacity = joint_count.next_power_of_two();
+            let (buffer, bind_group) = self.create_joint_buffer(device, capacity);
+            view.joint_buffer = buffer;
+            view.joint_bind_group = bind_group;
+            view.joint_capacity = capacity;
+        }
+        if !palettes.is_empty() {
+            let stride = self.joint_stride as usize;
+            let size = std::mem::size_of::<JointPalette>();
+            let mut bytes = vec![0u8; stride * palettes.len()];
+            for (slot, p) in palettes.iter().enumerate() {
+                bytes[slot * stride..slot * stride + size].copy_from_slice(bytemuck::bytes_of(p));
+            }
+            queue.write_buffer(&view.joint_buffer, 0, &bytes);
+        }
         if !order.is_empty() {
             let stride = self.draw_stride as usize;
             let mut bytes = vec![0u8; stride * order.len()];
             for (slot, &i) in order.iter().enumerate() {
-                let u = DrawUniforms::new(items[i].model, items[i].material);
+                let mut u = DrawUniforms::new(items[i].model, items[i].material);
+                if items[i].joints.is_some() {
+                    u.skin[0] = 1.0;
+                }
                 bytes[slot * stride..slot * stride + std::mem::size_of::<DrawUniforms>()]
                     .copy_from_slice(bytemuck::bytes_of(&u));
             }
@@ -762,7 +977,7 @@ impl RetroRenderer {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_bind_group(0, &view.frame_bind_group, &[]);
+        pass.set_bind_group(0, &view.frame_bind_groups[sampler_index(style)], &[]);
         for (slot, &i) in order.iter().enumerate() {
             let item = &items[i];
             let pipeline = usize::from(item.material.is_blended()) * 2
@@ -771,6 +986,8 @@ impl RetroRenderer {
             let offset = (slot as u64 * self.draw_stride) as u32;
             pass.set_bind_group(1, &view.draw_bind_group, &[offset]);
             pass.set_bind_group(2, &item.texture.bind_group, &[]);
+            let joint_offset = (u64::from(joint_slots[slot]) * self.joint_stride) as u32;
+            pass.set_bind_group(3, &view.joint_bind_group, &[joint_offset]);
             pass.set_vertex_buffer(0, item.mesh.vertex_buffer.slice(..));
             pass.set_index_buffer(item.mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..item.mesh.index_count, 0, 0..1);
@@ -907,6 +1124,9 @@ mod tests {
                 ("fog_range", offset_of!(FrameUniforms, fog_range)),
                 ("snap", offset_of!(FrameUniforms, snap)),
                 ("options", offset_of!(FrameUniforms, options)),
+                ("shadow_params", offset_of!(FrameUniforms, shadow_params)),
+                ("lights", offset_of!(FrameUniforms, lights)),
+                ("blobs", offset_of!(FrameUniforms, blobs)),
             ],
         );
         check_layout(
@@ -919,7 +1139,14 @@ mod tests {
                 ("tint", offset_of!(DrawUniforms, tint)),
                 ("params", offset_of!(DrawUniforms, params)),
                 ("emissive", offset_of!(DrawUniforms, emissive)),
+                ("skin", offset_of!(DrawUniforms, skin)),
             ],
+        );
+        check_layout(
+            SCENE_SHADER,
+            "JointPalette",
+            size_of::<JointPalette>(),
+            &[("joints", offset_of!(JointPalette, joints))],
         );
         check_layout(
             COMPOSITE_SHADER,
@@ -1006,6 +1233,47 @@ mod tests {
         assert_eq!(u.fog_color[3], 0.0);
         let d = glam::Vec3::from_slice(&u.light_dir[..3]);
         assert!((d.length() - 1.0).abs() < 1e-5 && d.y > 0.0);
+    }
+
+    #[test]
+    fn local_lights_and_blobs_are_bounded_and_nearest_first() {
+        let cam = Camera::default();
+        let light = |x: f32| PointLight {
+            position: cam.position + Vec3::new(x, 0.0, 0.0),
+            color: Vec3::ONE,
+            range: 1.0,
+        };
+        let mut lighting = Lighting {
+            points: (0..20).map(|i| light(20.0 - i as f32)).collect(),
+            blobs: vec![
+                BlobShadow {
+                    bottom: Vec3::ZERO,
+                    radius: f32::NAN,
+                },
+                BlobShadow {
+                    bottom: Vec3::ONE,
+                    radius: 0.5,
+                },
+            ],
+            ..Lighting::default()
+        };
+        lighting.points.push(PointLight {
+            range: 0.0,
+            ..light(0.0)
+        });
+        let mut style = RetroStyle::ps2();
+        let u = FrameUniforms::new(&cam, &lighting, &style, (64, 64));
+        assert_eq!(u.options, [0.0, 1.0, MAX_LOCAL_LIGHTS as f32, 1.0]);
+        // Nearest first; the zero-range light is ignored.
+        assert_eq!(u.lights[0][0], cam.position.x + 1.0);
+        assert_eq!(u.lights[0][3], 1.0);
+        assert_eq!(u.blobs[0], [1.0, 1.0, 1.0, 0.5]);
+        style.shading.local_lights = false;
+        style.shadows.enabled = false;
+        let u = FrameUniforms::new(&cam, &lighting, &style, (64, 64));
+        assert_eq!(&u.options[2..], &[0.0, 0.0]);
+        assert_eq!(sampler_index(&RetroStyle::ps1()), 0);
+        assert_eq!(sampler_index(&RetroStyle::ps2()), 3);
     }
 
     #[test]

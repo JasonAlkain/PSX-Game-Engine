@@ -9,5 +9,5 @@ pub mod style;
 pub mod time;
 
 pub use id::{AssetId, EntityId, SceneId};
-pub use style::{RetroStyle, StyleError, StylePreset};
+pub use style::{RetroStyle, Shading, Shadows, StyleError, StylePreset, TextureFilter, Textures};
 pub use time::{FixedStep, StepPlan};

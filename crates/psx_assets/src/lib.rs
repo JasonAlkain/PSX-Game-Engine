@@ -1,7 +1,9 @@
 //! Assets and projects for PSX Engine.
 //!
 //! - [`meta`]: persistent asset IDs in `<source>.meta.json` sidecars.
-//! - [`import`]: static glTF/GLB and PNG/JPEG importers producing CPU data.
+//! - [`import`]: glTF/GLB (static and skinned, with animation clips),
+//!   PNG/JPEG and WAV/Ogg importers producing CPU data.
+//! - [`anim`]: skeletons, clips, pose sampling and blending.
 //! - [`project`]: project layout (`project.json`, `assets/`, `scenes/`),
 //!   the asset database, the editor lock, and project validation shared by
 //!   the editor and the CLI.
@@ -10,6 +12,7 @@
 //!
 //! No window or GPU dependencies.
 
+pub mod anim;
 pub mod export;
 pub mod fixtures;
 pub mod game;

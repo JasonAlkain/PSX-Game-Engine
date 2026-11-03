@@ -13,7 +13,8 @@
 //! 5. World transforms are recomputed; kinematic bodies receive targets.
 //! 6. Physics steps; dynamic bodies write their poses back.
 //! 7. Trigger events are delivered (`on_trigger`), then commands again.
-//! 8. Transforms, audio emitters and the listener are updated.
+//! 8. Animators advance (finished non-looping clips are logged), then
+//!    transforms, audio emitters and the listener are updated.
 //!
 //! An entity spawned during a phase is visible to queries after that
 //! phase; it gets `start` on the next tick. A despawned entity disappears
@@ -33,12 +34,14 @@ use psx_assets::project::{AssetDatabase, ImportedAsset, Project};
 use psx_assets::{AssetKind, ImportedModel};
 use psx_core::{AssetId, EntityId};
 use psx_scene::{
-    BodyKind, ColliderShape, Entity as SceneEntity, MeshComponent, MeshSource, Scene, Transform,
+    BodyKind, ColliderShape, Entity as SceneEntity, LightComponent, MeshComponent, MeshSource,
+    Scene, ShadowComponent, Transform,
 };
 use serde::Serialize;
 use thiserror::Error;
 
 use crate::actions::{ActionState, names};
+use crate::animation::Animator;
 use crate::api::{Behavior, Entity, Game, GameEvent, Registry, TimedEvent};
 use crate::audio::Audio;
 use crate::physics::{BodyHandle, CharacterBody, MeshTriangles, Physics, RayHit};
@@ -357,6 +360,57 @@ impl Ctx<'_> {
 
     // --- deferred commands -------------------------------------------
 
+    /// Plays `clip` on `e`'s animator, crossfading from the current pose
+    /// over `fade_secs`. Returns `false` when `e` has no animator or the
+    /// model has no such clip (nothing changes then).
+    pub fn play_animation(&mut self, e: Entity, clip: &str, fade_secs: f32, looping: bool) -> bool {
+        self.core
+            .world
+            .get::<&mut Animator>(e)
+            .is_ok_and(|mut a| a.play(clip, fade_secs, 1.0, looping, true))
+    }
+    /// Like [`Ctx::play_animation`] with a playback speed (negative plays
+    /// backwards, `-10..=10`).
+    pub fn play_animation_at(
+        &mut self,
+        e: Entity,
+        clip: &str,
+        fade_secs: f32,
+        looping: bool,
+        speed: f32,
+    ) -> bool {
+        self.core
+            .world
+            .get::<&mut Animator>(e)
+            .is_ok_and(|mut a| a.play(clip, fade_secs, speed, looping, true))
+    }
+    /// Fades `e` back to its model's rest pose.
+    pub fn stop_animation(&mut self, e: Entity, fade_secs: f32) {
+        if let Ok(mut a) = self.core.world.get::<&mut Animator>(e) {
+            a.stop(fade_secs);
+        }
+    }
+    /// The clip playing on `e` and its clip-local time in seconds.
+    pub fn animation(&self, e: Entity) -> Option<(String, f32)> {
+        let a = self.core.world.get::<&Animator>(e).ok()?;
+        a.state().map(|(c, t)| (c.to_owned(), t))
+    }
+    /// `true` while `e`'s clip is running and has not reached its end.
+    pub fn is_animation_playing(&self, e: Entity) -> bool {
+        self.core
+            .world
+            .get::<&Animator>(e)
+            .is_ok_and(|a| a.is_playing())
+    }
+    /// Clip names of `e`'s model (empty without an animator).
+    pub fn animation_clips(&self, e: Entity) -> Vec<String> {
+        self.core
+            .world
+            .get::<&Animator>(e)
+            .map(|a| a.clip_names().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
+
     /// Delivers `message` to every behaviour on `to` after this phase.
     pub fn send(&mut self, to: Entity, from: Option<Entity>, message: impl Into<String>) {
         self.core.commands.push(Cmd::Message {
@@ -438,6 +492,18 @@ impl Ctx<'_> {
     }
 }
 
+/// Translation-only interpolation between the last two ticks (rotation and
+/// scale from the current tick), enough for light and shadow placement.
+fn lerp_matrix(w: &WorldMatrix, alpha: f32) -> Mat4 {
+    let mut m = w.current;
+    let t = w
+        .previous
+        .w_axis
+        .lerp(w.current.w_axis, alpha.clamp(0.0, 1.0));
+    m.w_axis = t;
+    m
+}
+
 fn entity_name(world: &hecs::World, e: Entity) -> String {
     world
         .get::<&Name>(e)
@@ -469,6 +535,8 @@ pub struct DrawEntity {
     pub mesh: MeshComponent,
     pub current: Mat4,
     pub previous: Mat4,
+    /// Joint palette of an animated model (`None`: rest pose).
+    pub joints: Option<Vec<Mat4>>,
 }
 
 pub struct Simulation {
@@ -640,15 +708,45 @@ impl Simulation {
     pub fn draw_list(&self) -> Vec<DrawEntity> {
         self.core
             .world
-            .query::<(&Persistent, &Mesh, &WorldMatrix, Option<&Hidden>)>()
+            .query::<(
+                &Persistent,
+                &Mesh,
+                &WorldMatrix,
+                Option<&Animator>,
+                Option<&Hidden>,
+            )>()
             .iter()
-            .filter(|(_, _, _, h)| h.is_none())
-            .map(|(p, m, w, _)| DrawEntity {
+            .filter(|(_, _, _, _, h)| h.is_none())
+            .map(|(p, m, w, a, _)| DrawEntity {
                 id: p.0,
                 mesh: m.0.clone(),
                 current: w.current,
                 previous: w.previous,
+                joints: a.map(|a| a.palette().to_vec()),
             })
+            .collect()
+    }
+
+    /// Point lights of visible entities with their interpolated world
+    /// matrices (`alpha` as for [`Simulation::camera`]).
+    pub fn lights(&self, alpha: f32) -> Vec<(Mat4, LightComponent)> {
+        self.core
+            .world
+            .query::<(&Source, &WorldMatrix, Option<&Hidden>)>()
+            .iter()
+            .filter(|(_, _, h)| h.is_none())
+            .filter_map(|(s, w, _)| Some((lerp_matrix(w, alpha), s.0.light?)))
+            .collect()
+    }
+
+    /// Blob shadow casters of visible entities (see [`Simulation::lights`]).
+    pub fn shadows(&self, alpha: f32) -> Vec<(Mat4, ShadowComponent)> {
+        self.core
+            .world
+            .query::<(&Source, &WorldMatrix, Option<&Hidden>)>()
+            .iter()
+            .filter(|(_, _, h)| h.is_none())
+            .filter_map(|(s, w, _)| Some((lerp_matrix(w, alpha), s.0.shadow?)))
             .collect()
     }
 
@@ -789,6 +887,9 @@ impl Simulation {
         if let Some(m) = &e.mesh {
             builder.add(Mesh(m.clone()));
         }
+        if let Some(animator) = self.animator_for(&e) {
+            builder.add(animator);
+        }
         let handle = self.core.world.spawn(builder.build());
         self.core.ids.insert(e.id, handle);
         self.core.order_dirty = true;
@@ -804,6 +905,40 @@ impl Simulation {
             }
         }
         Some(handle)
+    }
+
+    /// The runtime animator for an entity's `animator` component, with its
+    /// initial clip started (or held). Problems become load warnings.
+    fn animator_for(&mut self, e: &SceneEntity) -> Option<Animator> {
+        let a = e.animator.as_ref()?;
+        let Some(MeshSource::Model { asset }) = e.mesh.as_ref().map(|m| &m.source) else {
+            self.warnings
+                .push(format!("\"{}\": the animator needs a model mesh", e.name));
+            return None;
+        };
+        let Some(model) = self.core.assets.model(*asset) else {
+            self.warnings.push(format!(
+                "\"{}\": model {asset} could not be loaded; animator ignored",
+                e.name
+            ));
+            return None;
+        };
+        let Some(mut animator) = Animator::new(model) else {
+            self.warnings.push(format!(
+                "\"{}\": the model has no skeleton; animator ignored",
+                e.name
+            ));
+            return None;
+        };
+        if !animator.play(&a.clip, 0.0, a.speed, a.looping, a.autoplay) {
+            self.warnings.push(format!(
+                "\"{}\": the model has no clip \"{}\" (it has: {})",
+                e.name,
+                a.clip,
+                animator.clip_names().join(", ")
+            ));
+        }
+        Some(animator)
     }
 
     /// Physics bodies and audio emitters for entities that do not have
@@ -1064,7 +1199,17 @@ impl Simulation {
             }
         }
         self.apply_commands(input);
-        // 8. transforms, audio
+        // 8. animation, transforms, audio
+        let mut finished = Vec::new();
+        for (e, animator) in self.core.world.query_mut::<(Entity, &mut Animator)>() {
+            if let Some(f) = animator.advance(TICK_DT) {
+                finished.push((e, f.clip));
+            }
+        }
+        for (e, clip) in finished {
+            let entity = entity_name(&self.core.world, e);
+            self.ctx_log(GameEvent::AnimationFinished { entity, clip });
+        }
         self.update_transforms(false);
         let emitters: Vec<(Entity, Vec3)> = self
             .core
@@ -1298,8 +1443,8 @@ impl Assets {
                 };
                 for part in &m.parts {
                     let base = out.positions.len() as u32;
-                    out.positions
-                        .extend(part.mesh.vertices.iter().map(|v| Vec3::from(v.position)));
+                    // Skinned parts collide in their rest pose.
+                    out.positions.extend(m.rest_positions(part));
                     out.indices.extend(
                         part.mesh
                             .indices

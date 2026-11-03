@@ -12,9 +12,9 @@ use std::time::Instant;
 
 use anyhow::Context as _;
 use psx_render::{
-    CompositeSlot, FrameAcquire, GpuContext, Lighting, Presenter, RenderView, RetroRenderer, wgpu,
+    CompositeSlot, FrameAcquire, GpuContext, Presenter, RenderView, RetroRenderer, wgpu,
 };
-use psx_runtime::scene_gpu::SceneResources;
+use psx_runtime::scene_gpu::{SceneResources, lighting_for_scene};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
@@ -85,6 +85,8 @@ struct Running {
     ui: UiState,
     camera: EditorCamera,
     last_frame: Instant,
+    /// Clock for the viewport's animation preview.
+    started: Instant,
     minimized: bool,
     frames: u64,
     fps_window: (Instant, u32),
@@ -155,6 +157,7 @@ impl Running {
             ui: UiState::default(),
             camera,
             last_frame: Instant::now(),
+            started: Instant::now(),
             minimized: size.width == 0 || size.height == 0,
             frames: 0,
             fps_window: (Instant::now(), 0),
@@ -319,14 +322,12 @@ impl Running {
                 .is_ok()
         });
         let world = self.session.scene.world_matrices();
-        let l = self.session.scene.settings.lighting;
-        let lighting = Lighting {
-            direction: l.direction,
-            color: l.color,
-            ambient: l.ambient,
-        };
+        let lighting = lighting_for_scene(&self.session.scene, &world);
+        let poses = self
+            .resources
+            .preview_poses(&self.session.scene, self.started.elapsed().as_secs_f32());
         {
-            let draws = self.resources.draws(&self.session.scene, &world);
+            let draws = self.resources.draws(&self.session.scene, &world, &poses);
             stats.0 = draws.len();
             stats.1 = draws.iter().map(|d| u64::from(d.triangles)).sum();
             let items: Vec<_> = draws.iter().map(|d| d.item).collect();

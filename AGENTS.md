@@ -44,6 +44,13 @@ Read this before changing the repository.
   `cargo test -p lever_room`).
 - Behaviour parameters are scalars (bool, number, string, entity); add a
   `FieldDescriptor` for each so the editor can show it.
+- PS1/PS2 differences must stay style settings read per frame: switching
+  styles may not require reimporting or re-uploading content. Renderer
+  features that differ by style get an image test in
+  `crates/psx_render/tests/ps2_images.rs`.
+- Animation state lives in `psx_game::animation::Animator`; behaviours
+  drive it through `Ctx::play_animation`/`stop_animation`. The renderer
+  only receives joint palettes.
 - Logs go to stderr; stdout of `--schema` and `--headless` is JSON only.
 - Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
   checked by the naga layout tests in `psx_render::retro`.

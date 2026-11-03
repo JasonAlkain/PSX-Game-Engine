@@ -339,6 +339,24 @@ fn schema(project: Option<&Path>) -> Result<Success, Failure> {
                 "min_distance": "full volume within (m, default 1)",
                 "max_distance": "silent beyond (m, default 20)",
             },
+            "light": {
+                "color": "[r, g, b] linear, each 0..=1 (default white)",
+                "intensity": "0..=16 (default 1)",
+                "range": "meters 0.05..=100 (default 4); falls off smoothly to zero at range",
+                "note": "point light at the entity; the style's shading.local_lights must be on; at most 8 nearest the camera are used",
+            },
+            "animator": {
+                "clip": "clip name in the entity's skinned model (`psx import` lists clips)",
+                "speed": "-10..=10 (default 1; negative plays backwards)",
+                "looping": "bool (default true)",
+                "autoplay": "bool (default true); false holds the clip's first frame until gameplay code plays a clip",
+                "note": "needs a model mesh with a skin; gameplay code switches clips with Ctx::play_animation (crossfades)",
+            },
+            "shadow": {
+                "radius": "local units 0.05..=20 (default 0.5)",
+                "offset": "[x, y, z] local, the caster's bottom (default 0)",
+                "note": "blob shadow on upward-facing lit surfaces below; the style's shadows.enabled must be on",
+            },
             "behaviors": "[{kind, params: {name: bool|number|string}}]; kinds come from the game (`psx schema --project` lists them); `psx.*` kinds are built into the engine",
         },
         "conventions": {
@@ -599,6 +617,10 @@ fn import(root: &Path, file: Option<&Path>) -> Result<Success, Failure> {
                         "triangles": m.triangle_count(),
                         "materials": m.materials.len(),
                         "textures": m.textures.len(),
+                        "joints": m.skeleton.as_ref().map(|s| s.joints.len()),
+                        "clips": m.clips.iter().map(|c| json!({
+                            "name": c.name, "duration_secs": c.duration,
+                        })).collect::<Vec<_>>(),
                     }),
                     ImportedAsset::Texture(t) => json!({"width": t.width, "height": t.height}),
                     ImportedAsset::Audio(a) => json!({
@@ -685,8 +707,18 @@ fn inspect(root: &Path, scene: Option<&Path>) -> Result<Success, Failure> {
                 ),
                 None => String::new(),
             };
+            let mut extras = String::new();
+            if let Some(a) = &e.animator {
+                extras.push_str(&format!(" [animator {}]", a.clip));
+            }
+            if e.light.is_some() {
+                extras.push_str(" [light]");
+            }
+            if e.shadow.is_some() {
+                extras.push_str(" [shadow]");
+            }
             out.push_str(&format!(
-                "{:indent$}{} \"{}\"{mesh} at {:?}\n",
+                "{:indent$}{} \"{}\"{mesh}{extras} at {:?}\n",
                 "",
                 e.id,
                 e.name,

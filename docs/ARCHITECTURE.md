@@ -22,12 +22,12 @@ psx_game: hecs, rapier3d, kira  the editor and CLI never link psx_game; they run
 | Crate | Owns today | Will own (per brief) |
 | --- | --- | --- |
 | `psx_core` | `FixedStep`; `EntityId`/`AssetId`/`SceneId` (UUID v4 newtypes); `atomic_write`; `RetroStyle` settings, presets, validation and versioned JSON file | Project configuration shared with gameplay |
-| `psx_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material, collider, audio and behaviour components, settings), versioned scene file (v2, migrates v1), `Command`/`Change`, `History` (undo/redo), command batches | Animation components (M5) |
-| `psx_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, static glTF, PNG/JPEG and WAV/OGG import, project validation, `GameTarget` (find/build/run a project's game), `export` (standalone folder), test fixtures | Cooked asset cache, animation import (M5) |
+| `psx_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material, collider, audio and behaviour components, settings), versioned scene file (v3, migrates v1 and v2), light/animator/shadow components, `Command`/`Change`, `History` (undo/redo), command batches | |
+| `psx_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, glTF (static and skinned, with clips), PNG/JPEG and WAV/OGG import, `anim` (skeletons, poses, clip sampling, blending), project validation, `GameTarget` (find/build/run a project's game), `export` (standalone folder), test fixtures | Cooked asset cache |
 | `psx_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
 | `psx_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
 | `psx_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), background export, `psx_editor` binary | More gizmos |
-| `psx_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `psx_game::main` launcher | Animation playback (M5) |
+| `psx_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `psx_game::main` launcher, `animation` (per-entity clip playback and crossfades) | |
 | `apps/psx_player` | Stock player: `psx_game::main` with only engine behaviours, for projects without a game crate | |
 | `apps/psx_cli` | `psx` binary: `new` (with game crate template), `schema`, `validate`, `import`, `inspect`, `apply`, `test-scene`, `build` | |
 
@@ -120,7 +120,8 @@ Per frame and per `RenderView`:
      one if the style enables affine mapping and the material allows it.
    - Fog: linear in true per-fragment distance from the camera (world position
      is interpolated, not distance), mixed in linear space before output.
-   - Textures: nearest sampling, repeat, no mipmaps.
+   - Textures: repeat; nearest or linear filtering and mipmaps per style
+     (Milestone 5, below).
 2. **Composite pass** (`composite.wgsl`) into the window: cleared to black
    (letterbox bars), then a full-screen triangle per slot clipped by a scissor
    rectangle. Each output pixel fetches exactly one internal texel
@@ -161,7 +162,64 @@ Saving validates first, writes `<file>.tmp`, copies the previous file to
 `<file>.bak`, then renames the temporary file into place. The sandbox loads
 `psx_style.json` from the working directory (or `--style PATH`); an invalid
 file is reported and left untouched while the PS1 preset is used.
-`RetroStyle::preset()` reports `PS1`, `Clean` or `Custom` (changed).
+`RetroStyle::preset()` reports `PS1`, `PS2`, `Clean` or `Custom` (changed).
+Style version 2 adds `textures`, `shading` and `shadows` sections; a
+version 1 file loads with the PS1 values for them.
+
+## PS2 workflow (Milestone 5)
+
+One project renders in either style without rebuilding content: everything
+that differs between PS1 and PS2 is a `RetroStyle` field, read per frame.
+
+- **Presets:** `RetroStyle::ps2()` is 640×448 with aspect fit, no vertex
+  snapping, perspective-correct UVs, full 8-bit colour without dither,
+  linear filtering with trilinear mipmaps, per-pixel lighting, blob shadows
+  at 0.6 opacity; fog and atmosphere equal the PS1 preset. The player's
+  Settings > Graphics style (As authored / PS1 / PS2) applies a preset's
+  look while keeping the scene's fog and atmosphere.
+- **Textures:** every texture uploads a full mip chain (box-filtered in
+  linear space for sRGB data). The style picks one of four samplers
+  (nearest/linear × mipmaps on/off); "mipmaps off" clamps the LOD to 0, so
+  switching never re-uploads. Bind groups: group 0 frame uniforms and the
+  sampler (one bind group per sampler variant), group 1 per-draw uniforms
+  (dynamic offset), group 2 the texture, group 3 the joint palette
+  (`array<mat4x4, 64>`, dynamic offset).
+- **Local lights:** point lights with a range, falloff `(1 − (d/r)²)²`
+  (exactly zero at the range), at most `MAX_LOCAL_LIGHTS` = 8 per view, the
+  nearest to the camera. Evaluated per vertex (PS1: the mesh's triangles
+  show in the light pools) or per pixel (PS2). `shading.local_lights` turns
+  them off.
+- **Blob shadows:** up to `MAX_BLOB_SHADOWS` = 8 casters nearest the
+  camera darken lit, upward-facing (`n.y ≥ 0.3`) surfaces below the
+  caster's bottom with a soft disc that fades with height. Unlit materials
+  are never shadowed. `shadows.enabled` and `shadows.opacity` control them.
+- **Skinning:** the vertex layout carries `JOINTS_0` (u16×4) and weights
+  (72-byte vertices). Skinned draws multiply the bind-space position and
+  normal by the weighted palette before the model matrix; vertex snapping
+  happens after skinning. Unskinned draws ignore the palette.
+
+### Skeletal animation
+
+`psx_assets::anim` holds the CPU side. A `Skeleton` lists joints parents
+first (the importer reorders the skin's joints by node depth and remaps
+`JOINTS_0`), each with a rest `Trs` and, for root joints, the transform of
+any non-joint ancestors and the import scale. `palette(pose)` returns
+`world_joint × inverse_bind` per joint. An `AnimationClip` has channels of
+STEP or LINEAR keys per joint property; sampling outside the keys holds the
+first/last key, rotations use normalised lerp. `Pose::blend` mixes two poses
+per joint (translation and scale lerp, rotation nlerp). At most 64 joints.
+
+At runtime (`psx_game::animation`) an entity with an `animator` and a
+skinned model gets an `Animator`: the current clip (time, speed, loop,
+running), an optional clip being faded out (or the rest pose), and the
+palette. It advances in tick phase 8; a non-looping clip that reaches its
+end logs `GameEvent::AnimationFinished` once. Behaviours call
+`Ctx::play_animation(e, clip, fade_secs, looping)` (crossfade from the
+current pose), `play_animation_at` (with speed), `stop_animation` (fade to
+rest), `animation`, `is_animation_playing` and `animation_clips`. The
+renderer receives the palette per draw; physics colliders built from a
+skinned model use its rest pose. The editor viewport previews autoplaying
+clips with `SceneResources::preview_poses`.
 
 ## Frame model
 
@@ -289,7 +347,8 @@ glTF support matrix:
 | POSITION, NORMAL, TEXCOORD_0, COLOR_0; u8/u16/u32 indices; normalized integer attributes | supported; normals computed when absent |
 | Node hierarchy of the default scene | baked into vertices; mirrored nodes get their winding flipped |
 | Base colour factor and texture (PNG/JPEG), alpha mode/cutoff, double-sided, emissive factor, `KHR_materials_unlit` | supported |
-| Points, lines, morph targets, skins, animations, UV1+, metallic/roughness, normal/occlusion/emissive textures, samplers | ignored with a warning |
+| One skin per model (≤ 64 joints), JOINTS_0/WEIGHTS_0 (renormalised), inverse bind matrices, animation channels on joints (translation/rotation/scale; STEP, LINEAR; CUBICSPLINE imported as LINEAR through its values with a warning) | supported (importer version 2) |
+| Points, lines, morph targets, a second skin, channels on non-joint nodes, JOINTS_1/WEIGHTS_1, UV1+, metallic/roughness, normal/occlusion/emissive textures, samplers (filtering is a style setting) | ignored with a warning |
 | Other required extensions (Draco, meshopt, …), sparse accessors | rejected |
 | Out-of-range buffers/views/accessors/indices, non-finite values, `http(s)` URIs, paths outside the project | rejected |
 
@@ -408,7 +467,7 @@ device. Pausing pauses the effects track with a short fade.
 `psx_game::player` owns the window: title screen (New game / Continue /
 Settings / Quit), HUD (crosshair, interaction prompt, messages), pause
 menu, settings (volumes, sensitivity, invert-Y, fullscreen, vsync, key
-rebinding) and the finished screen. Menus are labelled "PS1-style MVP".
+rebinding, graphics style) and the finished screen.
 Settings (`psx_player_settings` v1) live in the OS config folder and saves
 (`psx_save` v1: scene path + `GameState`) in the OS data folder, under
 `PSX Engine/<game title slug>`. Writes are atomic; a damaged file is
@@ -427,6 +486,19 @@ mode, and is deleted when the game finishes.
 | `psx_run_report` v1 | stdout or `--report` | Ticks, outcome, events, warnings, camera, `passed`, `failures` |
 | `psx_player_settings` v1, `psx_save` v1 | OS user folders | See above |
 | `psx_export` v1 | `export.json` in an export folder | Marks a folder that `psx build --replace` may overwrite |
+
+### Formats changed in Milestone 5
+
+| Format | Notes |
+| --- | --- |
+| `psx_scene` v3 | Optional `light` (`color` linear 0..1, `intensity` 0..16, `range` 0.05..100 m), `animator` (`clip`, `speed` −10..10, `looping`, `autoplay`; needs a model mesh) and `shadow` (`radius`, `offset`) entity fields; the style inside gains the v2 sections. v1 and v2 files load unchanged |
+| `psx_style` v2 | `textures {filter: nearest|linear, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}`; v1 files get PS1 values |
+| Importer version 2 | glTF skins and clips; `psx import` reports `joints` and `clips` |
+| `psx_player_settings` v1 | Adds `graphics_style` (`scene`, `ps1`, `ps2`), defaulted when absent |
+| Command batches v1 | New ops `set_light`, `set_animator`, `set_shadow` |
+
+`psx validate` warns when an animator names a clip the model does not have
+(listing the clips) or the model has no skin.
 
 ### Play mode and export
 

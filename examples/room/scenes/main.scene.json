@@ -1,10 +1,10 @@
 {
   "format": "psx_scene",
-  "version": 2,
+  "version": 3,
   "scene": {
     "id": "6da14d69-ca00-4d56-be46-f873b9126ad0",
     "name": "Main",
-    "revision": 3,
+    "revision": 4,
     "settings": {
       "style": {
         "low_res": {
@@ -49,6 +49,18 @@
           ],
           "near": 0.05,
           "far": 60.0
+        },
+        "textures": {
+          "filter": "nearest",
+          "mipmaps": false
+        },
+        "shading": {
+          "per_pixel": false,
+          "local_lights": true
+        },
+        "shadows": {
+          "enabled": true,
+          "opacity": 0.55
         }
       },
       "lighting": {
@@ -473,7 +485,15 @@
               "text": "Shipping label: 'Door controls moved to the lever by the north door.'"
             }
           }
-        ]
+        ],
+        "shadow": {
+          "radius": 0.7,
+          "offset": [
+            0.0,
+            -0.5,
+            0.0
+          ]
+        }
       },
       {
         "id": "00000000-0000-4000-8000-000000000031",
@@ -610,6 +630,14 @@
           },
           "body": "dynamic",
           "mass": 2.0
+        },
+        "shadow": {
+          "radius": 0.45,
+          "offset": [
+            0.0,
+            -0.5,
+            0.0
+          ]
         }
       },
       {
@@ -1244,7 +1272,16 @@
               "text": "An old generator, humming steadily. The air ahead smells fresher."
             }
           }
-        ]
+        ],
+        "light": {
+          "color": [
+            1.0,
+            0.3,
+            0.15
+          ],
+          "intensity": 1.0,
+          "range": 2.5
+        }
       },
       {
         "id": "00000000-0000-4000-8000-000000000061",
@@ -1281,6 +1318,15 @@
             ],
             "lit": false
           }
+        },
+        "light": {
+          "color": [
+            0.4,
+            1.0,
+            0.55
+          ],
+          "intensity": 1.5,
+          "range": 4.0
         }
       },
       {
@@ -1455,6 +1501,97 @@
             }
           }
         ]
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000080",
+        "name": "Caretaker",
+        "transform": {
+          "translation": [
+            3.6,
+            0.0,
+            0.6
+          ],
+          "rotation": [
+            0.0,
+            -0.70710677,
+            0.0,
+            0.70710677
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "mesh": {
+          "source": {
+            "kind": "model",
+            "asset": "b37004fb-70bf-442d-b45e-ce1e12f9190a"
+          }
+        },
+        "collider": {
+          "shape": {
+            "kind": "box",
+            "size": [
+              0.6,
+              1.85,
+              0.5
+            ]
+          },
+          "offset": [
+            0.0,
+            0.925,
+            0.0
+          ],
+          "body": "static"
+        },
+        "behaviors": [
+          {
+            "kind": "room.caretaker",
+            "params": {
+              "text": "Evening. The lever's by the door, and mind the hum down the corridor."
+            }
+          }
+        ],
+        "animator": {
+          "clip": "idle",
+          "looping": true,
+          "autoplay": true
+        },
+        "shadow": {
+          "radius": 0.4
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000081",
+        "name": "Ceiling lamp",
+        "transform": {
+          "translation": [
+            0.0,
+            2.7,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "light": {
+          "color": [
+            1.0,
+            0.82,
+            0.55
+          ],
+          "intensity": 1.2,
+          "range": 7.0
+        }
       }
     ]
   }

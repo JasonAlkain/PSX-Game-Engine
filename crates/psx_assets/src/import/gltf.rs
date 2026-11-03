@@ -1,5 +1,5 @@
-//! Static glTF 2.0 import (`.gltf` with external or embedded buffers, and
-//! binary `.glb`).
+//! glTF 2.0 import (`.gltf` with external or embedded buffers, and binary
+//! `.glb`).
 //!
 //! Supported: triangle lists, strips and fans; POSITION, NORMAL (computed
 //! when absent), TEXCOORD_0, COLOR_0; u8/u16/u32 indices; node transforms
@@ -8,10 +8,21 @@
 //! external), alpha mode and cutoff, double-sided, emissive factor, and
 //! `KHR_materials_unlit`.
 //!
+//! Skinning and animation: one skin per model (up to
+//! [`MAX_SKIN_JOINTS`] joints) with JOINTS_0/WEIGHTS_0 (weights are
+//! renormalised), inverse bind matrices (identity when absent), and
+//! animation clips whose channels target the skin's joints (translation,
+//! rotation, scale; STEP and LINEAR; CUBICSPLINE keys are imported as
+//! LINEAR through their values, with a warning). Skinned primitives keep
+//! their bind-space vertices; the node transform of a skinned mesh is
+//! ignored, as the glTF specification requires.
+//!
 //! Reported and ignored (import still succeeds, with a warning): points and
-//! lines, morph targets, skins and animations, UV1+, metallic/roughness,
+//! lines, morph targets and weight animation, a second skin (those meshes
+//! are drawn unskinned in their node pose), channels targeting non-joint
+//! nodes, JOINTS_1/WEIGHTS_1, UV1+, metallic/roughness,
 //! normal/occlusion/emissive textures, texture transforms on non-required
-//! extensions, samplers (the engine samples nearest without mipmaps).
+//! extensions, samplers (filtering is a style setting).
 //!
 //! Rejected (import fails, previous import is kept by callers): required
 //! extensions other than `KHR_materials_unlit` (e.g. Draco or meshopt
@@ -26,7 +37,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use base64::Engine as _;
-use glam::{Mat3, Mat4, Vec3};
+use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
 use gltf::accessor::{DataType, Dimensions};
 use gltf::mesh::Mode;
 use gltf::{Accessor, Document, Semantic};
@@ -36,6 +47,9 @@ use super::texture::decode_image;
 use super::{
     CpuMesh, ImportError, ImportedMaterial, ImportedModel, MeshVertex, ModelPart, guarded,
     read_source, resolve_reference,
+};
+use crate::anim::{
+    AnimationClip, Channel, ChannelProperty, Interpolation, Joint, MAX_SKIN_JOINTS, Skeleton, Trs,
 };
 use crate::meta::ImportSettings;
 
@@ -98,7 +112,12 @@ impl<'a> Importer<'a> {
         };
         importer.check_views()?;
         let (mut materials, textures) = importer.materials(boundary)?;
-        let parts = importer.parts(materials.len())?;
+        let skin = importer.skin()?;
+        let parts = importer.parts(materials.len(), skin.as_ref())?;
+        let clips = match &skin {
+            Some(skin) => importer.clips(skin)?,
+            None => Vec::new(),
+        };
         if parts.iter().any(|p| p.material == materials.len()) {
             materials.push(ImportedMaterial::default());
         }
@@ -107,11 +126,14 @@ impl<'a> Importer<'a> {
                 path: path.to_path_buf(),
             });
         }
-        importer.warn_unsupported_features();
+        importer.warn_unsupported_features(skin.is_some());
+        let skinned = parts.iter().any(|p| p.skinned);
         Ok(ImportedModel {
             parts,
             materials,
             textures,
+            skeleton: skin.filter(|_| skinned).map(|s| s.skeleton),
+            clips: if skinned { clips } else { Vec::new() },
             warnings: importer.warnings.into_inner(),
         })
     }
@@ -206,6 +228,31 @@ impl<'a> Importer<'a> {
             out.push(v);
         }
         Ok(out)
+    }
+
+    /// Reads JOINTS_n: four unsigned u8/u16 indices per vertex.
+    fn read_joints(&self, accessor: &Accessor<'_>) -> Result<Vec<[u16; 4]>, ImportError> {
+        let label = format!("JOINTS_0 (accessor {})", accessor.index());
+        if accessor.dimensions() != Dimensions::Vec4 {
+            return Err(self.malformed(label, "joints must be VEC4"));
+        }
+        let ty = accessor.data_type();
+        if !matches!(ty, DataType::U8 | DataType::U16) || accessor.normalized() {
+            return Err(self.malformed(
+                label,
+                format!("joint component type {ty:?} must be unsigned byte or short"),
+            ));
+        }
+        let raw = self.read_raw(accessor, &label)?;
+        Ok(raw
+            .into_iter()
+            .map(|b| {
+                std::array::from_fn(|c| match ty {
+                    DataType::U8 => u16::from(b[c]),
+                    _ => u16::from_le_bytes([b[c * 2], b[c * 2 + 1]]),
+                })
+            })
+            .collect())
     }
 
     fn read_indices(&self, accessor: &Accessor<'_>) -> Result<Vec<u32>, ImportError> {
@@ -403,7 +450,11 @@ impl<'a> Importer<'a> {
         Ok(texture)
     }
 
-    fn parts(&self, material_count: usize) -> Result<Vec<ModelPart>, ImportError> {
+    fn parts(
+        &self,
+        material_count: usize,
+        skin: Option<&SkinImport>,
+    ) -> Result<Vec<ModelPart>, ImportError> {
         // Default scene, else the first, else every mesh untransformed.
         let roots: Vec<(gltf::Node<'_>, Mat4)> = match self
             .document
@@ -414,11 +465,12 @@ impl<'a> Importer<'a> {
             None => Vec::new(),
         };
         let scale = Mat4::from_scale(Vec3::splat(self.settings.scale));
-        let mut instances: Vec<(gltf::Mesh<'_>, Mat4, String)> = Vec::new();
+        // (mesh, world, name, skinned)
+        let mut instances: Vec<(gltf::Mesh<'_>, Mat4, String, bool)> = Vec::new();
         if roots.is_empty() {
             for mesh in self.document.meshes() {
                 let name = mesh.name().unwrap_or("mesh").to_owned();
-                instances.push((mesh, scale, name));
+                instances.push((mesh, scale, name, false));
             }
         } else {
             let mut stack: Vec<(gltf::Node<'_>, Mat4, usize)> =
@@ -436,19 +488,25 @@ impl<'a> Importer<'a> {
                     );
                 }
                 let world = parent * local;
-                if node.skin().is_some() {
-                    self.warnings.borrow_mut().push(format!(
-                        "node {}: skinning is not supported yet; drawn in bind pose",
-                        node.index()
-                    ));
-                }
+                let skinned = match (node.skin(), skin) {
+                    (Some(s), Some(used)) if s.index() == used.index => node.mesh().is_some(),
+                    (Some(_), _) => {
+                        self.warnings.borrow_mut().push(format!(
+                            "node {}: uses a second skin; only one skin per model is supported, \
+                             so it is drawn unskinned",
+                            node.index()
+                        ));
+                        false
+                    }
+                    (None, _) => false,
+                };
                 if let Some(mesh) = node.mesh() {
                     let name = node
                         .name()
                         .or(mesh.name())
                         .map(str::to_owned)
                         .unwrap_or_else(|| format!("node {}", node.index()));
-                    instances.push((mesh, world, name));
+                    instances.push((mesh, world, name, skinned));
                 }
                 for child in node.children() {
                     stack.push((child, world, depth + 1));
@@ -459,14 +517,15 @@ impl<'a> Importer<'a> {
         }
 
         let mut parts = Vec::new();
-        for (mesh, world, name) in instances {
+        for (mesh, world, name, skinned) in instances {
+            let remap = skin.filter(|_| skinned).map(|s| s.remap.as_slice());
             for (p, primitive) in mesh.primitives().enumerate() {
                 let part_name = if mesh.primitives().len() > 1 {
                     format!("{name}.{p}")
                 } else {
                     name.clone()
                 };
-                if let Some(cpu) = self.primitive(&primitive, world, &part_name)? {
+                if let Some(cpu) = self.primitive(&primitive, world, &part_name, remap)? {
                     let material = match primitive.material().index() {
                         Some(i) if i < material_count => i,
                         Some(_) => {
@@ -478,6 +537,7 @@ impl<'a> Importer<'a> {
                         name: part_name,
                         mesh: cpu,
                         material,
+                        skinned: remap.is_some(),
                     });
                 }
             }
@@ -485,12 +545,21 @@ impl<'a> Importer<'a> {
         Ok(parts)
     }
 
+    /// `remap` (skin joint index → skeleton index) makes this a skinned
+    /// primitive: vertices stay in bind space and carry joints/weights.
     fn primitive(
         &self,
         primitive: &gltf::Primitive<'_>,
         world: Mat4,
         name: &str,
+        remap: Option<&[u16]>,
     ) -> Result<Option<CpuMesh>, ImportError> {
+        // Skinned vertices are positioned by the joints, not the node.
+        let world = if remap.is_some() {
+            Mat4::IDENTITY
+        } else {
+            world
+        };
         let mode = primitive.mode();
         if matches!(
             mode,
@@ -513,6 +582,8 @@ impl<'a> Importer<'a> {
                 | Semantic::TexCoords(0)
                 | Semantic::Colors(0) => {}
                 Semantic::Tangents => {}
+                Semantic::Joints(0) | Semantic::Weights(0) if remap.is_some() => {}
+                Semantic::Joints(0) | Semantic::Weights(0) => {}
                 other => self
                     .warnings
                     .borrow_mut()
@@ -559,6 +630,75 @@ impl<'a> Importer<'a> {
             }
             None => None,
         };
+        let skin_data = match remap {
+            Some(remap) => {
+                let (Some(j), Some(w)) = (
+                    primitive.get(&Semantic::Joints(0)),
+                    primitive.get(&Semantic::Weights(0)),
+                ) else {
+                    return Err(self.malformed(
+                        name,
+                        "skinned primitive needs JOINTS_0 and WEIGHTS_0 attributes",
+                    ));
+                };
+                let joints = self.read_joints(&j)?;
+                check_len(joints.len(), "JOINTS_0")?;
+                let weights = self.read_floats(&w, &[Dimensions::Vec4], "WEIGHTS_0")?;
+                check_len(weights.len(), "WEIGHTS_0")?;
+                let mut fixed = 0usize;
+                let mut data = Vec::with_capacity(count);
+                for (i, (js, ws)) in joints.iter().zip(&weights).enumerate() {
+                    let mut out_j = [0u16; 4];
+                    let mut out_w = [0.0f32; 4];
+                    for c in 0..4 {
+                        let w = ws[c].max(0.0);
+                        if w == 0.0 {
+                            continue;
+                        }
+                        let Some(&mapped) = remap.get(usize::from(js[c])) else {
+                            return Err(self.malformed(
+                                name,
+                                format!(
+                                    "vertex {i} uses joint {} but the skin has {}",
+                                    js[c],
+                                    remap.len()
+                                ),
+                            ));
+                        };
+                        out_j[c] = mapped;
+                        out_w[c] = w;
+                    }
+                    let total: f32 = out_w.iter().sum();
+                    if total > 1.0e-6 {
+                        out_w = out_w.map(|w| w / total);
+                    } else {
+                        fixed += 1;
+                        out_j = [remap.first().copied().unwrap_or(0), 0, 0, 0];
+                        out_w = [1.0, 0.0, 0.0, 0.0];
+                    }
+                    data.push((out_j, out_w));
+                }
+                if fixed > 0 {
+                    self.warnings.borrow_mut().push(format!(
+                        "{name}: {fixed} vertices had no joint weight; bound to the first joint"
+                    ));
+                }
+                if primitive.get(&Semantic::Joints(1)).is_some() {
+                    self.warnings.borrow_mut().push(format!(
+                        "{name}: JOINTS_1/WEIGHTS_1 are ignored (at most 4 joints per vertex)"
+                    ));
+                }
+                Some(data)
+            }
+            None => {
+                if primitive.get(&Semantic::Joints(0)).is_some() {
+                    self.warnings.borrow_mut().push(format!(
+                        "{name}: JOINTS_0/WEIGHTS_0 ignored (the mesh is not skinned by the model's skin)"
+                    ));
+                }
+                None
+            }
+        };
         let raw_indices = match primitive.indices() {
             Some(a) => self.read_indices(&a)?,
             None => (0..count as u32).collect(),
@@ -589,11 +729,14 @@ impl<'a> Importer<'a> {
                     .as_ref()
                     .map(|n| (normal_matrix * Vec3::from_slice(&n[i][..3])).normalize_or_zero())
                     .unwrap_or(Vec3::ZERO);
+                let (joints, weights) = skin_data.as_ref().map_or(([0; 4], [0.0; 4]), |d| d[i]);
                 MeshVertex {
                     position: p.to_array(),
                     normal: n.to_array(),
                     uv: uvs.as_ref().map_or([0.0, 0.0], |u| [u[i][0], u[i][1]]),
                     color: colors.as_ref().map_or([1.0; 4], |c| c[i]),
+                    joints,
+                    weights,
                 }
             })
             .collect();
@@ -615,24 +758,345 @@ impl<'a> Importer<'a> {
         Ok(Some(CpuMesh { vertices, indices }))
     }
 
-    fn warn_unsupported_features(&self) {
-        if self.document.animations().len() > 0 {
-            self.warnings
-                .borrow_mut()
-                .push("animations are not supported yet; ignored".to_owned());
-        }
-        if self.document.skins().len() > 0
-            && !self
-                .warnings
-                .borrow()
-                .iter()
-                .any(|w| w.contains("skinning"))
-        {
-            self.warnings
-                .borrow_mut()
-                .push("skins are not supported yet; ignored".to_owned());
+    fn warn_unsupported_features(&self, has_skin: bool) {
+        if !has_skin && self.document.animations().len() > 0 {
+            self.warnings.borrow_mut().push(
+                "animations are ignored: only skinned (joint) animation is supported".to_owned(),
+            );
         }
     }
+
+    /// Parent node of every node that has one.
+    fn parents(&self) -> HashMap<usize, usize> {
+        let mut parents = HashMap::new();
+        for node in self.document.nodes() {
+            for child in node.children() {
+                parents.insert(child.index(), node.index());
+            }
+        }
+        parents
+    }
+
+    /// Rest-pose model-space transform of `node` (import scale included).
+    fn node_global(
+        &self,
+        node: usize,
+        parents: &HashMap<usize, usize>,
+    ) -> Result<Mat4, ImportError> {
+        let nodes: Vec<gltf::Node<'_>> = self.document.nodes().collect();
+        let mut m = Mat4::IDENTITY;
+        let mut current = Some(node);
+        let mut depth = 0;
+        while let Some(n) = current {
+            depth += 1;
+            if depth > MAX_NODE_DEPTH {
+                return Err(self.malformed("node hierarchy", "is too deep or cyclic"));
+            }
+            let local = Mat4::from_cols_array_2d(&nodes[n].transform().matrix());
+            m = local * m;
+            current = parents.get(&n).copied();
+        }
+        Ok(Mat4::from_scale(Vec3::splat(self.settings.scale)) * m)
+    }
+
+    /// The skin used by the first skinned mesh node of the scene (or of the
+    /// document), as a skeleton with parent-first joints.
+    fn skin(&self) -> Result<Option<SkinImport>, ImportError> {
+        let Some(skin) = self
+            .document
+            .nodes()
+            .filter(|n| n.mesh().is_some())
+            .find_map(|n| n.skin())
+        else {
+            return Ok(None);
+        };
+        let what = format!("skin {}", skin.index());
+        let joint_nodes: Vec<usize> = skin.joints().map(|n| n.index()).collect();
+        if joint_nodes.is_empty() {
+            return Err(self.malformed(what, "has no joints"));
+        }
+        if joint_nodes.len() > MAX_SKIN_JOINTS {
+            return Err(self.malformed(
+                what,
+                format!(
+                    "has {} joints; at most {MAX_SKIN_JOINTS} are supported",
+                    joint_nodes.len()
+                ),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        if !joint_nodes.iter().all(|n| seen.insert(*n)) {
+            return Err(self.malformed(what, "lists a joint twice"));
+        }
+        let inverse_bind: Vec<Mat4> = match skin.inverse_bind_matrices() {
+            Some(acc) => {
+                if acc.dimensions() != Dimensions::Mat4 || acc.data_type() != DataType::F32 {
+                    return Err(self.malformed(&what, "inverseBindMatrices must be float MAT4"));
+                }
+                let raw = self.read_raw(&acc, &what)?;
+                if raw.len() != joint_nodes.len() {
+                    return Err(self.malformed(
+                        &what,
+                        format!(
+                            "has {} inverse bind matrices for {} joints",
+                            raw.len(),
+                            joint_nodes.len()
+                        ),
+                    ));
+                }
+                let mut out = Vec::with_capacity(raw.len());
+                for b in raw {
+                    let cols: [f32; 16] = std::array::from_fn(|i| {
+                        f32::from_le_bytes([b[i * 4], b[i * 4 + 1], b[i * 4 + 2], b[i * 4 + 3]])
+                    });
+                    let m = Mat4::from_cols_array(&cols);
+                    if !m.is_finite() {
+                        return Err(self.malformed(&what, "inverse bind matrix is not finite"));
+                    }
+                    out.push(m);
+                }
+                out
+            }
+            None => vec![Mat4::IDENTITY; joint_nodes.len()],
+        };
+
+        let parents = self.parents();
+        let depth_of = |mut n: usize| {
+            let mut d = 0usize;
+            while let Some(&p) = parents.get(&n) {
+                d += 1;
+                if d > MAX_NODE_DEPTH {
+                    break;
+                }
+                n = p;
+            }
+            d
+        };
+        // Parent-first order: sort skin joints by depth in the node tree.
+        let mut order: Vec<usize> = (0..joint_nodes.len()).collect();
+        order.sort_by_key(|&i| depth_of(joint_nodes[i]));
+        let mut remap = vec![0u16; joint_nodes.len()];
+        for (ours, &skin_index) in order.iter().enumerate() {
+            remap[skin_index] = ours as u16;
+        }
+        let node_to_joint: HashMap<usize, usize> = order
+            .iter()
+            .enumerate()
+            .map(|(ours, &skin_index)| (joint_nodes[skin_index], ours))
+            .collect();
+        let nodes: Vec<gltf::Node<'_>> = self.document.nodes().collect();
+        let mut joints = Vec::with_capacity(order.len());
+        let mut detached = 0usize;
+        for &skin_index in &order {
+            let node = &nodes[joint_nodes[skin_index]];
+            let (t, r, sc) = node.transform().decomposed();
+            let rest = Trs {
+                translation: Vec3::from(t),
+                rotation: Quat::from_array(r).normalize(),
+                scale: Vec3::from(sc),
+            };
+            if !(rest.translation.is_finite()
+                && rest.rotation.is_finite()
+                && rest.scale.is_finite())
+            {
+                return Err(
+                    self.malformed(format!("node {}", node.index()), "transform is not finite")
+                );
+            }
+            let parent_node = parents.get(&node.index()).copied();
+            let parent = parent_node.and_then(|p| node_to_joint.get(&p).copied());
+            let base = match (parent, parent_node) {
+                (Some(_), _) => Mat4::IDENTITY,
+                (None, Some(p)) => {
+                    if self.has_joint_ancestor(p, &parents, &node_to_joint) {
+                        detached += 1;
+                    }
+                    self.node_global(p, &parents)?
+                }
+                (None, None) => Mat4::from_scale(Vec3::splat(self.settings.scale)),
+            };
+            joints.push(Joint {
+                name: node
+                    .name()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("joint {}", node.index())),
+                parent,
+                rest,
+                base,
+            });
+        }
+        if detached > 0 {
+            self.warnings.borrow_mut().push(format!(
+                "{what}: {detached} joints sit below non-joint nodes inside the skeleton; they \
+                 follow their parent joints only in the rest pose"
+            ));
+        }
+        let inverse_bind = order.iter().map(|&i| inverse_bind[i]).collect();
+        Ok(Some(SkinImport {
+            index: skin.index(),
+            remap,
+            node_to_joint,
+            skeleton: Skeleton {
+                joints,
+                inverse_bind,
+            },
+        }))
+    }
+
+    fn has_joint_ancestor(
+        &self,
+        mut n: usize,
+        parents: &HashMap<usize, usize>,
+        joints: &HashMap<usize, usize>,
+    ) -> bool {
+        for _ in 0..MAX_NODE_DEPTH {
+            if joints.contains_key(&n) {
+                return true;
+            }
+            match parents.get(&n) {
+                Some(&p) => n = p,
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Animation clips whose channels target `skin`'s joints.
+    fn clips(&self, skin: &SkinImport) -> Result<Vec<AnimationClip>, ImportError> {
+        let mut clips: Vec<AnimationClip> = Vec::new();
+        let mut cubic = false;
+        let mut ignored = 0usize;
+        for anim in self.document.animations() {
+            let base_name = anim
+                .name()
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("animation {}", anim.index()));
+            let mut name = base_name.clone();
+            let mut n = 2;
+            while clips.iter().any(|c| c.name == name) {
+                name = format!("{base_name} ({n})");
+                n += 1;
+            }
+            let what = format!("animation `{name}`");
+            let mut channels = Vec::new();
+            for channel in anim.channels() {
+                let target = channel.target();
+                let Some(&joint) = skin.node_to_joint.get(&target.node().index()) else {
+                    ignored += 1;
+                    continue;
+                };
+                let property = match target.property() {
+                    gltf::animation::Property::Translation => ChannelProperty::Translation,
+                    gltf::animation::Property::Rotation => ChannelProperty::Rotation,
+                    gltf::animation::Property::Scale => ChannelProperty::Scale,
+                    gltf::animation::Property::MorphTargetWeights => {
+                        ignored += 1;
+                        continue;
+                    }
+                };
+                let sampler = channel.sampler();
+                let times: Vec<f32> = self
+                    .read_floats(&sampler.input(), &[Dimensions::Scalar], "animation input")?
+                    .into_iter()
+                    .map(|v| v[0])
+                    .collect();
+                if times.is_empty() {
+                    return Err(self.malformed(&what, "a sampler has no keyframes"));
+                }
+                if times[0] < 0.0 || times.windows(2).any(|w| w[1] < w[0]) {
+                    return Err(
+                        self.malformed(&what, "keyframe times must be non-negative and increasing")
+                    );
+                }
+                let dims: &[Dimensions] = match property {
+                    ChannelProperty::Rotation => &[Dimensions::Vec4],
+                    _ => &[Dimensions::Vec3],
+                };
+                let raw = self.read_floats(&sampler.output(), dims, "animation output")?;
+                let (interpolation, values): (Interpolation, Vec<Vec4>) = match sampler
+                    .interpolation()
+                {
+                    gltf::animation::Interpolation::Step => (
+                        Interpolation::Step,
+                        raw.into_iter().map(Vec4::from).collect(),
+                    ),
+                    gltf::animation::Interpolation::Linear => (
+                        Interpolation::Linear,
+                        raw.into_iter().map(Vec4::from).collect(),
+                    ),
+                    gltf::animation::Interpolation::CubicSpline => {
+                        cubic = true;
+                        if raw.len() != times.len() * 3 {
+                            return Err(self.malformed(
+                                    &what,
+                                    format!(
+                                        "cubic spline sampler has {} values for {} keys (expected 3 per key)",
+                                        raw.len(),
+                                        times.len()
+                                    ),
+                                ));
+                        }
+                        (
+                            Interpolation::Linear,
+                            raw.chunks_exact(3).map(|k| Vec4::from(k[1])).collect(),
+                        )
+                    }
+                };
+                if values.len() != times.len() {
+                    return Err(self.malformed(
+                        &what,
+                        format!(
+                            "sampler has {} values for {} keyframes",
+                            values.len(),
+                            times.len()
+                        ),
+                    ));
+                }
+                channels.push(Channel {
+                    joint,
+                    property,
+                    interpolation,
+                    times,
+                    values,
+                });
+            }
+            if channels.is_empty() {
+                continue;
+            }
+            let duration = channels
+                .iter()
+                .filter_map(|c| c.times.last().copied())
+                .fold(0.0f32, f32::max);
+            clips.push(AnimationClip {
+                name,
+                duration,
+                channels,
+            });
+        }
+        if cubic {
+            self.warnings.borrow_mut().push(
+                "cubic spline animation keys are played back linearly (tangents ignored)".into(),
+            );
+        }
+        if ignored > 0 {
+            self.warnings.borrow_mut().push(format!(
+                "{ignored} animation channels target nodes that are not joints of the skin \
+                 (or morph weights) and are ignored"
+            ));
+        }
+        Ok(clips)
+    }
+}
+
+/// The skin chosen for a model.
+struct SkinImport {
+    /// glTF skin index.
+    index: usize,
+    /// glTF skin joint index → skeleton joint index.
+    remap: Vec<u16>,
+    /// glTF node index → skeleton joint index.
+    node_to_joint: HashMap<usize, usize>,
+    skeleton: Skeleton,
 }
 
 /// Converts strips and fans to a triangle list; drops a trailing partial

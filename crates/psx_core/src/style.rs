@@ -19,7 +19,18 @@ use thiserror::Error;
 pub const STYLE_FORMAT: &str = "psx_style";
 /// Current style file version. Older versions are migrated on load; newer
 /// versions are rejected.
-pub const STYLE_VERSION: u32 = 1;
+///
+/// - 1: Milestone 2 effects.
+/// - 2: adds `textures`, `shading` and `shadows`. Version 1 files load with
+///   the PS1 values for those sections (nearest, no mipmaps, per-vertex
+///   lighting, blob shadows), which is how version 1 rendered.
+pub const STYLE_VERSION: u32 = 2;
+
+/// Most local (point) lights applied to one view. Further lights are
+/// dropped, nearest to the camera first kept.
+pub const MAX_LOCAL_LIGHTS: usize = 8;
+/// Most blob shadows drawn in one view (nearest to the camera kept).
+pub const MAX_BLOB_SHADOWS: usize = 8;
 
 /// Largest internal render dimension accepted by validation. The renderer
 /// also checks the device's texture limit.
@@ -40,6 +51,82 @@ pub struct RetroStyle {
     pub dither: Dither,
     pub fog: Fog,
     pub atmosphere: Atmosphere,
+    /// Added in version 2; version 1 files get the PS1 values.
+    #[serde(default = "Textures::ps1")]
+    pub textures: Textures,
+    #[serde(default = "Shading::ps1")]
+    pub shading: Shading,
+    #[serde(default = "Shadows::ps1")]
+    pub shadows: Shadows,
+}
+
+/// How textures are sampled. Every texture is uploaded with a full mip
+/// chain, so switching this never needs content to be rebuilt.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Textures {
+    pub filter: TextureFilter,
+    /// Use smaller mip levels for distant or angled surfaces.
+    pub mipmaps: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextureFilter {
+    /// Crisp texels (PS1).
+    Nearest,
+    /// Bilinear between texels (and between mip levels with `mipmaps`).
+    Linear,
+}
+
+impl Textures {
+    pub fn ps1() -> Self {
+        Self {
+            filter: TextureFilter::Nearest,
+            mipmaps: false,
+        }
+    }
+}
+
+/// Where lighting is evaluated.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Shading {
+    /// Light every pixel instead of every vertex. Per-vertex lighting gives
+    /// the PS1 look (local lights show the mesh's triangles); per-pixel
+    /// gives smooth PS2-era pools of light.
+    pub per_pixel: bool,
+    /// Apply local (point) lights placed in the scene, up to
+    /// [`MAX_LOCAL_LIGHTS`] per view.
+    pub local_lights: bool,
+}
+
+impl Shading {
+    pub fn ps1() -> Self {
+        Self {
+            per_pixel: false,
+            local_lights: true,
+        }
+    }
+}
+
+/// Blob shadows: soft dark discs under entities marked as shadow casters,
+/// drawn on upward-facing lit surfaces below them.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Shadows {
+    pub enabled: bool,
+    /// 0 = invisible, 1 = black at the centre.
+    pub opacity: f32,
+}
+
+impl Shadows {
+    pub fn ps1() -> Self {
+        Self {
+            enabled: true,
+            opacity: 0.55,
+        }
+    }
 }
 
 /// Render the world into an offscreen image of this size, then upscale it.
@@ -132,6 +219,9 @@ pub struct Atmosphere {
 pub enum StylePreset {
     /// PS1-inspired defaults: 320×240, snapping, affine UVs, 5-bit colour, dither.
     Ps1,
+    /// PS2-inspired: 640×448, no snapping or affine UVs, full colour,
+    /// filtered mipmapped textures, per-pixel lighting.
+    Ps2,
     /// Every retro effect off at native resolution; used as a reference image.
     Clean,
     Custom,
@@ -141,6 +231,7 @@ impl StylePreset {
     pub fn label(self) -> &'static str {
         match self {
             StylePreset::Ps1 => "PS1",
+            StylePreset::Ps2 => "PS2",
             StylePreset::Clean => "Clean",
             StylePreset::Custom => "Custom",
         }
@@ -186,7 +277,36 @@ impl RetroStyle {
                 near: 0.05,
                 far: 60.0,
             },
+            textures: Textures::ps1(),
+            shading: Shading::ps1(),
+            shadows: Shadows::ps1(),
         }
+    }
+
+    /// The PS2 preset. Scene parameters (fog, atmosphere) match
+    /// [`RetroStyle::ps1`] so one scene reads well in both.
+    pub fn ps2() -> Self {
+        let mut s = Self::ps1();
+        s.low_res = LowRes {
+            enabled: true,
+            width: 640,
+            height: 448,
+        };
+        s.presentation.scaling = ScaleMode::Fit;
+        s.vertex_snap.enabled = false;
+        s.affine_uv.enabled = false;
+        s.color_reduction = ColorReduction {
+            enabled: false,
+            bits: 8,
+        };
+        s.dither.enabled = false;
+        s.textures = Textures {
+            filter: TextureFilter::Linear,
+            mipmaps: true,
+        };
+        s.shading.per_pixel = true;
+        s.shadows.opacity = 0.6;
+        s
     }
 
     /// Same scene parameters as [`RetroStyle::ps1`] with every retro effect
@@ -205,6 +325,7 @@ impl RetroStyle {
     pub fn from_preset(preset: StylePreset) -> Option<Self> {
         match preset {
             StylePreset::Ps1 => Some(Self::ps1()),
+            StylePreset::Ps2 => Some(Self::ps2()),
             StylePreset::Clean => Some(Self::clean()),
             StylePreset::Custom => None,
         }
@@ -214,6 +335,8 @@ impl RetroStyle {
     pub fn preset(&self) -> StylePreset {
         if *self == Self::ps1() {
             StylePreset::Ps1
+        } else if *self == Self::ps2() {
+            StylePreset::Ps2
         } else if *self == Self::clean() {
             StylePreset::Clean
         } else {
@@ -244,6 +367,7 @@ impl RetroStyle {
         for (field, v) in [
             ("vertex_snap.strength", self.vertex_snap.strength),
             ("dither.strength", self.dither.strength),
+            ("shadows.opacity", self.shadows.opacity),
         ] {
             if !(v.is_finite() && (0.0..=1.0).contains(&v)) {
                 return invalid(field, format!("{v} is outside 0..=1"));
@@ -360,7 +484,8 @@ pub fn parse_style(text: &str, path: &Path) -> Result<RetroStyle, StyleError> {
             found: version,
         });
     }
-    // Version 1 is current; older versions would be migrated here.
+    // Version 1 lacks textures/shading/shadows; serde fills them with the
+    // PS1 values (see STYLE_VERSION).
     let style_value = value
         .get("style")
         .cloned()
@@ -426,7 +551,9 @@ mod tests {
     fn presets_are_valid_and_recognised() {
         assert_eq!(RetroStyle::ps1().validate().ok(), Some(()));
         assert_eq!(RetroStyle::clean().validate().ok(), Some(()));
+        assert_eq!(RetroStyle::ps2().validate().ok(), Some(()));
         assert_eq!(RetroStyle::ps1().preset(), StylePreset::Ps1);
+        assert_eq!(RetroStyle::ps2().preset(), StylePreset::Ps2);
         assert_eq!(RetroStyle::clean().preset(), StylePreset::Clean);
         let mut s = RetroStyle::ps1();
         s.color_reduction.bits = 6;
@@ -444,6 +571,35 @@ mod tests {
     }
 
     #[test]
+    fn ps2_preset_turns_off_ps1_artifacts() {
+        let s = RetroStyle::ps2();
+        assert_eq!((s.low_res.width, s.low_res.height), (640, 448));
+        assert!(!s.vertex_snap.enabled && !s.affine_uv.enabled);
+        assert!(!s.color_reduction.enabled && !s.dither.enabled);
+        assert_eq!(s.textures.filter, TextureFilter::Linear);
+        assert!(s.textures.mipmaps && s.shading.per_pixel);
+        // Same scene parameters, so one scene works in both styles.
+        assert_eq!(s.fog, RetroStyle::ps1().fog);
+        assert_eq!(s.atmosphere, RetroStyle::ps1().atmosphere);
+    }
+
+    #[test]
+    fn version_1_files_migrate_to_ps1_values() {
+        let text = style_to_json(&RetroStyle::ps1()).unwrap();
+        let mut v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        v["version"] = 1.into();
+        let style = v["style"].as_object_mut().unwrap();
+        style.remove("textures");
+        style.remove("shading");
+        style.remove("shadows");
+        let old = serde_json::to_string(&v).unwrap();
+        assert_eq!(
+            parse_style(&old, Path::new("old.json")).unwrap(),
+            RetroStyle::ps1()
+        );
+    }
+
+    #[test]
     fn json_round_trip() {
         let mut s = RetroStyle::ps1();
         s.vertex_snap.grid = 2.0;
@@ -456,7 +612,7 @@ mod tests {
     #[test]
     fn rejects_future_versions_and_wrong_format() {
         let text = style_to_json(&RetroStyle::ps1()).unwrap();
-        let future = text.replace("\"version\": 1", "\"version\": 99");
+        let future = text.replace("\"version\": 2", "\"version\": 99");
         assert!(matches!(
             parse_style(&future, Path::new("a.json")),
             Err(StyleError::UnsupportedVersion { found: 99, .. })
@@ -488,7 +644,9 @@ mod tests {
 
     #[test]
     fn validation_catches_each_range() {
-        let cases: [fn(&mut RetroStyle); 8] = [
+        let cases: [fn(&mut RetroStyle); 10] = [
+            |s| s.shadows.opacity = 1.5,
+            |s| s.shadows.opacity = f32::NAN,
             |s| s.low_res.width = 8,
             |s| s.low_res.height = 10_000,
             |s| s.vertex_snap.grid = f32::NAN,

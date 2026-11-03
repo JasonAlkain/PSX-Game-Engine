@@ -9,7 +9,7 @@
 use egui::{Color32, Key, KeyboardShortcut, Modifiers, Pos2, Sense, Stroke};
 use glam::{Mat4, Vec2, Vec3};
 use psx_assets::AssetKind;
-use psx_core::{AssetId, EntityId, RetroStyle};
+use psx_core::{AssetId, EntityId, RetroStyle, TextureFilter};
 use psx_render::Rect;
 use psx_runtime::scene_gpu::{AssetStatus, SceneResources};
 use psx_scene::{
@@ -19,6 +19,7 @@ use psx_scene::{
 use crate::gameplay::{self, GameTools};
 use crate::session::{EditorSession, LogLevel, SaveOutcome};
 use crate::viewport::{AXES, EditorCamera, ViewportGeometry, axis_drag_distance, snap};
+use crate::visuals;
 
 /// Requests the app must carry out (they need the GPU or the event loop).
 #[derive(Debug, Clone, PartialEq)]
@@ -513,6 +514,12 @@ fn inspector(
         return;
     };
     ui.separator();
+    visuals::animator_editor(ui, session, resources, &entity);
+    ui.separator();
+    visuals::light_editor(ui, session, &entity);
+    ui.separator();
+    visuals::shadow_editor(ui, session, &entity);
+    ui.separator();
     gameplay::collider_editor(ui, session, &entity);
     ui.separator();
     let sounds = gameplay::sounds(session);
@@ -847,6 +854,9 @@ fn scene_settings(ui: &mut egui::Ui, session: &mut EditorSession, camera: &Edito
                 if ui.button("PS1").clicked() {
                     style = RetroStyle::ps1();
                 }
+                if ui.button("PS2").clicked() {
+                    style = RetroStyle::ps2();
+                }
                 if ui.button("Clean").clicked() {
                     style = RetroStyle::clean();
                 }
@@ -867,6 +877,29 @@ fn scene_settings(ui: &mut egui::Ui, session: &mut EditorSession, camera: &Edito
                 finished |= r.drag_stopped();
             });
             ui.checkbox(&mut style.dither.enabled, "Dithering");
+            ui.horizontal(|ui| {
+                let linear = style.textures.filter == TextureFilter::Linear;
+                let mut l = linear;
+                ui.checkbox(&mut l, "Filtered textures");
+                if l != linear {
+                    style.textures.filter = if l {
+                        TextureFilter::Linear
+                    } else {
+                        TextureFilter::Nearest
+                    };
+                }
+                ui.checkbox(&mut style.textures.mipmaps, "Mipmaps");
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut style.shading.per_pixel, "Per-pixel lighting");
+                ui.checkbox(&mut style.shading.local_lights, "Point lights");
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut style.shadows.enabled, "Blob shadows");
+                let r = ui
+                    .add(egui::Slider::new(&mut style.shadows.opacity, 0.0..=1.0).text("opacity"));
+                finished |= r.drag_stopped();
+            });
             ui.horizontal(|ui| {
                 ui.checkbox(&mut style.fog.enabled, "Fog");
                 ui.color_edit_button_srgb(&mut style.fog.color);

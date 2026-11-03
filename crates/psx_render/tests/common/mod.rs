@@ -69,6 +69,8 @@ pub struct Object {
     pub texture: GpuTexture,
     pub material: Material,
     pub model: glam::Mat4,
+    /// Joint palette for skinned meshes.
+    pub joints: Option<Vec<glam::Mat4>>,
 }
 
 pub struct Harness {
@@ -107,6 +109,7 @@ impl Harness {
                 .expect("texture uploads"),
             material,
             model,
+            joints: None,
         }
     }
 
@@ -117,6 +120,29 @@ impl Harness {
         style: &RetroStyle,
         camera: &Camera,
         objects: &[Object],
+        internal: (u32, u32),
+        output: (u32, u32),
+        rect: Option<Rect>,
+    ) -> Image {
+        self.render_lit(
+            style,
+            camera,
+            objects,
+            &Lighting::default(),
+            internal,
+            output,
+            rect,
+        )
+    }
+
+    /// [`Harness::render`] with explicit lighting.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_lit(
+        &self,
+        style: &RetroStyle,
+        camera: &Camera,
+        objects: &[Object],
+        lighting: &Lighting,
         internal: (u32, u32),
         output: (u32, u32),
         rect: Option<Rect>,
@@ -152,6 +178,7 @@ impl Harness {
                 texture: &o.texture,
                 material: &o.material,
                 model: o.model,
+                joints: o.joints.as_deref(),
             })
             .collect();
         let rect = rect.unwrap_or(Rect {
@@ -168,7 +195,7 @@ impl Harness {
             &mut encoder,
             &mut view,
             camera,
-            &Lighting::default(),
+            lighting,
             style,
             &items,
         );

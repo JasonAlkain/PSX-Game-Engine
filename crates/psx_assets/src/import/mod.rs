@@ -1,8 +1,8 @@
 //! Import results and the source-path boundary rules shared by importers.
 //!
 //! Imported data is plain CPU data with no GPU types. Vertex layout matches
-//! the renderer's vertex (position, normal, UV0, linear RGBA colour) so the
-//! upload is a straight copy.
+//! the renderer's vertex (position, normal, UV0, linear RGBA colour, four
+//! joints and weights) so the upload is a straight copy.
 //!
 //! Imports never fetch network resources. External files referenced by a
 //! model must resolve inside the import boundary (the project directory).
@@ -18,7 +18,10 @@ use thiserror::Error;
 
 /// Bumped whenever an importer's output changes for the same input. Part of
 /// an import's identity together with the source content and settings.
-pub const IMPORTER_VERSION: u32 = 1;
+///
+/// - 1: static glTF, PNG/JPEG, WAV/Ogg.
+/// - 2: glTF skins and animation clips.
+pub const IMPORTER_VERSION: u32 = 2;
 
 /// Largest source file read by an importer.
 pub const MAX_SOURCE_BYTES: u64 = 256 * 1024 * 1024;
@@ -32,6 +35,23 @@ pub struct MeshVertex {
     pub uv: [f32; 2],
     /// Linear RGBA.
     pub color: [f32; 4],
+    /// Joint indices into [`ImportedModel::skeleton`] (skinned parts only).
+    pub joints: [u16; 4],
+    /// Weights of `joints`, summing to 1 on skinned parts, zero otherwise.
+    pub weights: [f32; 4],
+}
+
+impl MeshVertex {
+    pub fn new(position: [f32; 3], normal: [f32; 3], uv: [f32; 2], color: [f32; 4]) -> Self {
+        Self {
+            position,
+            normal,
+            uv,
+            color,
+            joints: [0; 4],
+            weights: [0.0; 4],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -84,13 +104,17 @@ impl Default for ImportedMaterial {
     }
 }
 
-/// One drawable piece: a mesh primitive with node transforms baked in.
+/// One drawable piece: a mesh primitive with node transforms baked in, or,
+/// for a skinned part, in the skin's bind space (drawn through the
+/// skeleton's joint palette).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelPart {
     pub name: String,
     pub mesh: CpuMesh,
     /// Index into [`ImportedModel::materials`].
     pub material: usize,
+    /// Vertices are deformed by [`ImportedModel::skeleton`].
+    pub skinned: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -98,6 +122,10 @@ pub struct ImportedModel {
     pub parts: Vec<ModelPart>,
     pub materials: Vec<ImportedMaterial>,
     pub textures: Vec<CpuTexture>,
+    /// The skin used by skinned parts, if any.
+    pub skeleton: Option<crate::anim::Skeleton>,
+    /// Animation clips for `skeleton`, with unique names.
+    pub clips: Vec<crate::anim::AnimationClip>,
     /// Things that were ignored or approximated.
     pub warnings: Vec<String>,
 }
@@ -107,18 +135,52 @@ impl ImportedModel {
         self.parts.iter().map(|p| p.mesh.triangle_count()).sum()
     }
 
-    /// Axis-aligned bounds of all parts, or `None` when empty.
+    /// Axis-aligned bounds of all parts in the rest pose, or `None` when
+    /// empty.
     pub fn bounds(&self) -> Option<([f32; 3], [f32; 3])> {
-        let mut it = self.parts.iter().flat_map(|p| &p.mesh.vertices);
-        let first = it.next()?.position;
+        let mut it = self.parts.iter().flat_map(|p| self.rest_positions(p));
+        let first = it.next()?.to_array();
         let (mut lo, mut hi) = (first, first);
         for v in it {
+            let v = v.to_array();
             for i in 0..3 {
-                lo[i] = lo[i].min(v.position[i]);
-                hi[i] = hi[i].max(v.position[i]);
+                lo[i] = lo[i].min(v[i]);
+                hi[i] = hi[i].max(v[i]);
             }
         }
         Some((lo, hi))
+    }
+
+    /// Joint matrices of the rest pose (empty without a skeleton).
+    pub fn rest_palette(&self) -> Vec<glam::Mat4> {
+        self.skeleton
+            .as_ref()
+            .map(|s| s.palette(&s.rest_pose()))
+            .unwrap_or_default()
+    }
+
+    /// `part`'s vertex positions in model space in the rest pose (skinned
+    /// parts are deformed by the rest palette).
+    pub fn rest_positions(&self, part: &ModelPart) -> Vec<glam::Vec3> {
+        if part.skinned {
+            crate::anim::skin_positions(
+                part.mesh
+                    .vertices
+                    .iter()
+                    .map(|v| (v.position, v.joints, v.weights)),
+                &self.rest_palette(),
+            )
+        } else {
+            part.mesh
+                .vertices
+                .iter()
+                .map(|v| glam::Vec3::from(v.position))
+                .collect()
+        }
+    }
+
+    pub fn clip(&self, name: &str) -> Option<&crate::anim::AnimationClip> {
+        self.clips.iter().find(|c| c.name == name)
     }
 }
 

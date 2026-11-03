@@ -1,5 +1,6 @@
-//! Gameplay components (scene format version 2): colliders and bodies,
-//! audio sources and behaviours.
+//! Gameplay components: colliders and bodies, audio sources and behaviours
+//! (scene format version 2); local lights, animators and blob shadows
+//! (version 3).
 //!
 //! These are authored data only. The runtime turns them into physics
 //! bodies, audio emitters and behaviour instances when a scene is loaded;
@@ -251,6 +252,149 @@ impl AudioSourceComponent {
             && self.max_distance > self.min_distance)
         {
             return Some("audio distances must satisfy 0 < min_distance < max_distance".into());
+        }
+        None
+    }
+}
+
+/// A point light at the entity's world position. Its effect fades to zero
+/// at `range`, so a light only touches what is near it. How many lights a
+/// view uses, and whether they are lit per vertex or per pixel, is a style
+/// setting.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LightComponent {
+    /// Linear RGB, `0..=1` per channel.
+    #[serde(default = "white")]
+    pub color: Vec3,
+    /// Multiplies `color`, `0..=16`.
+    #[serde(default = "one")]
+    pub intensity: f32,
+    /// Meters, `0.05..=100`.
+    #[serde(default = "four")]
+    pub range: f32,
+}
+
+fn white() -> Vec3 {
+    Vec3::ONE
+}
+fn four() -> f32 {
+    4.0
+}
+
+impl Default for LightComponent {
+    fn default() -> Self {
+        Self {
+            color: Vec3::ONE,
+            intensity: 1.0,
+            range: 4.0,
+        }
+    }
+}
+
+impl LightComponent {
+    pub fn problem(&self) -> Option<String> {
+        if !self
+            .color
+            .to_array()
+            .iter()
+            .all(|c| c.is_finite() && (0.0..=1.0).contains(c))
+        {
+            return Some("light colour channels must be within 0..=1".into());
+        }
+        if !(self.intensity.is_finite() && (0.0..=16.0).contains(&self.intensity)) {
+            return Some(format!(
+                "light intensity {} is outside 0..=16",
+                self.intensity
+            ));
+        }
+        if !(self.range.is_finite() && (0.05..=100.0).contains(&self.range)) {
+            return Some(format!("light range {} is outside 0.05..=100", self.range));
+        }
+        None
+    }
+}
+
+/// Longest accepted animation clip name, in bytes.
+pub const MAX_CLIP_NAME_LEN: usize = 128;
+
+/// Plays an animation clip of the entity's skinned model. Gameplay code
+/// can switch clips at run time (with a crossfade); this is the clip the
+/// entity starts with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnimatorComponent {
+    /// Clip name as it appears in the model (`psx inspect` lists them).
+    pub clip: String,
+    /// Playback rate; 1 is normal speed, `-10..=10`.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub speed: f32,
+    #[serde(default = "yes")]
+    pub looping: bool,
+    /// Start playing when the scene starts; otherwise the model holds the
+    /// clip's first frame until gameplay code plays something.
+    #[serde(default = "yes")]
+    pub autoplay: bool,
+}
+
+impl AnimatorComponent {
+    pub fn new(clip: impl Into<String>) -> Self {
+        Self {
+            clip: clip.into(),
+            speed: 1.0,
+            looping: true,
+            autoplay: true,
+        }
+    }
+
+    pub fn problem(&self) -> Option<String> {
+        if self.clip.is_empty() || self.clip.len() > MAX_CLIP_NAME_LEN {
+            return Some(format!(
+                "animator clip name must be 1..={MAX_CLIP_NAME_LEN} bytes"
+            ));
+        }
+        if !(self.speed.is_finite() && (-10.0..=10.0).contains(&self.speed)) {
+            return Some(format!("animator speed {} is outside -10..=10", self.speed));
+        }
+        None
+    }
+}
+
+/// A blob shadow: a soft dark disc on lit, upward-facing surfaces below
+/// the entity. Cheap, and readable at PS1 resolutions; whether blob shadows
+/// are drawn, and how dark, is a style setting.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShadowComponent {
+    /// Disc radius in local units (scaled by the entity's largest
+    /// horizontal world scale), `0.05..=20`.
+    #[serde(default = "half")]
+    pub radius: f32,
+    /// Bottom of the caster relative to the entity origin (local units,
+    /// not rotated). Shadows fall on surfaces below this point.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub offset: Vec3,
+}
+
+impl Default for ShadowComponent {
+    fn default() -> Self {
+        Self {
+            radius: 0.5,
+            offset: Vec3::ZERO,
+        }
+    }
+}
+
+impl ShadowComponent {
+    pub fn problem(&self) -> Option<String> {
+        if !(self.radius.is_finite() && (0.05..=20.0).contains(&self.radius)) {
+            return Some(format!(
+                "shadow radius {} is outside 0.05..=20",
+                self.radius
+            ));
+        }
+        if !self.offset.is_finite() || self.offset.abs().max_element() > 1000.0 {
+            return Some("shadow offset must be finite and within 1000 units".into());
         }
         None
     }

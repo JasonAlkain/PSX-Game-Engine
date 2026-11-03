@@ -1,7 +1,9 @@
 //! wgpu renderer for PSX Engine.
 //!
 //! Renders the world into an internal-resolution target (PS1 style: vertex
-//! snapping, affine UVs, nearest-sampled textures, vertex lighting, fog), then
+//! snapping, affine UVs, nearest-sampled textures, vertex lighting, fog; or
+//! PS2 style: filtered mipmapped textures, per-pixel lighting), with local
+//! point lights, blob shadows and GPU skinning, then
 //! composites it into the window with integer upscaling or aspect-correct
 //! fitting, ordered dithering and colour reduction. See [`retro`] for the pass
 //! structure and [`layout`] for the fit policy.
@@ -22,10 +24,11 @@ pub use camera::Camera;
 pub use context::{GpuContext, GpuError};
 pub use layout::{Placement, Rect, ViewLayout};
 pub use material::{AlphaMode, Material};
-pub use mesh::{MeshData, MeshError, Vertex};
+pub use mesh::{MAX_JOINTS, MeshData, MeshError, Vertex};
 pub use presenter::{FrameAcquire, Presenter};
 pub use retro::{
-    CompositeSlot, DrawItem, GpuMesh, GpuTexture, Lighting, RenderError, RenderView, RetroRenderer,
+    BlobShadow, CompositeSlot, DrawItem, GpuMesh, GpuTexture, Lighting, PointLight, RenderError,
+    RenderView, RetroRenderer,
 };
 pub use texture::{TextureData, TextureError};
 

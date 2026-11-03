@@ -21,7 +21,7 @@ use psx_render::{
     Camera, CompositeSlot, FrameAcquire, GpuContext, Lighting, Presenter, RenderView,
     RetroRenderer, ViewLayout, wgpu,
 };
-use psx_runtime::scene_gpu::SceneResources;
+use psx_runtime::scene_gpu::{SceneResources, scene_lighting};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{DeviceEvent, DeviceId, ElementState, WindowEvent};
@@ -32,7 +32,7 @@ use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 use crate::actions::{ActionInput, Bindings, Button, MouseKey, names};
 use crate::api::Game;
 use crate::audio::Audio;
-use crate::settings::{SaveData, UserDirs, UserSettings};
+use crate::settings::{GraphicsStyle, SaveData, UserDirs, UserSettings};
 use crate::sim::{Outcome, Simulation, TICK_HZ};
 
 pub struct PlayerOptions {
@@ -574,24 +574,30 @@ impl Running {
             label: Some("game frame"),
         });
         let output_view = frame.texture.create_view(&Default::default());
-        let (style, lighting) = match self.sim.scene() {
-            Some(s) => {
-                let l = s.settings.lighting;
-                (
-                    s.settings.style.clone(),
-                    Lighting {
-                        direction: l.direction,
-                        color: l.color,
-                        ambient: l.ambient,
-                    },
-                )
-            }
-            None => (psx_core::RetroStyle::ps1(), Lighting::default()),
-        };
         let alpha = if self.screen == Screen::Playing {
             self.alpha
         } else {
             1.0
+        };
+        let (style, lighting) = match self.sim.scene() {
+            Some(s) => {
+                let lights = self.sim.lights(alpha);
+                let shadows = self.sim.shadows(alpha);
+                (
+                    self.settings.graphics_style.apply(&s.settings.style),
+                    scene_lighting(
+                        &s.settings.lighting,
+                        lights.iter().map(|(m, l)| (*m, l)),
+                        shadows.iter().map(|(m, s)| (*m, s)),
+                    ),
+                )
+            }
+            None => (
+                self.settings
+                    .graphics_style
+                    .apply(&psx_core::RetroStyle::ps1()),
+                Lighting::default(),
+            ),
         };
         let cam = self.sim.camera(alpha);
         let camera = Camera {
@@ -609,9 +615,14 @@ impl Running {
                 .is_ok()
         });
         if view_ok {
-            let items = draws
-                .iter()
-                .map(|d| (d.id, &d.mesh, blend(d.previous, d.current, alpha)));
+            let items = draws.iter().map(|d| {
+                (
+                    d.id,
+                    &d.mesh,
+                    blend(d.previous, d.current, alpha),
+                    d.joints.as_deref(),
+                )
+            });
             let scene_draws = self.resources.draws_from(items);
             let items: Vec<_> = scene_draws.iter().map(|d| d.item).collect();
             self.renderer.render_view(
@@ -862,7 +873,7 @@ impl MenuUi<'_> {
                     }
                     ui.add_space(12.0);
                     ui.label(
-                        egui::RichText::new("PS1-style MVP — PSX Engine")
+                        egui::RichText::new("PS1/PS2-style — PSX Engine")
                             .small()
                             .weak(),
                     );
@@ -1015,6 +1026,15 @@ impl MenuUi<'_> {
                 ui.end_row();
                 ui.label("Vertical sync");
                 changed |= ui.checkbox(&mut s.vsync, "").changed();
+                ui.end_row();
+                ui.label("Graphics style");
+                ui.horizontal(|ui| {
+                    for g in GraphicsStyle::ALL {
+                        changed |= ui
+                            .selectable_value(&mut s.graphics_style, g, g.label())
+                            .changed();
+                    }
+                });
                 ui.end_row();
             });
         if changed {

@@ -12,20 +12,30 @@
 //!   records the error, so a broken file on disk never blanks the scene.
 //!
 //! Each loaded mesh also keeps its triangle positions on the CPU for
-//! picking ([`SceneResources::pick`]).
+//! picking ([`SceneResources::pick`]); skinned parts are picked in their
+//! rest pose.
+//!
+//! Skinned model parts are drawn with a joint palette: the caller's (an
+//! animated pose) or, without one, the model's rest pose.
+//! [`scene_lighting`] gathers scene lights and blob shadows for the
+//! renderer.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
+use psx_assets::anim::{AnimationClip, Skeleton};
 use psx_assets::project::{AssetDatabase, ImportedAsset, Project};
 use psx_assets::{CpuMesh, CpuTexture, ImportedModel};
 use psx_core::{AssetId, EntityId};
 use psx_render::{
-    AlphaMode, DrawItem, GpuMesh, GpuTexture, Material, MeshData, RetroRenderer, TextureData,
-    Vertex,
+    AlphaMode, BlobShadow, DrawItem, GpuMesh, GpuTexture, Lighting, Material, MeshData, PointLight,
+    RetroRenderer, TextureData, Vertex,
 };
-use psx_scene::{AlphaSetting, MaterialOverride, MeshComponent, MeshSource, PrimitiveShape, Scene};
+use psx_scene::{
+    AlphaSetting, LightComponent, MaterialOverride, MeshComponent, MeshSource, PrimitiveShape,
+    Scene, SceneLighting, ShadowComponent,
+};
 
 /// Positions and triangles kept for ray picking (local space).
 #[derive(Debug, Clone, Default)]
@@ -105,11 +115,23 @@ struct Part {
     triangles: u32,
     texture: Option<usize>,
     material: Material,
+    skinned: bool,
 }
 
 struct LoadedModel {
     parts: Vec<Part>,
     textures: Vec<GpuTexture>,
+    animation: Option<ModelAnimation>,
+    /// Joint matrices of the rest pose (empty without a skeleton).
+    rest_palette: Vec<Mat4>,
+}
+
+/// A skinned model's skeleton and clips, shared with callers that animate
+/// it (editor preview).
+#[derive(Debug, Clone)]
+pub struct ModelAnimation {
+    pub skeleton: Arc<Skeleton>,
+    pub clips: Arc<[AnimationClip]>,
 }
 
 /// Import state of one referenced asset.
@@ -168,6 +190,8 @@ fn to_mesh_data(mesh: &CpuMesh) -> MeshData {
                 normal: v.normal,
                 uv: v.uv,
                 color: v.color,
+                joints: v.joints,
+                weights: v.weights,
             })
             .collect(),
         indices: mesh.indices.clone(),
@@ -406,8 +430,14 @@ impl SceneResources {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut parts = Vec::new();
+        let rest_palette = model.rest_palette();
         for part in &model.parts {
             let data = to_mesh_data(&part.mesh);
+            let pick = if part.skinned {
+                PickMesh::new(model.rest_positions(part), data.indices.clone())
+            } else {
+                pick_of(&data)
+            };
             let mesh = renderer
                 .upload_mesh(device, &data)
                 .map_err(|e| format!("mesh {}: {e}", part.name))?;
@@ -418,7 +448,8 @@ impl SceneResources {
                 .unwrap_or_default();
             parts.push(Part {
                 mesh,
-                pick: Arc::new(pick_of(&data)),
+                pick: Arc::new(pick),
+                skinned: part.skinned,
                 triangles: (data.indices.len() / 3) as u32,
                 texture: src.base_texture,
                 material: Material {
@@ -432,35 +463,91 @@ impl SceneResources {
                 },
             });
         }
-        Ok(LoadedModel { parts, textures })
+        let animation = model.skeleton.as_ref().map(|s| ModelAnimation {
+            skeleton: Arc::new(s.clone()),
+            clips: model.clips.clone().into(),
+        });
+        Ok(LoadedModel {
+            parts,
+            textures,
+            animation,
+            rest_palette,
+        })
+    }
+
+    /// Skeleton and clips of a loaded skinned model.
+    pub fn animation(&self, asset: AssetId) -> Option<&ModelAnimation> {
+        self.models.get(&asset)?.animation.as_ref()
+    }
+
+    /// Joint palettes for every entity with an `animator` on a loaded
+    /// skinned model, `seconds` after the scene starts: autoplaying clips
+    /// advance, others hold their first frame (as the game runtime does
+    /// before gameplay code plays something). Unknown clips keep the rest
+    /// pose. Used by the editor viewport preview.
+    pub fn preview_poses(&self, scene: &Scene, seconds: f32) -> HashMap<EntityId, Vec<Mat4>> {
+        let mut out = HashMap::new();
+        for e in &scene.entities {
+            let (Some(animator), Some(mesh)) = (&e.animator, &e.mesh) else {
+                continue;
+            };
+            let MeshSource::Model { asset } = mesh.source else {
+                continue;
+            };
+            let Some(anim) = self.animation(asset) else {
+                continue;
+            };
+            let Some(clip) = anim.clips.iter().find(|c| c.name == animator.clip) else {
+                continue;
+            };
+            let played = if animator.autoplay { seconds } else { 0.0 } * animator.speed;
+            let elapsed = if animator.speed < 0.0 {
+                clip.duration + played
+            } else {
+                played
+            };
+            let pose = clip.sample(&anim.skeleton, clip.local_time(elapsed, animator.looping));
+            out.insert(e.id, anim.skeleton.palette(&pose));
+        }
+        out
     }
 
     /// Draw items for every entity with a mesh, using `world` matrices
-    /// (from [`Scene::world_matrices`]; entities missing there are skipped).
-    pub fn draws<'a>(
+    /// (from [`Scene::world_matrices`]; entities missing there are skipped)
+    /// and optional joint palettes for skinned models (rest pose
+    /// otherwise).
+    pub fn draws<'a, 'p>(
         &'a mut self,
         scene: &Scene,
         world: &HashMap<EntityId, Mat4>,
-    ) -> Vec<SceneDraw<'a>> {
+        poses: &'p HashMap<EntityId, Vec<Mat4>>,
+    ) -> Vec<SceneDraw<'a>>
+    where
+        'p: 'a,
+    {
         let items = scene.entities.iter().filter_map(|e| {
             let (Some(mesh), Some(&model)) = (&e.mesh, world.get(&e.id)) else {
                 return None;
             };
-            Some((e.id, mesh, model))
+            Some((e.id, mesh, model, poses.get(&e.id).map(Vec::as_slice)))
         });
         self.draws_from(items)
     }
 
-    /// Draw items for explicit `(entity, mesh, world matrix)` triples (the
-    /// game runtime, whose entities live in an ECS rather than a `Scene`).
-    pub fn draws_from<'a, 'm>(
+    /// Draw items for explicit `(entity, mesh, world matrix, joint
+    /// palette)` items (the game runtime, whose entities live in an ECS
+    /// rather than a `Scene`).
+    pub fn draws_from<'a, 'm, 'p>(
         &'a mut self,
-        items: impl IntoIterator<Item = (EntityId, &'m MeshComponent, Mat4)>,
-    ) -> Vec<SceneDraw<'a>> {
+        items: impl IntoIterator<Item = (EntityId, &'m MeshComponent, Mat4, Option<&'p [Mat4]>)>,
+    ) -> Vec<SceneDraw<'a>>
+    where
+        'p: 'a,
+    {
         // Materials are computed first so draw items can borrow them.
-        let mut plan: Vec<(EntityId, DrawRef, Mat4, usize)> = Vec::new();
+        let mut plan: Vec<Planned<'p>> = Vec::new();
         self.scratch_materials.clear();
-        for (id, mesh, model) in items {
+        for (id, mesh, model, pose) in items {
             let e_id = id;
             match &mesh.source {
                 MeshSource::Primitive { shape, texture } => {
@@ -482,6 +569,7 @@ impl SceneResources {
                         DrawRef::Shape(*shape, tex),
                         model,
                         self.scratch_materials.len() - 1,
+                        None,
                     ));
                 }
                 MeshSource::Model { asset } => match self.models.get(asset) {
@@ -494,6 +582,7 @@ impl SceneResources {
                                 DrawRef::Part(*asset, i),
                                 model,
                                 self.scratch_materials.len() - 1,
+                                pose,
                             ));
                         }
                     }
@@ -509,6 +598,7 @@ impl SceneResources {
                             DrawRef::Shape(PrimitiveShape::Cube, TexRef::Missing),
                             model,
                             self.scratch_materials.len() - 1,
+                            None,
                         ));
                     }
                 },
@@ -516,9 +606,9 @@ impl SceneResources {
         }
         let this = &*self;
         plan.into_iter()
-            .filter_map(|(entity, r, model, mat)| {
+            .filter_map(|(entity, r, model, mat, pose)| {
                 let material = &this.scratch_materials[mat];
-                let (mesh, texture, triangles) = match r {
+                let (mesh, texture, triangles, joints) = match r {
                     DrawRef::Shape(shape, tex) => {
                         let (mesh, _, tris) = this.shapes.get(&shape)?;
                         let texture = match tex {
@@ -526,7 +616,7 @@ impl SceneResources {
                             TexRef::Missing => &this.missing_texture,
                             TexRef::Asset(id) => this.textures.get(&id)?,
                         };
-                        (mesh, texture, *tris)
+                        (mesh, texture, *tris, None)
                     }
                     DrawRef::Part(asset, i) => {
                         let m = this.models.get(&asset)?;
@@ -535,7 +625,10 @@ impl SceneResources {
                             .texture
                             .and_then(|t| m.textures.get(t))
                             .unwrap_or(&this.white);
-                        (&part.mesh, texture, part.triangles)
+                        let joints = part
+                            .skinned
+                            .then(|| pose.unwrap_or(m.rest_palette.as_slice()));
+                        (&part.mesh, texture, part.triangles, joints)
                     }
                 };
                 Some(SceneDraw {
@@ -545,6 +638,7 @@ impl SceneResources {
                         texture,
                         material,
                         model,
+                        joints,
                     },
                     triangles,
                 })
@@ -620,6 +714,58 @@ impl SceneResources {
         Some((lo, hi))
     }
 }
+
+/// Renderer lighting for a scene: its ambient and directional light, plus
+/// point lights and blob shadows from `(world matrix, component)` pairs.
+pub fn scene_lighting<'a>(
+    base: &SceneLighting,
+    lights: impl IntoIterator<Item = (Mat4, &'a LightComponent)>,
+    shadows: impl IntoIterator<Item = (Mat4, &'a ShadowComponent)>,
+) -> Lighting {
+    Lighting {
+        direction: base.direction,
+        color: base.color,
+        ambient: base.ambient,
+        points: lights
+            .into_iter()
+            .map(|(world, l)| PointLight {
+                position: world.w_axis.truncate(),
+                color: l.color * l.intensity,
+                range: l.range,
+            })
+            .collect(),
+        blobs: shadows
+            .into_iter()
+            .map(|(world, s)| {
+                let (scale, _, translation) = world.to_scale_rotation_translation();
+                BlobShadow {
+                    bottom: translation + s.offset * scale,
+                    radius: s.radius * scale.x.abs().max(scale.z.abs()),
+                }
+            })
+            .collect(),
+    }
+}
+
+/// [`scene_lighting`] for an authored scene with its world matrices.
+pub fn lighting_for_scene(scene: &Scene, world: &HashMap<EntityId, Mat4>) -> Lighting {
+    let with_world = |e: &psx_scene::Entity| world.get(&e.id).copied();
+    scene_lighting(
+        &scene.settings.lighting,
+        scene
+            .entities
+            .iter()
+            .filter_map(|e| Some((with_world(e)?, e.light.as_ref()?))),
+        scene
+            .entities
+            .iter()
+            .filter_map(|e| Some((with_world(e)?, e.shadow.as_ref()?))),
+    )
+}
+
+/// A draw resolved to resources: entity, mesh, world matrix, material
+/// index and joint palette.
+type Planned<'p> = (EntityId, DrawRef, Mat4, usize, Option<&'p [Mat4]>);
 
 #[derive(Clone, Copy)]
 enum TexRef {

@@ -1,0 +1,37 @@
+{
+  "format": "psx_command_batch",
+  "version": 1,
+  "expected_revision": 3,
+  "commands": [
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000080",
+      "name": "Caretaker",
+      "transform": {"translation": [3.6, 0, 0.6], "rotation": [0, -0.70710677, 0, 0.70710677]},
+      "mesh": {"source": {"kind": "model", "asset": "b37004fb-70bf-442d-b45e-ce1e12f9190a"}}
+    },
+    {"op": "set_animator", "id": "00000000-0000-4000-8000-000000000080", "animator": {"clip": "idle"}},
+    {"op": "set_shadow", "id": "00000000-0000-4000-8000-000000000080", "shadow": {"radius": 0.4}},
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000080",
+      "collider": {"shape": {"kind": "box", "size": [0.6, 1.85, 0.5]}, "offset": [0, 0.925, 0], "body": "static"}
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000080",
+      "behaviors": [{"kind": "room.caretaker", "params": {"text": "Evening. The lever's by the door, and mind the hum down the corridor."}}]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000081",
+      "name": "Ceiling lamp",
+      "transform": {"translation": [0, 2.7, 0]}
+    },
+    {"op": "set_light", "id": "00000000-0000-4000-8000-000000000081", "light": {"color": [1.0, 0.82, 0.55], "intensity": 1.2, "range": 7.0}},
+    {"op": "set_light", "id": "00000000-0000-4000-8000-000000000061", "light": {"color": [0.4, 1.0, 0.55], "intensity": 1.5, "range": 4.0}},
+    {"op": "set_light", "id": "00000000-0000-4000-8000-000000000062", "light": {"color": [1.0, 0.3, 0.15], "intensity": 1.0, "range": 2.5}},
+    {"op": "set_shadow", "id": "00000000-0000-4000-8000-000000000033", "shadow": {"radius": 0.45, "offset": [0, -0.5, 0]}},
+    {"op": "set_shadow", "id": "00000000-0000-4000-8000-000000000030", "shadow": {"radius": 0.7, "offset": [0, -0.5, 0]}}
+  ]
+}

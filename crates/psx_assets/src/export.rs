@@ -127,7 +127,7 @@ pub fn export(
         &format!(
             "{name}\n\nRun {exe}. Settings and saves are stored in your user folder, not here.\n\
              `{exe} --help` lists command-line options (for example --headless).\n\n\
-             Made with PSX Engine — a PS1-style MVP; PS2-era features are still in development.\n",
+             Made with PSX Engine (PS1- and PS2-style 3D).\n",
             name = project.file.name,
             exe = exe_name.display()
         ),

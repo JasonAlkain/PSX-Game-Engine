@@ -15,7 +15,7 @@
 //! The scene is plain CPU data; the app uploads it once.
 
 use glam::{Mat4, Quat, Vec3};
-use psx_render::{AlphaMode, Material, MeshData, TextureData};
+use psx_render::{AlphaMode, BlobShadow, Lighting, Material, MeshData, PointLight, TextureData};
 
 /// Index into [`ComparisonScene::textures`].
 pub type TextureIndex = usize;
@@ -137,6 +137,23 @@ fn wall(
         * Mat4::from_rotation_y(yaw)
         * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2);
     (mesh, transform)
+}
+
+/// Default lighting plus a warm lamp in the corridor and a blob shadow
+/// under the spinning crate (Milestone 5 local lighting).
+pub fn lighting() -> Lighting {
+    Lighting {
+        points: vec![PointLight {
+            position: Vec3::new(0.0, 1.2, -7.0),
+            color: Vec3::new(1.0, 0.7, 0.35) * 1.5,
+            range: 4.0,
+        }],
+        blobs: vec![BlobShadow {
+            bottom: Vec3::new(0.0, 0.85, -2.0),
+            radius: 0.6,
+        }],
+        ..Lighting::default()
+    }
 }
 
 pub fn build() -> ComparisonScene {
