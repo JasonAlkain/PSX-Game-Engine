@@ -9,7 +9,7 @@ than the project's startup scene. `--steal-lock` takes over a project whose
 lock is held by a hung editor (see [Project lock](#project-lock)).
 `--frames N` exits after N frames, for smoke tests.
 
-![The editor with the example project open: menu bar, hierarchy on the left, viewport, inspector with Scene settings on the right, Assets and Console tabs at the bottom. A crash-report dialog is open over the viewport.](../images/editor_crash_dialog.png)
+![The editor with The Lever Room open: hierarchy on the left, the viewport with a crate selected and its move gizmo, the inspector on the right showing the crate's mesh, material overrides, blob shadow and collider, and the Assets and Console tabs at the bottom](../images/editor_lever_room.png)
 
 ## Layout
 

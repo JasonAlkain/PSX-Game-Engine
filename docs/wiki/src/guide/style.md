@@ -12,6 +12,8 @@ preset's look while keeping the scene's own fog and atmosphere.
 
 ![PS1 preset in the sandbox: a 320×240 image upscaled 3× with black bars, snapped vertices, affine-warped floor tiles, 5-bit colour with dithering, and fog](../images/ps1_comparison_scene.png)
 
+![The same view of The Lever Room in the PS1 preset (left) and the PS2 preset (right)](../images/split_ps1_vs_ps2.png)
+
 ## Presets
 
 | Setting | PS1 | PS2 | Clean |
@@ -50,6 +52,10 @@ style that matches no preset is reported as **Custom**.
 The camera's aspect ratio always follows the internal image, never the
 window. For a widescreen look, use a wider internal size such as 426×240
 rather than stretching.
+
+| PS1 | PS2 |
+| --- | --- |
+| ![The corridor in the PS1 style: fog, coarse texels, per-vertex light pools](../images/corridor_ps1.png) | ![The corridor in the PS2 style: smooth filtered textures and per-pixel lighting](../images/corridor_ps2.png) |
 
 ## Choosing values
 

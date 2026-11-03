@@ -14,7 +14,7 @@ every effect is a switch you can turn on, off or tune.
 > outstanding. See [STATUS.md](https://github.com/JasonAlkain/PSX-Game-Engine/blob/main/docs/STATUS.md)
 > for exactly what has and has not been verified.
 
-![The renderer's comparison scene in the PS1 style: 320×240 upscaled by an integer factor, with vertex snapping, affine textures, 5-bit colour and dithering](images/ps1_comparison_scene.png)
+![The Lever Room rendered from the same content in the PS1 style (left: low resolution, affine textures, dithering) and the PS2 style (right: higher resolution, filtered textures, per-pixel lighting)](images/split_ps1_vs_ps2.png)
 
 ## What you get
 

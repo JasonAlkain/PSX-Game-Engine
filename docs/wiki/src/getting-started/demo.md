@@ -12,6 +12,10 @@ cargo run -p lever_room --release
 The game opens with a short Copperframe splash (any key or click skips it),
 then the title screen.
 
+| PS1 style | PS2 style |
+| --- | --- |
+| ![The caretaker in the PS1 style](../images/caretaker_ps1.png) | ![The caretaker in the PS2 style](../images/caretaker_ps2.png) |
+
 ## Goal
 
 Find the lever that opens the door, follow the humming corridor, and reach
