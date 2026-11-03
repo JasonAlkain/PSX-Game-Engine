@@ -10,6 +10,7 @@ pub mod comparison_scene;
 pub mod fly_camera;
 pub mod input;
 pub mod logging;
+pub mod scene_gpu;
 pub mod style_controls;
 
 pub use app::{AppConfig, run};

@@ -1,0 +1,10 @@
+{
+  "format": "psx_asset_meta",
+  "version": 1,
+  "id": "bc394b44-7ee4-4a47-9bc4-3a78e794318b",
+  "importer": "gltf",
+  "settings": {
+    "scale": 1.0,
+    "max_texture_size": 1024
+  }
+}

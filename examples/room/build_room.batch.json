@@ -1,0 +1,346 @@
+{
+  "format": "psx_command_batch",
+  "version": 1,
+  "expected_revision": 0,
+  "commands": [
+    {
+      "op": "set_mesh",
+      "id": "d10ad2e8-1830-4a3e-925a-a948b50117dc",
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "plane",
+          "texture": "22f5ae69-6cfb-4f07-b108-a536dd6faea1"
+        }
+      }
+    },
+    {
+      "op": "set_transform",
+      "id": "d10ad2e8-1830-4a3e-925a-a948b50117dc",
+      "scale": [
+        10,
+        1,
+        10
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "Walls"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000010",
+      "name": "Wall north",
+      "parent": "00000000-0000-4000-8000-000000000001",
+      "transform": {
+        "translation": [
+          0,
+          1.5,
+          -5
+        ],
+        "scale": [
+          10,
+          3,
+          0.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000011",
+      "name": "Wall south",
+      "parent": "00000000-0000-4000-8000-000000000001",
+      "transform": {
+        "translation": [
+          0,
+          1.5,
+          5
+        ],
+        "scale": [
+          10,
+          3,
+          0.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "name": "Wall west",
+      "parent": "00000000-0000-4000-8000-000000000001",
+      "transform": {
+        "translation": [
+          -5,
+          1.5,
+          0
+        ],
+        "scale": [
+          0.2,
+          3,
+          10
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000013",
+      "name": "Wall east",
+      "parent": "00000000-0000-4000-8000-000000000001",
+      "transform": {
+        "translation": [
+          5,
+          1.5,
+          0
+        ],
+        "scale": [
+          0.2,
+          3,
+          10
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000020",
+      "name": "Pillar 1",
+      "transform": {
+        "translation": [
+          -3,
+          1.5,
+          -3
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "model",
+          "asset": "bc394b44-7ee4-4a47-9bc4-3a78e794318b"
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000021",
+      "name": "Pillar 2",
+      "transform": {
+        "translation": [
+          3,
+          1.5,
+          -3
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "model",
+          "asset": "bc394b44-7ee4-4a47-9bc4-3a78e794318b"
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000022",
+      "name": "Pillar 3",
+      "transform": {
+        "translation": [
+          -3,
+          1.5,
+          3
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "model",
+          "asset": "bc394b44-7ee4-4a47-9bc4-3a78e794318b"
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000023",
+      "name": "Pillar 4",
+      "transform": {
+        "translation": [
+          3,
+          1.5,
+          3
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "model",
+          "asset": "bc394b44-7ee4-4a47-9bc4-3a78e794318b"
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000030",
+      "name": "Crate",
+      "transform": {
+        "translation": [
+          1.2,
+          0.5,
+          -1.0
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "model",
+          "asset": "c5343f12-4f2a-4648-859e-25d6ebef9351"
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000031",
+      "name": "Crate on top",
+      "parent": "00000000-0000-4000-8000-000000000030",
+      "transform": {
+        "translation": [
+          0.1,
+          1.0,
+          0.05
+        ],
+        "rotation": [
+          0,
+          0.258819,
+          0,
+          0.9659258
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "model",
+          "asset": "c5343f12-4f2a-4648-859e-25d6ebef9351"
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000032",
+      "name": "Glass pane",
+      "transform": {
+        "translation": [
+          -1.5,
+          1.0,
+          -1.5
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "quad"
+        },
+        "material": {
+          "tint": [
+            0.5,
+            0.8,
+            1.0,
+            0.4
+          ],
+          "alpha": {
+            "mode": "blend"
+          },
+          "double_sided": true,
+          "lit": false
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000033",
+      "name": "Ball",
+      "transform": {
+        "translation": [
+          -1.2,
+          0.5,
+          0.8
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "sphere"
+        },
+        "material": {
+          "flat_shading": true,
+          "tint": [
+            1.0,
+            0.7,
+            0.3,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "set_settings",
+      "camera": {
+        "position": [
+          0,
+          1.6,
+          4.2
+        ],
+        "yaw_deg": 0,
+        "pitch_deg": -8,
+        "fov_deg": 60
+      }
+    }
+  ]
+}

@@ -5,38 +5,48 @@
 Dependency direction is strictly downward:
 
 ```
-apps/psx_sandbox ─► psx_runtime ─┬─► psx_render ─► psx_core
-                                 └─► psx_core
+apps/psx_sandbox ─► psx_runtime
+crates/psx_editor ─┬─► psx_runtime ─┬─► psx_render ─► psx_core
+ (lib + bin)       │                ├─► psx_assets ─┬─► psx_scene ─► psx_core
+apps/psx_cli ──────┴─► psx_assets   └─► psx_scene   └─► psx_core
 
-psx_render: wgpu, glam        psx_core: serde, serde_json (no GPU, no window)
+psx_render: wgpu, glam          psx_core / psx_scene / psx_assets: no GPU, no window
 ```
 
 | Crate | Owns today | Will own (per brief) |
 | --- | --- | --- |
-| `psx_core` | `FixedStep` accumulator; `RetroStyle` settings, presets, validation and versioned JSON file | Stable IDs, shared types, project configuration |
-| `psx_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites, draw extraction |
-| `psx_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging | Gameplay scheduling, physics/audio integration |
+| `psx_core` | `FixedStep`; `EntityId`/`AssetId`/`SceneId` (UUID v4 newtypes); `atomic_write`; `RetroStyle` settings, presets, validation and versioned JSON file | Project configuration shared with gameplay |
+| `psx_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material components, settings), versioned scene file, `Command`/`Change`, `History` (undo/redo), command batches | Runtime ECS mirror (`hecs`), gameplay components |
+| `psx_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, static glTF and PNG/JPEG import into CPU meshes/textures, project validation, test fixtures | Cooked asset cache, animation import (M5) |
+| `psx_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
+| `psx_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
+| `psx_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, `psx_editor` binary | Play mode, more gizmos |
+| `apps/psx_cli` | `psx` binary: `new`, `schema`, `validate`, `import`, `inspect`, `apply` | Build/export |
 
-`psx_scene`, `psx_assets`, `psx_editor` and `psx_cli` are not created until
-their milestone needs them. `psx_render` takes any `wgpu::SurfaceTarget` and
-does not depend on winit.
+`psx_render` takes any `wgpu::SurfaceTarget` and does not depend on winit.
+The editor is a library so its session logic is tested without a window.
 
-## Dependency set (resolved 2026-11-02)
+## Dependency set (resolved 2026-11-02, extended 2026-11-03)
 
 | Crate | Version | Why this version |
 | --- | --- | --- |
 | Rust toolchain | 1.97.0 stable, edition 2024 | Current stable at time of writing; wgpu 30 needs ≥ 1.87 |
 | `wgpu` / `naga` | 30.0.x | Latest; required by `egui-wgpu` 0.37 |
 | `winit` | 0.30.13 | `egui-winit` 0.37 requires `^0.30.13`; 0.31 is still beta |
-| `egui`, `egui-wgpu`, `egui-winit` | 0.37 (planned, Milestone 3) | Compatible with the two rows above; not added until the editor exists |
-| `glam` | 0.34 | Latest; projection helpers live in `glam::camera` |
+| `egui`, `egui-wgpu`, `egui-winit` | 0.37 | Editor UI; compatible with the two rows above. `egui` uses `default_fonts`; `egui-wgpu` without default features |
+| `glam` | 0.34 (`serde`) | Latest; projection helpers live in `glam::camera`; vectors serialise as arrays |
+| `uuid` | 1.x (`v4`, `serde`) | Persistent IDs |
+| `gltf` | 1.4 (`import`, `utils`, `names`, `KHR_materials_unlit`) | glTF document parsing; buffers and URIs are resolved by our own bounded code |
+| `image` | 0.25 (`png`, `jpeg` only) | Texture decoding with size/allocation limits |
+| `base64` | 0.22 | `data:` URIs in `.gltf` files |
+| `clap` | 4.x (`derive`) | `psx` CLI |
 | `bytemuck`, `pollster` | 1.x | GPU buffer casting; blocking on wgpu futures |
 | `tracing`, `tracing-subscriber`, `thiserror`, `anyhow` | latest | Diagnostics and errors |
-| `serde`, `serde_json` | 1.0 | Style settings file (Milestone 2) |
+| `serde`, `serde_json` | 1.0 | Style, scene, batch, project and asset meta files |
 
-`hecs`, `rapier3d`, `kira`, `gltf`, `image`, `uuid` and `clap` are
-deferred to the milestone that uses them, so no unused dependencies are built.
-Versions are centralised in the root `Cargo.toml`; `Cargo.lock` is committed.
+`hecs`, `rapier3d` and `kira` are deferred to Milestone 4, so no unused
+dependencies are built. Versions are centralised in the root `Cargo.toml`;
+`Cargo.lock` is committed.
 
 ## Conventions
 
@@ -50,6 +60,11 @@ Versions are centralised in the root `Cargo.toml`; `Cargo.lock` is committed.
   format `Depth32Float`.
 - **Winding:** counter-clockwise front faces, back faces culled.
 - **Texture coordinates:** origin top-left, +V down (wgpu and glTF convention).
+- **Entity transforms:** local translation, rotation (unit quaternion) and
+  scale; `world = parent_world * T * R * S`. Euler angles appear only at the
+  edges (inspector, `rotation_euler_deg` in batches): degrees `[x, y, z]`,
+  applied as yaw (Y), then pitch (X), then roll (Z), i.e. `Ry * Rx * Rz`.
+  Scale components must be at least `1e-4` in magnitude (negative allowed).
 - **Colour space:** textures uploaded as `Rgba8UnormSrgb` (sampling returns
   linear). Vertex colours, material tints and lights are linear. Colours in
   style settings (background, fog) are sRGB 0–255 values and converted to
@@ -59,6 +74,8 @@ Versions are centralised in the root `Cargo.toml`; `Cargo.lock` is committed.
   hardware re-encodes to the same 8-bit value) or writes the encoded value
   directly when it is not. Gamma is applied exactly once on both paths; a test
   compares the two.
+- **Emissive:** materials carry a linear `emissive` colour (from glTF
+  `emissiveFactor`) added after lighting and before fog.
 - **Uniform layout:** `FrameUniforms`, `DrawUniforms` and `CompositeUniforms`
   (Rust) are checked against the WGSL structs' sizes and member offsets with
   naga in unit tests; vertex attribute locations and the interpolation
@@ -173,3 +190,130 @@ GPU pipelines, layouts and samplers are created once at start-up. Internal
 targets are recreated only when a view's size changes (style or window
 change). Per frame there are a few uniform writes, two render passes per
 view and one submit.
+
+## Scenes (Milestone 3)
+
+The authored scene is a plain document, not an ECS: `Scene { id, name,
+revision, settings, entities }`, where each `Entity` has a persistent
+`EntityId`, a name, an optional parent ID, a local `Transform` and an
+optional `MeshComponent`. Entities are stored in a list whose order is the
+hierarchy panel order. Decision: a document model keeps save, diff, undo
+and CLI edits simple and exact; the runtime ECS (`hecs`) arrives with
+gameplay in Milestone 4 and is built from the document, not the other way
+round.
+
+A `MeshComponent` has a source, either `{"kind": "primitive", "shape":
+"cube"|"plane"|"sphere"|"quad", "texture": <asset id>?}` or `{"kind":
+"model", "asset": <asset id>}`, and a `MaterialOverride` whose optional fields
+(`tint`, `alpha`, `lit`, `flat_shading`, `allow_affine`, `double_sided`)
+replace the imported material's values. Settings hold the scene's
+`RetroStyle`, lighting (ambient, light direction and colour) and the play
+camera start.
+
+Scene file: `{"format": "psx_scene", "version": 1, "scene": {...}}`, pretty
+JSON with stable field order (saving twice gives identical text). Loading
+checks the format, rejects version 0 and versions newer than the build,
+rejects unknown fields anywhere, and runs `Scene::problems`: duplicate IDs,
+missing parents, cycles, depth over 64, names over 256 bytes, non-finite or
+out-of-range values, invalid style. Invalid scenes are never loaded or
+saved. Saving uses `atomic_write` (`.tmp`, previous file to `.bak`,
+rename).
+
+`revision` counts saves and batch applications. The editor remembers the
+revision it loaded; Save refuses if the file on disk has a different
+revision (another tool changed it) and offers Overwrite or Reload.
+
+## Commands, undo and batches
+
+Every edit, from the editor or the CLI, is a `psx_scene::Command`
+(JSON-tagged by `"op"`): `create_entity`, `delete_entity` (with
+descendants), `duplicate_entity` (subtree, fresh IDs), `rename`,
+`set_transform`, `set_parent` (`keep_world_transform`, default true),
+`set_mesh`, `set_material`, `set_settings`. `psx schema` lists their fields.
+
+`apply(scene, command)` validates first and changes nothing on failure. On
+success it returns a `Change`: the before/after snapshot and index of every
+touched entity (and of settings if changed), plus created IDs. Commands
+never reorder untouched entities and append new ones, so reverting or
+re-applying a change restores the exact list. `History` keeps up to 256
+changes; continuous edits (one gizmo drag, one slider drag) share a merge
+key and become one undo step. The dirty flag compares the current undo
+position with the one recorded at save, so undoing back to the saved state
+is clean.
+
+A command batch is
+`{"format": "psx_command_batch", "version": 1, "expected_revision": N?,
+"commands": [...]}`. `apply_batch` runs on a copy: if any command fails or
+the result is invalid, nothing is written and the error names the command
+index. On success the revision increments and the report lists created IDs.
+`psx apply` refuses while the editor lock is held (exit 3), and refuses a
+stale `expected_revision` (exit 3).
+
+## Projects and assets
+
+A project directory contains `project.json` (`{"format": "psx_project",
+"version": 1, "name", "startup_scene"}`), `assets/` and `scenes/`. Every path
+stored in a project is relative to the project root with `/` separators, and
+references may not leave the project.
+
+Each source file under `assets/` has a sidecar `<file>.meta.json`
+(`{"format": "psx_asset_meta", "version": 1, "id", "importer":
+"gltf"|"texture", "settings": {"scale", "max_texture_size"}}`). The asset ID
+lives in the sidecar, so moving a source together with its sidecar keeps
+scene references. `AssetDatabase::scan` builds the ID → path table and
+reports duplicate IDs, orphaned sidecars and unregistered sources.
+
+Import (`psx_assets::import`) produces CPU data only (`ImportedModel`: parts
+of `CpuMesh` + `ImportedMaterial` + optional `CpuTexture`); the runtime
+uploads it. Importers never panic on input: buffer and accessor reads are
+bounds-checked by our own reader, and the whole import runs inside
+`catch_unwind` as a last guard against panics in dependencies.
+
+glTF support matrix:
+
+| Feature | Handling |
+| --- | --- |
+| `.gltf` (external or `data:` buffers/images), `.glb` | supported |
+| Triangle lists, strips, fans | supported (strips/fans converted per the glTF spec) |
+| POSITION, NORMAL, TEXCOORD_0, COLOR_0; u8/u16/u32 indices; normalized integer attributes | supported; normals computed when absent |
+| Node hierarchy of the default scene | baked into vertices; mirrored nodes get their winding flipped |
+| Base colour factor and texture (PNG/JPEG), alpha mode/cutoff, double-sided, emissive factor, `KHR_materials_unlit` | supported |
+| Points, lines, morph targets, skins, animations, UV1+, metallic/roughness, normal/occlusion/emissive textures, samplers | ignored with a warning |
+| Other required extensions (Draco, meshopt, …), sparse accessors | rejected |
+| Out-of-range buffers/views/accessors/indices, non-finite values, `http(s)` URIs, paths outside the project | rejected |
+
+Textures are decoded with `image` under limits (8192 px per side, 512 MiB
+allocation), then reduced with nearest sampling to `max_texture_size` (the
+retro look keeps hard texels).
+
+`validate_project` checks the project file, every sidecar, every import and
+every scene (schema, hierarchy, asset references that are unknown or of the
+wrong kind) and returns diagnostics with severities; `psx validate` exits 1
+if any is an error.
+
+## GPU scene resources and picking
+
+`psx_runtime::scene_gpu::SceneResources` uploads each referenced asset once
+and turns a `Scene` into renderer draw items using world matrices.
+A missing or failed asset draws as an unlit magenta/black checker cube so it
+stays visible and selectable. If a reimport fails after a successful one,
+the previous GPU data is kept and the status records the failure.
+Primitives use the built-in meshes.
+
+Picking casts a ray from a viewport pixel: the editor maps the pixel
+through the same layout as the composite pass (letterbox and integer scale,
+in physical pixels) to internal NDC, unprojects with the camera, and tests
+the ray against CPU copies of each entity's triangles (Möller–Trumbore,
+both faces). The nearest hit wins.
+
+## Editor
+
+`psx_editor` runs winit + egui (egui-winit, egui-wgpu). Each frame the world
+renders through `RetroRenderer` into the viewport rectangle (the central
+egui area), then egui draws on top using a non-sRGB view of the swapchain
+(`Presenter::overlay_format`) because egui outputs gamma-space colours.
+`EditorSession` owns the scene, history, asset database and log; the UI only
+issues commands through it. While open the editor holds
+`<project>/.psx/editor.lock` (holding its pid); a second editor or `psx apply`
+refuses, `--steal-lock` overrides a stale lock. Closing with unsaved changes
+asks Save / Quit without saving / Cancel.

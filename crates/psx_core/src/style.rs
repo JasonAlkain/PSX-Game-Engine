@@ -405,25 +405,10 @@ pub fn load_style(path: &Path) -> Result<RetroStyle, StyleError> {
 /// previous file as `<name>.bak`, then renames the temporary file into place.
 pub fn save_style(style: &RetroStyle, path: &Path) -> Result<(), StyleError> {
     let text = style_to_json(style)?;
-    let write_err = |source| StyleError::Write {
+    crate::fsutil::atomic_write(path, text.as_bytes()).map_err(|source| StyleError::Write {
         path: path.to_path_buf(),
         source,
-    };
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| write_err(std::io::Error::other("path has no file name")))?;
-    let sibling = |suffix: &str| {
-        let mut name = file_name.to_os_string();
-        name.push(suffix);
-        path.with_file_name(name)
-    };
-    let tmp = sibling(".tmp");
-    fs::write(&tmp, text).map_err(write_err)?;
-    if path.exists() {
-        fs::copy(path, sibling(".bak")).map_err(write_err)?;
-    }
-    fs::rename(&tmp, path).map_err(write_err)?;
-    Ok(())
+    })
 }
 
 #[cfg(test)]

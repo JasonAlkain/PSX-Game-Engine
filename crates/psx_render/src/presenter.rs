@@ -62,6 +62,15 @@ impl Presenter {
             .first()
             .copied()
             .unwrap_or(wgpu::CompositeAlphaMode::Auto);
+        // Overlays such as the editor UI expect a non-sRGB target (they
+        // blend in gamma space); offer that view when the backend allows it.
+        let overlay_view = (format.is_srgb()
+            && gpu
+                .adapter
+                .get_downlevel_capabilities()
+                .flags
+                .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS))
+        .then(|| format.remove_srgb_suffix());
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -71,7 +80,7 @@ impl Presenter {
             present_mode: wgpu::PresentMode::AutoVsync,
             desired_maximum_frame_latency: 2,
             alpha_mode,
-            view_formats: vec![],
+            view_formats: overlay_view.into_iter().collect(),
         };
         tracing::info!(?format, ?alpha_mode, "surface format selected");
         let presenter = Self {
@@ -86,6 +95,17 @@ impl Presenter {
 
     pub fn format(&self) -> wgpu::TextureFormat {
         self.config.format
+    }
+
+    /// Format for overlay passes that blend in gamma space (egui): the
+    /// non-sRGB variant of [`Presenter::format`] when the surface allows
+    /// that view, otherwise the surface format itself.
+    pub fn overlay_format(&self) -> wgpu::TextureFormat {
+        self.config
+            .view_formats
+            .first()
+            .copied()
+            .unwrap_or(self.config.format)
     }
 
     /// Current size in physical pixels.

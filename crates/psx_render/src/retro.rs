@@ -54,6 +54,7 @@ pub struct DrawUniforms {
     pub normal_matrix: [[f32; 4]; 4],
     pub tint: [f32; 4],
     pub params: [f32; 4],
+    pub emissive: [f32; 4],
 }
 
 /// Per-slot composite uniforms. Must match `CompositeUniforms` in
@@ -155,6 +156,12 @@ impl DrawUniforms {
                 flag(material.lit),
                 flag(material.flat_shading),
                 flag(material.allow_affine),
+            ],
+            emissive: [
+                material.emissive[0],
+                material.emissive[1],
+                material.emissive[2],
+                0.0,
             ],
         }
     }
@@ -911,6 +918,7 @@ mod tests {
                 ("normal_matrix", offset_of!(DrawUniforms, normal_matrix)),
                 ("tint", offset_of!(DrawUniforms, tint)),
                 ("params", offset_of!(DrawUniforms, params)),
+                ("emissive", offset_of!(DrawUniforms, emissive)),
             ],
         );
         check_layout(
@@ -1031,6 +1039,15 @@ mod tests {
         assert!(u.normal_matrix.iter().flatten().all(|v| v.is_finite()));
         let u = DrawUniforms::new(Mat4::IDENTITY, &Material::default());
         assert_eq!(u.params, [-1.0, 1.0, 0.0, 1.0]);
+        assert_eq!(u.emissive, [0.0; 4]);
+        let glow = Material {
+            emissive: [0.25, 0.5, 1.0],
+            ..Material::default()
+        };
+        assert_eq!(
+            DrawUniforms::new(Mat4::IDENTITY, &glow).emissive,
+            [0.25, 0.5, 1.0, 0.0]
+        );
     }
 
     #[test]
