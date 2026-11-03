@@ -2720,6 +2720,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "psx_player"
+version = "0.1.0"
+dependencies = [
+ "psx_game",
+]
+
+[[package]]
 name = "psx_render"
 version = "0.1.0"
 dependencies = [

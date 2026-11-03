@@ -107,7 +107,7 @@ struct Door {
 impl Door {
     fn create(p: &Params) -> Result<Box<dyn Behavior>, String> {
         let speed = p.number("speed");
-        if !(speed > 0.0) {
+        if !(speed.is_finite() && speed > 0.0) {
             return Err("speed must be positive".into());
         }
         Ok(Box::new(Door {

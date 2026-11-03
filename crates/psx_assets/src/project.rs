@@ -15,7 +15,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use psx_core::{AssetId, EntityId};
-use psx_scene::{Entity, MeshComponent, MeshSource, PrimitiveShape, Scene};
+use psx_scene::{
+    BehaviorComponent, BodyKind, ColliderComponent, ColliderShape, Entity, MeshComponent,
+    MeshSource, PrimitiveShape, Scene,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -81,7 +84,8 @@ pub struct Project {
 }
 
 impl Project {
-    /// Creates a new project with an empty-room starter scene.
+    /// Creates a new project whose starter scene is playable: a floor, a
+    /// spinning cube and a first-person player (engine behaviours only).
     pub fn create(root: &Path, name: &str) -> Result<Project, ProjectError> {
         if root.join(PROJECT_FILE).exists() {
             return Err(ProjectError::AlreadyExists(root.to_path_buf()));
@@ -113,7 +117,35 @@ impl Project {
             },
             material: Default::default(),
         });
-        scene.entities.push(floor);
+        floor.collider = Some(ColliderComponent {
+            offset: glam::Vec3::new(0.0, -0.1, 0.0),
+            ..ColliderComponent::new(
+                ColliderShape::Box {
+                    size: glam::Vec3::new(1.0, 0.2, 1.0),
+                },
+                BodyKind::Static,
+            )
+        });
+        let mut cube = Entity::new("Cube");
+        cube.transform.translation = glam::Vec3::new(0.0, 0.5, -1.5);
+        cube.mesh = Some(MeshComponent {
+            source: MeshSource::Primitive {
+                shape: PrimitiveShape::Cube,
+                texture: None,
+            },
+            material: Default::default(),
+        });
+        cube.collider = Some(ColliderComponent::new(
+            ColliderShape::Box {
+                size: glam::Vec3::ONE,
+            },
+            BodyKind::Kinematic,
+        ));
+        cube.behaviors = vec![BehaviorComponent::new("psx.spin")];
+        let mut player = Entity::new("Player");
+        player.transform.translation = glam::Vec3::new(0.0, 0.0, 2.5);
+        player.behaviors = vec![BehaviorComponent::new("psx.player")];
+        scene.entities.extend([floor, cube, player]);
         psx_scene::save_scene(&scene, &project.startup_scene_path())?;
         project.save()?;
         let ignore = root.join(".gitignore");

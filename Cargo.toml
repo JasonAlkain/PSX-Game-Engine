@@ -10,6 +10,7 @@ members = [
     "crates/psx_game",
     "apps/psx_sandbox",
     "apps/psx_cli",
+    "apps/psx_player",
     "examples/room/game",
 ]
 
