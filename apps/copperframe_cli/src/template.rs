@@ -85,7 +85,7 @@ fn main() -> std::process::ExitCode {{
             format!(
                 r#"//! Gameplay code. Register behaviour kinds here; attach them to
 //! entities in the editor (Behaviours section of the inspector), where their
-//! fields appear after Play or "Refresh behaviours".
+//! fields appear after Play or Game > "Reload behaviour kinds".
 
 use copperframe_game::{{Behavior, BehaviorDescriptor, Ctx, Entity, FieldDescriptor, Game, Registry}};
 
