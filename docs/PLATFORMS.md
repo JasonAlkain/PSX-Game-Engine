@@ -8,7 +8,7 @@ Not verified) with the date, machine, GPU and driver.
 
 | Platform | Build | Automated tests | Windowed runtime | Evidence |
 | --- | --- | --- | --- | --- |
-| Linux x86-64 (Ubuntu 24.04, X11) | yes | all, GPU tests on Mesa lavapipe (CI and container) | editor, player and sandbox under Xvfb with lavapipe; no hardware GPU | STATUS Verification record; `psx bench` numbers below |
+| Linux x86-64 (Ubuntu 24.04, X11) | yes | all, GPU tests on Mesa lavapipe (CI and container) | editor, player and sandbox under Xvfb with lavapipe; no hardware GPU | STATUS Verification record; `copperframe bench` numbers below |
 | Windows 11 x86-64 (primary target) | CI (`windows-latest`): clippy, tests, release build | CI; GPU tests run only if the runner exposes an adapter (WARP), otherwise print `SKIPPED` | not run | — |
 | macOS | not built | not run | not run | — |
 
@@ -18,8 +18,8 @@ numbers from them do not predict hardware GPUs.
 ## Measuring performance
 
 ```sh
-psx bench --project examples/room                       # idle, 300 frames per style
-psx bench --project examples/room --script examples/room/scripts/walkthrough.script.json
+copperframe bench --project examples/room                       # idle, 300 frames per style
+copperframe bench --project examples/room --script examples/room/scripts/walkthrough.script.json
 cargo run -p lever_room --release -- --bench --frames 600 --bench-size 1920x1080 --report bench.json
 ```
 
@@ -34,36 +34,39 @@ names the adapter, backend and driver.
 Use a release build on a machine with a hardware GPU (note GPU, driver and
 monitor setup).
 
-1. `cargo test --workspace` with `PSX_REQUIRE_GPU=1`: all pass. Reference
+1. `cargo test --workspace` with `COPPERFRAME_REQUIRE_GPU=1`: all pass. Reference
    images are compared only on llvmpipe; on other adapters the test only
    renders them.
-2. `cargo run -p psx_sandbox --release`: the comparison scene renders.
+2. `cargo run -p copperframe_sandbox --release`: the comparison scene renders.
    Keys 1–7 toggle effects, `P` cycles PS1 → PS2 → Clean, `C` shows the
    split view, F5 saves `psx_style.json` and a restart reloads it. Resize,
    minimise and restore, drag between monitors with different scaling, and
    Alt+Tab with the mouse captured.
-3. `cargo run -p psx_editor --release -- examples/room`: select Caretaker,
+3. `cargo run -p copperframe_editor --release -- examples/room`: the
+   Copperframe splash shows for about two and a half seconds (a key or click skips it)
+   and the taskbar shows the Copperframe icon; select Caretaker,
    confirm the animator shows `idle` and the viewport animates it; switch
    Scene settings between PS1 and PS2; move a crate, Ctrl+S, reopen, the
    crate stayed; Ctrl+Z then close shows the unsaved-changes dialog; F5
    plays, Stop returns to the editor with the scene unchanged.
-4. `cargo run -p lever_room --release`: walk, inspect the crate, pull the
+4. `cargo run -p lever_room --release`: the splash shows before the title
+   screen; walk, inspect the crate, pull the
    lever, talk to the caretaker (wave then idle), reach the exit. Settings:
    switch Graphics style between As authored, PS1 and PS2 while playing;
    volume sliders; machine hum louder near the machine; rebinding a key
    survives a restart; settings appear under
-   `%APPDATA%\PSX Engine\the-lever-room\config`.
-5. `cargo run -p psx_cli --release -- build --project examples/room --out
+   `%APPDATA%\Copperframe Engine\the-lever-room\config`.
+5. `cargo run -p copperframe_cli --release -- build --project examples/room --out
    "%USERPROFILE%\Desktop\Lever Room"`, run `lever_room.exe` from that
    folder and finish the game.
-6. `cargo run -p psx_cli --release -- bench --project examples/room`:
+6. `cargo run -p copperframe_cli --release -- bench --project examples/room`:
    record the report in STATUS.
 
 ## macOS checklist
 
 Not supported yet beyond what `wgpu` (Metal), `winit`, `kira` and
 `directories` provide. Run steps 1–6 above (paths: `~/Library/Application
-Support/PSX Engine/the-lever-room`), plus a Retina display check of the
+Support/Copperframe Engine/the-lever-room`), plus a Retina display check of the
 integer upscale and the editor's picking at scale factor 2.
 
 ## Linux checklist (hardware GPU)

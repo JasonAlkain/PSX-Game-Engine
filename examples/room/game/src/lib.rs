@@ -11,11 +11,11 @@
 //!   `idle` clip to `wave`, says `text`, and fades back to `idle` when the
 //!   wave ends.
 
-use glam::{Quat, Vec3};
-use psx_game::builtin::PlayerTag;
-use psx_game::{
+use copperframe_game::builtin::PlayerTag;
+use copperframe_game::{
     Behavior, BehaviorDescriptor, Ctx, Entity, FieldDescriptor, Game, GameEvent, Params, Registry,
 };
+use glam::{Quat, Vec3};
 
 pub struct LeverRoom;
 
@@ -200,7 +200,7 @@ impl Behavior for Door {
 }
 
 struct Lever {
-    target: Option<psx_core::EntityId>,
+    target: Option<copperframe_core::EntityId>,
     prompt: String,
     pulled: bool,
 }

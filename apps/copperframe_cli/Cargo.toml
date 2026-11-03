@@ -1,0 +1,27 @@
+[package]
+name = "copperframe_cli"
+description = "Command-line project tools: create, validate, import, inspect scenes and apply command batches. Machine-readable JSON output."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "copperframe"
+path = "src/main.rs"
+
+[dependencies]
+copperframe_core.workspace = true
+copperframe_scene.workspace = true
+copperframe_assets.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+copperframe_assets.workspace = true
+
+[lints]
+workspace = true

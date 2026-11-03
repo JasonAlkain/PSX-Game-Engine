@@ -25,7 +25,7 @@ jobs:
       - name: Test (GPU tests required on lavapipe)
         run: cargo test --workspace --locked
         env:
-          PSX_REQUIRE_GPU: "1"
+          COPPERFRAME_REQUIRE_GPU: "1"
           WGPU_BACKEND: vulkan
       - name: Benchmark the example room (debug build, smoke run)
         run: cargo run -p lever_room --locked -- --bench --frames 30 --bench-size 640x480

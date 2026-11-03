@@ -4,7 +4,7 @@
 fn main() -> std::process::ExitCode {
     // The project is the folder above this crate during development; an
     // exported build uses the `data` folder next to the executable.
-    psx_game::main(
+    copperframe_game::main(
         || Box::new(lever_room::LeverRoom),
         concat!(env!("CARGO_MANIFEST_DIR"), "/.."),
     )

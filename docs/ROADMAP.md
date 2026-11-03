@@ -18,7 +18,7 @@ All six milestones of the brief are implemented. What remains before the
 engine can be called validated on its primary target:
 
 1. Run the Windows 11 checklist in `docs/PLATFORMS.md` and record the
-   results (and `psx bench` numbers on a hardware GPU) in STATUS.
+   results (and `copperframe bench` numbers on a hardware GPU) in STATUS.
 2. Fix whatever that run finds; the macOS checklist after that.
 
 Candidates for later work, not committed: gamepad input, a cooked asset

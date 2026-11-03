@@ -5,7 +5,49 @@ loads every older version it knows and rejects newer versions (and version
 0) with a message that names the file, the version found and the newest
 version supported. Older files are never rewritten on load; they are saved
 in the current version the next time the engine writes them (the editor's
-Save, `psx apply`, the player's settings screen).
+Save, `copperframe apply`, the player's settings screen).
+
+## Rename to Copperframe
+
+The engine was renamed from "PSX Engine" to **Copperframe Engine**. Names
+that identify the engine changed; on-disk data formats did not, so every
+existing project, scene, style file, batch, script, settings file and save
+loads exactly as before.
+
+| What | Before | After |
+| --- | --- | --- |
+| Crates | `psx_core`, `psx_scene`, `psx_assets`, `psx_render`, `psx_runtime`, `psx_editor`, `psx_game` | `copperframe_core`, `copperframe_scene`, `copperframe_assets`, `copperframe_render`, `copperframe_runtime`, `copperframe_editor`, `copperframe_game` |
+| App packages | `psx_cli`, `psx_player`, `psx_sandbox` (in `apps/psx_*`) | `copperframe_cli`, `copperframe_player`, `copperframe_sandbox` (in `apps/copperframe_*`) |
+| CLI binary | `psx` | `copperframe` (`copperframe new`, `copperframe validate`, ...) |
+| Editor / player / sandbox binaries | `psx_editor`, `psx_player`, `psx_sandbox` | `copperframe_editor`, `copperframe_player`, `copperframe_sandbox` |
+| Test environment variables | `PSX_REQUIRE_GPU`, `PSX_UPDATE_GOLDEN` | `COPPERFRAME_REQUIRE_GPU`, `COPPERFRAME_UPDATE_GOLDEN` |
+| Player settings and saves (OS user folders) | `PSX Engine/<game>` | `Copperframe Engine/<game>` |
+
+Kept as they were, because they are data rather than branding: the `psx_*`
+`format` tags in the table below, `psx_style.json`, the project's `.psx/`
+folder (editor lock, play copies, schema cache), and the engine behaviour
+kinds `psx.player`, `psx.camera_zone` and `psx.spin`.
+
+What you do:
+
+- **Game crates** (the `game/` folder that `psx new` wrote): in
+  `game/Cargo.toml`, change the dependency `psx_game = { path =
+  ".../crates/psx_game" }` to `copperframe_game = { path =
+  ".../crates/copperframe_game" }`, and replace `psx_game::` with
+  `copperframe_game::` in the sources (also `psx_scene::` and friends if you
+  use them).
+- **Scripts and CI** that call `psx` or set `PSX_REQUIRE_GPU`: use
+  `copperframe` and `COPPERFRAME_REQUIRE_GPU`.
+- **Player settings and saves** written by an earlier build are in the old
+  `PSX Engine` folder (for example `%APPDATA%\PSX Engine\<game>` on
+  Windows). Move that folder's contents to `Copperframe Engine\<game>` to
+  keep them; otherwise the game starts with defaults.
+
+The editor, player and sandbox now show the Copperframe window icon, and the
+editor and the player's title screen open with a short Copperframe splash
+(about two and a half seconds; any key or click skips it). The editor's Play mode and
+`--frames` runs skip the splash. Branding artwork lives in
+`assets/branding/`.
 
 ## File formats
 
@@ -25,10 +67,10 @@ Save, `psx apply`, the player's settings screen).
 | `psx_bench` (`--bench` report) | 1 | — | New in M6 | — |
 
 Fixtures that pin older versions, each loaded by a test:
-`crates/psx_scene/fixtures/v1_room.scene.json` (scene v1, Milestone 3),
-`crates/psx_scene/fixtures/v2_room.scene.json` (scene v2, Milestone 4),
-`crates/psx_core/fixtures/v1.style.json` (style v1),
-`crates/psx_game/fixtures/m4_settings.json` (player settings without
+`crates/copperframe_scene/fixtures/v1_room.scene.json` (scene v1, Milestone 3),
+`crates/copperframe_scene/fixtures/v2_room.scene.json` (scene v2, Milestone 4),
+`crates/copperframe_core/fixtures/v1.style.json` (style v1),
+`crates/copperframe_game/fixtures/m4_settings.json` (player settings without
 `graphics_style`).
 
 ## Importer versions
@@ -49,15 +91,15 @@ Game crates depend on the engine by path, so they move with the checkout.
 
 - `GameEvent` has a new variant, `AnimationFinished { entity, clip }`.
   A `match` over `GameEvent` without a wildcard arm needs a new arm.
-- `psx_game::sim::DrawEntity` has a new field `joints: Option<Vec<Mat4>>`
+- `copperframe_game::sim::DrawEntity` has a new field `joints: Option<Vec<Mat4>>`
   (only matters if you build `DrawEntity` values yourself).
-- `psx_render::Lighting` has new fields `points` and `blobs`. Use
-  `..Lighting::default()` or `psx_runtime::scene_gpu::scene_lighting` /
+- `copperframe_render::Lighting` has new fields `points` and `blobs`. Use
+  `..Lighting::default()` or `copperframe_runtime::scene_gpu::scene_lighting` /
   `lighting_for_scene` to build it.
 - `SceneResources::draws` takes a third argument, the joint palettes per
   entity (`&HashMap::new()` for none); `draws_from` items are 4-tuples with
   an optional palette.
-- `psx_render` vertices are 72 bytes (`joints`, `weights` added to
+- `copperframe_render` vertices are 72 bytes (`joints`, `weights` added to
   `Vertex`). Code that builds `Vertex` literals sets them to zero, or uses
   `MeshData` helpers.
 - New: `Ctx::play_animation`, `play_animation_at`, `stop_animation`,
@@ -65,7 +107,7 @@ Game crates depend on the engine by path, so they move with the checkout.
 
 ### Milestone 5 → 6
 
-- New `psx_game::bench` module and `--bench`/`--bench-size` flags. Exit
+- New `copperframe_game::bench` module and `--bench`/`--bench-size` flags. Exit
   code 1 now also covers "no graphics adapter for the benchmark".
 - `Simulation::load_scene` frees cached models and decoded sounds the new
   scene does not reference; `SceneResources::release_unused` does the same

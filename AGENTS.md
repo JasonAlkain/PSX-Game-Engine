@@ -10,36 +10,36 @@ Read this before changing the repository.
 - Dependencies: versions live only in the root `Cargo.toml`
   `[workspace.dependencies]`. Crates use `foo.workspace = true`. Commit `Cargo.lock`.
   wgpu, winit and egui versions must stay mutually compatible (see ARCHITECTURE).
-- Dependency direction: `psx_core`, `psx_scene` and `psx_assets` must not
-  depend on a window, GPU or editor. `psx_render` must not depend on winit.
+- Dependency direction: `copperframe_core`, `copperframe_scene` and `copperframe_assets` must not
+  depend on a window, GPU or editor. `copperframe_render` must not depend on winit.
   The editor and the CLI share one command layer: every scene edit is a
-  `psx_scene::Command`. Do not add an edit path that bypasses it.
+  `copperframe_scene::Command`. Do not add an edit path that bypasses it.
 - File formats (scene, batch, project, asset meta, style) are versioned JSON
   with a `format` tag. Changing a format means bumping its version, adding a
   migration from the previous version, and a test that loads the old one.
-  Saves go through `psx_core::atomic_write`.
+  Saves go through `copperframe_core::atomic_write`.
 - Commands must leave the scene untouched on failure, must not reorder
   entities they do not touch, and append new entities (undo relies on it).
 - Importers must not panic on any input; add a fixture test for each new
-  failure mode (`crates/psx_assets/src/import/gltf/tests.rs`).
+  failure mode (`crates/copperframe_assets/src/import/gltf/tests.rs`).
 - Errors: no panics for recoverable failures (bad assets, missing devices,
   surface loss). Use `thiserror` in libraries, `anyhow` at application edges.
 - `unsafe_code` is denied workspace-wide. If it ever becomes necessary, isolate
   it, document the invariants, and allow it locally.
 - Do not land placeholder subsystems. A TODO or mocked success is not a feature.
 - Retro effects stay independently switchable through `RetroStyle`
-  (`psx_core::style`). A new effect gets a settings field with validation, a
-  sandbox key, and an image test in `crates/psx_render/tests/retro_images.rs`.
-- `examples/room` must keep passing `psx validate --project examples/room`.
-- Gameplay lives in `psx_game`. The editor and CLI must not link it: they
-  run a game executable (`psx_assets::game::GameTarget`) as a child process
-  and read its `--schema`. Keep `psx_game::launch` flags and exit codes
+  (`copperframe_core::style`). A new effect gets a settings field with validation, a
+  sandbox key, and an image test in `crates/copperframe_render/tests/retro_images.rs`.
+- `examples/room` must keep passing `copperframe validate --project examples/room`.
+- Gameplay lives in `copperframe_game`. The editor and CLI must not link it: they
+  run a game executable (`copperframe_assets::game::GameTarget`) as a child process
+  and read its `--schema`. Keep `copperframe_game::launch` flags and exit codes
   stable; document new ones in ARCHITECTURE.
 - The simulation must never write the authored `Scene`, and must behave the
   same headless and windowed for the same input. Behaviours change the world
   only through `Ctx`.
 - A change to gameplay, physics or the demo must keep
-  `psx test-scene --project examples/room --script
+  `copperframe test-scene --project examples/room --script
   examples/room/scripts/walkthrough.script.json` passing (it also runs as
   `cargo test -p lever_room`).
 - Behaviour parameters are scalars (bool, number, string, entity); add a
@@ -47,12 +47,12 @@ Read this before changing the repository.
 - PS1/PS2 differences must stay style settings read per frame: switching
   styles may not require reimporting or re-uploading content. Renderer
   features that differ by style get an image test in
-  `crates/psx_render/tests/ps2_images.rs`.
-- Animation state lives in `psx_game::animation::Animator`; behaviours
+  `crates/copperframe_render/tests/ps2_images.rs`.
+- Animation state lives in `copperframe_game::animation::Animator`; behaviours
   drive it through `Ctx::play_animation`/`stop_animation`. The renderer
   only receives joint palettes.
 - A visual change that alters the example room must update the reference
-  images (`PSX_UPDATE_GOLDEN=1 cargo test -p psx_runtime --test
+  images (`COPPERFRAME_UPDATE_GOLDEN=1 cargo test -p copperframe_runtime --test
   scene_resources`) and say why in the commit. Never loosen the tolerance
   to make a test pass.
 - A file format change also updates `docs/MIGRATION.md` and adds a fixture
@@ -63,22 +63,22 @@ Read this before changing the repository.
   `SceneResources::release_unused`).
 - Logs go to stderr; stdout of `--schema` and `--headless` is JSON only.
 - Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
-  checked by the naga layout tests in `psx_render::retro`.
+  checked by the naga layout tests in `copperframe_render::retro`.
 
 ## Checks before a change is done
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-PSX_REQUIRE_GPU=1 cargo test --workspace   # drop the env var if no adapter exists
+COPPERFRAME_REQUIRE_GPU=1 cargo test --workspace   # drop the env var if no adapter exists
 cargo build --workspace --release
-psx validate --project examples/room
+copperframe validate --project examples/room
 ```
 
-Performance: `psx bench --project examples/room` (needs an adapter; compare
+Performance: `copperframe bench --project examples/room` (needs an adapter; compare
 numbers only on the same adapter).
 
-`PSX_REQUIRE_GPU=1` turns a skipped GPU test into a failure. On Linux without a
+`COPPERFRAME_REQUIRE_GPU=1` turns a skipped GPU test into a failure. On Linux without a
 GPU, install Mesa lavapipe (`mesa-vulkan-drivers`). Building
 `kira` on Linux needs `libasound2-dev`. Report exactly which checks
 ran and which were skipped.

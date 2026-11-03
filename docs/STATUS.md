@@ -1,6 +1,16 @@
 # Status
 
-Last updated: 2026-11-03 (Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+Last updated: 2026-11-03 (renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+
+## Rename to Copperframe (2026-11-03)
+
+Crates, binaries, the CLI (`copperframe`), window titles, test environment
+variables and the OS settings/save folder now use the Copperframe name; data
+formats (`psx_*` tags, `psx_style.json`, `.psx/`, `psx.*` behaviours) are
+unchanged. See [MIGRATION.md](MIGRATION.md#rename-to-copperframe). The
+editor, player and sandbox have the Copperframe window icon, and the editor
+and player title screen open with a skippable splash. Verified on Linux
+(Xvfb + lavapipe); the icon and splash are unverified on Windows 11.
 
 ## Working
 
@@ -32,7 +42,7 @@ unchanged. Milestone 2 adds the PS1 visual slice:
 - **Style settings:** `RetroStyle` with PS1 and Clean presets, `Custom`
   detection, validation, versioned JSON file with atomic save and `.bak`
   copy, future-version rejection.
-- **Comparison scene** in `psx_sandbox`: room and fogged corridor with
+- **Comparison scene** in `copperframe_sandbox`: room and fogged corridor with
   pillars, tiled floor, brick walls, gradient panel, smooth and flat spheres,
   cutout fence, glass pane and the spinning crate. Keys 1–7 toggle each
   effect, `[ ]` and `- =` adjust bits and snap grid, `P` switches preset, `C`
@@ -41,7 +51,7 @@ unchanged. Milestone 2 adds the PS1 visual slice:
 
 ## Milestone 3: authoring loop
 
-- **Scenes:** versioned JSON scene files (`psx_scene`) with persistent UUID
+- **Scenes:** versioned JSON scene files (`copperframe_scene`) with persistent UUID
   entity IDs, parent hierarchy (cycles, missing parents, depth > 64
   rejected), local transforms, primitive or imported-model meshes with
   per-entity material overrides, and per-scene style, lighting and camera
@@ -50,7 +60,7 @@ unchanged. Milestone 2 adds the PS1 visual slice:
 - **Commands and undo:** nine commands shared by editor and CLI; failed
   commands change nothing; undo/redo restores exact state; drags merge into
   one step; dirty tracking survives undo back to the saved state.
-- **CLI (`psx`):** `new`, `schema`, `validate`, `import`, `inspect`,
+- **CLI (`copperframe`):** `new`, `schema`, `validate`, `import`, `inspect`,
   `apply` (all-or-nothing batches, `--dry-run`, `expected_revision`,
   refuses while the editor is open), text or `--json` output, documented
   exit codes.
@@ -59,7 +69,7 @@ unchanged. Milestone 2 adds the PS1 visual slice:
   ARCHITECTURE; malformed, truncated, out-of-project and unsupported files
   fail with a message, never a panic. A failed reimport keeps the last good
   GPU data; missing assets draw a magenta checker.
-- **Editor (`psx_editor`):** egui menu bar, hierarchy, inspector (name,
+- **Editor (`copperframe_editor`):** egui menu bar, hierarchy, inspector (name,
   parent, position/rotation/scale, mesh, material overrides), scene
   settings (style preset and fields, lighting, camera start), assets tab
   (register, add to scene, reimport), console, status bar with dirty and
@@ -73,8 +83,8 @@ Completion criteria from the brief:
 
 | Criterion | Evidence |
 | --- | --- |
-| A room assembled in the editor survives restart with the same entities and assets | `psx_editor::session` test `room_survives_restart_cli_edit_and_undo` (create, import, save, reopen, compare IDs); manual Xvfb run: gizmo move, File > Save, restart shows the move |
-| It can be modified through the CLI | same test applies a batch with `psx_scene::apply_batch`; `apps/psx_cli/tests/cli.rs` runs `psx new/import/apply/validate/inspect` end to end, including lock refusal |
+| A room assembled in the editor survives restart with the same entities and assets | `copperframe_editor::session` test `room_survives_restart_cli_edit_and_undo` (create, import, save, reopen, compare IDs); manual Xvfb run: gizmo move, File > Save, restart shows the move |
+| It can be modified through the CLI | same test applies a batch with `copperframe_scene::apply_batch`; `apps/copperframe_cli/tests/cli.rs` runs `copperframe new/import/apply/validate/inspect` end to end, including lock refusal |
 | It stays valid after undo/redo and failed imports | same test undoes/redoes every step and validates; `scene_resources` GPU test breaks a model file and checks the last import is kept and drawn; 10 glTF fixture failure tests |
 
 ## Milestone 4: playable PS1-style MVP
@@ -82,7 +92,7 @@ Completion criteria from the brief:
 Milestone 4 delivered the playable PS1-style MVP; Milestone 5 (below) adds
 the PS2 workflow on top of it.
 
-- **Gameplay runtime (`psx_game`):** `Game`/`Behavior` API with a registry
+- **Gameplay runtime (`copperframe_game`):** `Game`/`Behavior` API with a registry
   and typed behaviour schemas; `Simulation` builds a `hecs` world from a
   scene and runs fixed 60 Hz ticks in a documented order; state map,
   messages, spawn/despawn, finish. Built-in `psx.player` (first-person
@@ -101,14 +111,14 @@ the PS2 workflow on top of it.
 - **Player:** title screen, HUD (crosshair, prompts, messages), pause,
   settings, Continue from a save, finished screen; settings and saves in the
   OS user folders.
-- **Headless runs:** `--headless --script` and `psx test-scene` run the
+- **Headless runs:** `--headless --script` and `copperframe test-scene` run the
   same simulation without window, GPU or audio and print a JSON report.
 - **Editor play mode:** F5 / Play runs the game as a child process on a
   copy of the current scene; Stop kills it; console shows its logs.
-- **Export:** `psx build` and Game > Export produce a standalone folder
+- **Export:** `copperframe build` and Game > Export produce a standalone folder
   (executable, data, licence notices) and verify it by running it.
-- **Templates:** `psx new` writes a game crate (`game/`) with an example
-  behaviour; `--no-game` projects use the stock `psx_player`.
+- **Templates:** `copperframe new` writes a game crate (`game/`) with an example
+  behaviour; `--no-game` projects use the stock `copperframe_player`.
 - **Demo:** `examples/room` is "The Lever Room": walk, inspect objects, a
   locked door, pull a lever to open it, walk a corridor under a fixed
   camera with a humming machine, reach the exit.
@@ -120,7 +130,7 @@ Completion criteria from the brief:
 | Edit the demo | Editor under Xvfb: inspector shows collider, audio and behaviour components with schema fields; collider wireframes; `apply` batches `build_demo` and `fixed_camera` build the demo through the command layer |
 | Play it | Editor F5 launched the game on the `.psx/play` copy, logs streamed into the console, Stop ended it. Windowed player under Xvfb: title, walking, mouse look, "It won't budge" interaction, pause, settings, rebinding saved, quit-to-title save and Continue, fixed camera showing the player body, finished screen |
 | Stop without changing the authored scene | `examples/room/game/tests/walkthrough.rs` checks the scene file bytes are unchanged after a full play; the simulation never writes the `Scene` |
-| Export it | `psx build --project examples/room --out "<dir>/Lever Room"`: 18 files, 29.3 MiB, notices for 464 crates |
+| Export it | `copperframe build --project examples/room --out "<dir>/Lever Room"`: 18 files, 29.3 MiB, notices for 464 crates |
 | Complete it in the standalone package | The exported executable, run from a folder whose path has spaces, completed `scripts/walkthrough.script.json` (535 ticks, `Finished`, all expected events). A windowed run of the export started, reached the game, and received keyboard input; completing it by synthetic mouse input under Xvfb was not achieved (see Not verified) |
 
 ## Milestone 5: PS2 workflow
@@ -138,7 +148,7 @@ Completion criteria from the brief:
   skinning); `animator` component (clip, speed, loop, autoplay);
   `Ctx::play_animation` crossfades between clips, `stop_animation` fades to
   rest, `AnimationFinished` events; editor viewport previews autoplaying
-  clips; `psx import` lists joints and clips; `psx validate` warns about
+  clips; `copperframe import` lists joints and clips; `copperframe validate` warns about
   unknown clips.
 - **Bounded local lights:** `light` component (colour, intensity, range),
   up to 8 nearest the camera, per vertex (PS1) or per pixel (PS2).
@@ -160,7 +170,7 @@ Completion criteria from the brief:
 | Criterion | Evidence |
 | --- | --- |
 | The same project can use either style without rebuilding content | `scene_resources::example_room_renders_in_both_styles_from_the_same_content` renders `examples/room` with its PS1 style and the PS2 preset from one upload (captures `target/tmp/room_ps1.ppm`, `room_ps2.ppm` inspected: caretaker, crates, pillars, blob shadow under the caretaker); windowed `lever_room --play` under Xvfb with `graphics_style` `scene` and `ps2` (screenshots inspected); style switching is a per-frame sampler/uniform choice |
-| An animated character works | `psx_game` animation unit tests (clip end reported once, crossfade midpoint, reversed and held playback, non-finite input); `simulation::animated_models_play_crossfade_and_report_finished_clips`; `walkthrough::the_caretaker_waves_then_returns_to_idle` (scripted walk up, talk, `wave`, `AnimationFinished`, back to `idle`); GPU test `skinned_models_draw_in_their_animated_pose`; renderer image test `skinning_moves_vertices`; editor under Xvfb shows the caretaker's animator, light and shadow inspectors with the model's clips |
+| An animated character works | `copperframe_game` animation unit tests (clip end reported once, crossfade midpoint, reversed and held playback, non-finite input); `simulation::animated_models_play_crossfade_and_report_finished_clips`; `walkthrough::the_caretaker_waves_then_returns_to_idle` (scripted walk up, talk, `wave`, `AnimationFinished`, back to `idle`); GPU test `skinned_models_draw_in_their_animated_pose`; renderer image test `skinning_moves_vertices`; editor under Xvfb shows the caretaker's animator, light and shadow inspectors with the model's clips |
 | Geometry and UVs are stable under the PS2 preset | Image test `ps2_preset_keeps_geometry_and_uvs_where_perspective_puts_them`: over six sub-pixel camera moves the far edge stays within 1 px and the texture boundary within 1.5 px of the perspective projection, while the same content under PS1 is off by more than 4 px (affine warping) |
 
 ## Milestone 6: hardening and platforms
@@ -168,7 +178,7 @@ Completion criteria from the brief:
 - **Performance measurement:** every game executable has `--bench`
   (offscreen, no window or audio; real simulation; authored, PS1 and PS2
   styles; mean/p50/p95/max tick and frame times; adapter and driver in the
-  report) and `psx bench --project` builds the game in release and runs it.
+  report) and `copperframe bench --project` builds the game in release and runs it.
   CI runs a short benchmark on Linux as a smoke test.
 - **Lifecycle:** a scene change frees cached CPU models and decoded sounds
   the new scene does not use, and the player releases GPU models and
@@ -177,7 +187,7 @@ Completion criteria from the brief:
   and cache counts stay constant.
 - **Regression coverage:** reference images of the example room (two
   poses × PS1/PS2, 320×240, caretaker mid-idle) in
-  `crates/psx_runtime/tests/golden/`, compared with a tolerance on the
+  `crates/copperframe_runtime/tests/golden/`, compared with a tolerance on the
   llvmpipe reference adapter (as on CI); committed fixtures for scene v1
   and v2, style v1 and Milestone 4 player settings.
 - **Docs:** [MIGRATION.md](MIGRATION.md) (every format version, importer
@@ -211,19 +221,19 @@ Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
 | --- | --- |
 | `cargo fmt --all -- --check` | pass |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | pass |
-| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 207 tests, 1 ignored (a documentation example) |
+| `COPPERFRAME_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 207 tests, 1 ignored (a documentation example) |
 | M5 image tests: linear filtering, mip averaging (trilinear distant texels ≈ the texture mean), point lights bounded and lit per vertex or per pixel, blob shadows (on lit floors only), skinning, PS2 geometry/UV stability | pass |
 | M5 GPU tests: skinned model drawn in its animated pose; example room in PS1 and PS2 from the same resources, no validation errors | pass, captures inspected |
 | M5 editor under Xvfb (debug): opens `examples/room`, Scene settings show PS2 and the new style switches, selecting Caretaker shows Animator (clip list from the model), Point light and Blob shadow inspectors; `--frames` exit, no wgpu validation errors | pass, screenshots inspected |
 | M5 player under Xvfb (debug): `lever_room --play --frames 900` with graphics style "as authored" and "PS2" | pass, screenshots inspected |
-| M6 reference images (example room, 2 poses × PS1/PS2) on llvmpipe; soak test of 50 restarts; `--bench` and `psx bench` (release, numbers above); migration fixtures | pass |
-| M5 `psx build` of `examples/room` (release): 20 files, 29.6 MiB, 464 crates in NOTICES; the exported executable completed the walkthrough script headless (535 ticks, finished, no warnings) | pass |
-| `psx test-scene --project examples/room --script examples/room/scripts/walkthrough.script.json` | pass, 535 ticks, finished |
-| `psx build` of `examples/room` (release) with the walkthrough verification | pass |
-| `psx new` then `psx test-scene`, with and without a game crate | pass |
+| M6 reference images (example room, 2 poses × PS1/PS2) on llvmpipe; soak test of 50 restarts; `--bench` and `copperframe bench` (release, numbers above); migration fixtures | pass |
+| M5 `copperframe build` of `examples/room` (release): 20 files, 29.6 MiB, 464 crates in NOTICES; the exported executable completed the walkthrough script headless (535 ticks, finished, no warnings) | pass |
+| `copperframe test-scene --project examples/room --script examples/room/scripts/walkthrough.script.json` | pass, 535 ticks, finished |
+| `copperframe build` of `examples/room` (release) with the walkthrough verification | pass |
+| `copperframe new` then `copperframe test-scene`, with and without a game crate | pass |
 | M4 windowed player and editor play mode under Xvfb (see the table above) | pass, screenshots inspected |
 | `cargo build --workspace --release --locked` | pass |
-| `psx validate --project examples/room` | pass, 0 errors, 0 warnings |
+| `copperframe validate --project examples/room` | pass, 0 errors, 0 warnings |
 | M3 image test: emissive adds after lighting and is fogged | pass |
 | M3 GPU test: imported model colour, missing-asset fallback, failed reimport keeps last import, ray picking | pass |
 | M3 editor under Xvfb (release): opens `examples/room`, renders with PS1 style, click picking selects, gizmo drag moves a parent with its child, File > Save writes revision 2 and `.bak`, Edit > Undo marks dirty, quit with unsaved changes shows the dialog, "Quit without saving" exits and removes the lock, `--frames 120` exits cleanly; no wgpu validation errors | pass, screenshots inspected |
@@ -238,7 +248,7 @@ Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
 | Image test: flat shading gives ≤ 1 colour per triangle | pass |
 | Comparison scene: 192 frames over 8 positions (inside walls, crate, below floor, grazing near plane, outside) × 4 yaws × 3 pitches (±89°) × 2 snap grids, no validation errors | pass |
 | Split view: left half equals PS1 render, right half equals clean render | pass |
-| `psx_sandbox --frames 120` and `--split` under Xvfb | pass, no wgpu errors |
+| `copperframe_sandbox --frames 120` and `--split` under Xvfb | pass, no wgpu errors |
 | Resize 960×720 → 500×300 (1× with bars) → 200×150 (fit downscale) → 1280×720 (3× pillarbox) → 961×721, unmap/remap | pass, images inspected |
 
 Debug images from the tests are written to `target/tmp/*.ppm`.
@@ -248,7 +258,7 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 - **Windows 11 runtime** (primary target): not run for Milestones 1 to 6;
   see the checklist in [PLATFORMS.md](PLATFORMS.md). CI
   builds and tests on a Windows runner. Manual check:
-  `cargo run -p psx_sandbox --release`, then press `C` for the split view,
+  `cargo run -p copperframe_sandbox --release`, then press `C` for the split view,
   1–7 to toggle effects, F5 to save (`psx_style.json` appears in the working
   directory), restart to confirm it reloads, plus the Milestone 1 window
   checks (resize, minimize, monitors with different DPI, mouse capture).
@@ -258,16 +268,16 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 - **Editor keyboard shortcuts and fly camera** (Ctrl+S/Z/Y/D, Delete,
   right-drag + WASD): same reason; the menu items they trigger were
   exercised with the mouse. Windows manual check:
-  `cargo run -p psx_editor --release -- examples/room`, move a crate with the
+  `cargo run -p copperframe_editor --release -- examples/room`, move a crate with the
   gizmo, Ctrl+S, close, reopen, confirm the crate stayed; Ctrl+Z then close
   and confirm the unsaved-changes dialog; run
-  `cargo run -p psx_cli --release -- inspect --project examples/room`.
+  `cargo run -p copperframe_cli --release -- inspect --project examples/room`.
 - **High-DPI editor layout:** picking accounts for the scale factor in code
   and unit tests, but only scale 1.0 was run.
 - Hardware GPUs, DX12 and Metal backends, macOS: only lavapipe on Linux
   was available.
 - Performance on hardware GPUs: only the software adapter was measured
-  (table above). Run `psx bench --project examples/room` on the target
+  (table above). Run `copperframe bench --project examples/room` on the target
   machine.
 - **Audio output:** the container has no sound device. Audio playback paths
   are exercised headless (emitters, buses, fades are computed) and the
@@ -280,10 +290,10 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   through the X server's pointer acceleration and cursor capture, so the
   scripted view turns were not reproducible and the lever could not be
   aimed at. The same executable completed the walkthrough headless.
-  Windows manual check: `cargo run -p psx_cli --release -- build --project
+  Windows manual check: `cargo run -p copperframe_cli --release -- build --project
   examples/room --out "%USERPROFILE%\Desktop\Lever Room"`, run
   `lever_room.exe` from that folder, finish the demo, quit, and confirm
-  settings appear under `%APPDATA%\PSX Engine\the-lever-room\config`.
+  settings appear under `%APPDATA%\Copperframe Engine\the-lever-room\config`.
 - **M5 in a window:** talking to the caretaker and switching the graphics
   style from the Settings menu were not driven by synthetic input here
   (focus and relative mouse issues as above); both are covered headless and
@@ -335,7 +345,7 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   while the engine checkout it was created from exists.
 - Exports are about 30 MB because binaries are not stripped.
 - Editor Game > Export needs a game crate; projects without one export with
-  `psx build`.
+  `copperframe build`.
 - Gamepad input is not implemented.
 - If `wgpu-hal` fails to create a replacement surface on Vulkan/X11 it panics
   internally (`expect` in wgpu-hal 30.0.1); this can only be reached when a

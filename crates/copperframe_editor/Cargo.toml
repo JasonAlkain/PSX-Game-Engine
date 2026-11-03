@@ -1,0 +1,35 @@
+[package]
+name = "copperframe_editor"
+description = "Scene editor: egui panels, viewport, selection, transform editing, undo/redo and save/load."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "copperframe_editor"
+path = "src/main.rs"
+
+[dependencies]
+copperframe_core.workspace = true
+copperframe_scene.workspace = true
+copperframe_assets.workspace = true
+copperframe_render.workspace = true
+copperframe_runtime.workspace = true
+egui.workspace = true
+egui-wgpu.workspace = true
+egui-winit.workspace = true
+winit.workspace = true
+glam.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+copperframe_assets.workspace = true
+
+[lints]
+workspace = true

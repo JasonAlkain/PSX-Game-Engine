@@ -12,12 +12,12 @@ name = "lever_room"
 path = "src/main.rs"
 
 [dependencies]
-psx_game.workspace = true
-psx_core.workspace = true
+copperframe_game.workspace = true
+copperframe_core.workspace = true
 glam.workspace = true
 
 [dev-dependencies]
-psx_assets.workspace = true
+copperframe_assets.workspace = true
 serde_json.workspace = true
 
 [lints]
