@@ -413,3 +413,108 @@ fn unknown_behaviours_and_bad_parameters_refuse_to_load() {
     assert_eq!(sim.entity_count(), 0);
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// Plays `bend` once on its own entity at tick 3, with a short fade.
+struct Waver;
+impl Behavior for Waver {
+    fn fixed_update(&mut self, ctx: &mut Ctx, me: Entity) {
+        if ctx.tick() == 3 {
+            assert!(!ctx.play_animation(me, "nope", 0.1, false));
+            let ok = ctx.play_animation(me, "bend", 0.1, false);
+            ctx.state_mut()
+                .insert("played".into(), serde_json::json!(ok));
+        }
+    }
+}
+
+struct AnimGame;
+impl Game for AnimGame {
+    fn title(&self) -> String {
+        "Anim".into()
+    }
+    fn register(&self, r: &mut Registry) {
+        r.register(BehaviorDescriptor {
+            kind: "test.waver",
+            description: "waves",
+            fields: vec![],
+            create: |_| Ok(Box::new(Waver)),
+        });
+    }
+}
+
+#[test]
+fn animated_models_play_crossfade_and_report_finished_clips() {
+    use psx_assets::fixtures::Fixture;
+    use psx_scene::{AnimatorComponent, LightComponent, ShadowComponent};
+
+    let root = std::env::temp_dir().join(format!("psx_sim_anim_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let project = Project::create(&root, "Anim").unwrap();
+    let file = root.join("assets/arm.glb");
+    std::fs::write(&file, Fixture::skinned_arm().to_glb()).unwrap();
+    let arm = AssetDatabase::register(&project, &file).unwrap().id;
+
+    let mut scene = Scene::new("Arm");
+    let mut actor = SceneEntity::new("Arm");
+    actor.mesh = Some(MeshComponent {
+        source: MeshSource::Model { asset: arm },
+        material: Default::default(),
+    });
+    let mut idle = AnimatorComponent::new("lift");
+    idle.autoplay = false;
+    actor.animator = Some(idle);
+    actor.shadow = Some(ShadowComponent::default());
+    actor.behaviors = vec![BehaviorComponent::new("test.waver")];
+    // A clip the model does not have is a load warning, not an error.
+    let mut other = actor.clone();
+    other.id = EntityId::new();
+    other.name = "Other".into();
+    other.behaviors.clear();
+    other.animator = Some(AnimatorComponent::new("missing"));
+    let mut lamp = SceneEntity::new("Lamp");
+    lamp.transform = Transform::from_translation(Vec3::new(0.0, 2.0, 1.0));
+    lamp.light = Some(LightComponent::default());
+    scene.entities = vec![actor, other, lamp];
+    assert!(scene.problems().is_empty(), "{:?}", scene.problems());
+
+    let mut sim = Simulation::new(project, Box::new(AnimGame), Audio::silent());
+    sim.load_scene(scene, &root.join("scenes/main.scene.json"))
+        .unwrap();
+    let warnings = sim.take_warnings();
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("missing") && w.contains("bend, lift")),
+        "{warnings:?}"
+    );
+    assert_eq!(sim.lights(1.0).len(), 1);
+    assert_eq!(sim.shadows(1.0).len(), 2);
+
+    let palette = |sim: &Simulation, name: &str| {
+        sim.draw_list()
+            .into_iter()
+            .find(|d| {
+                sim.find(d.id)
+                    .is_some_and(|e| sim.world().get::<&psx_game::sim::Name>(e).unwrap().0 == name)
+            })
+            .and_then(|d| d.joints)
+            .unwrap()
+    };
+    let rest = palette(&sim, "Arm");
+    run(&mut sim, 3, &[], Vec2::ZERO);
+    // Held on `lift`'s first frame (autoplay off): still the rest pose.
+    assert_eq!(palette(&sim, "Arm"), rest);
+    run(&mut sim, 80, &[], Vec2::ZERO);
+    assert_eq!(sim.state()["played"], serde_json::json!(true));
+    assert_ne!(palette(&sim, "Arm"), rest);
+    let finished: Vec<_> = sim
+        .take_events()
+        .into_iter()
+        .filter_map(|e| match e.event {
+            GameEvent::AnimationFinished { entity, clip } => Some((entity, clip)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(finished, vec![("Arm".to_owned(), "bend".to_owned())]);
+    std::fs::remove_dir_all(&root).unwrap();
+}

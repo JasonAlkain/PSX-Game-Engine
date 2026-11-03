@@ -4,7 +4,7 @@
 //! The mapping is data so it can be printed as help and tested without a
 //! window.
 
-use psx_core::style::ScaleMode;
+use psx_core::style::{ScaleMode, TextureFilter};
 use psx_core::{RetroStyle, StylePreset};
 use winit::keyboard::KeyCode;
 
@@ -29,9 +29,14 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("5", "dithering on/off"),
     ("6", "fog on/off"),
     ("7", "integer scaling / aspect fit"),
+    ("8", "texture filtering nearest/linear"),
+    ("9", "mipmaps on/off"),
+    ("0", "per-pixel / per-vertex lighting"),
+    ("L", "local lights on/off"),
+    ("B", "blob shadows on/off"),
     ("[ ]", "colour bits per channel -/+"),
     ("- =", "snap grid finer/coarser"),
-    ("P", "next preset (PS1, Clean)"),
+    ("P", "next preset (PS1, PS2, Clean)"),
     ("C", "split view: current style | effects off"),
     ("F5", "save style settings"),
     ("F9", "reload style settings"),
@@ -91,6 +96,39 @@ pub fn apply_key(style: &mut RetroStyle, key: KeyCode) -> Option<StyleCommand> {
             };
             changed(format!("scaling {:?}", style.presentation.scaling))
         }
+        KeyCode::Digit8 => {
+            style.textures.filter = match style.textures.filter {
+                TextureFilter::Nearest => TextureFilter::Linear,
+                TextureFilter::Linear => TextureFilter::Nearest,
+            };
+            changed(format!("texture filter {:?}", style.textures.filter))
+        }
+        KeyCode::Digit9 => {
+            style.textures.mipmaps ^= true;
+            changed(format!("mipmaps {}", on_off(style.textures.mipmaps)))
+        }
+        KeyCode::Digit0 => {
+            style.shading.per_pixel ^= true;
+            changed(format!(
+                "lighting per {}",
+                if style.shading.per_pixel {
+                    "pixel"
+                } else {
+                    "vertex"
+                }
+            ))
+        }
+        KeyCode::KeyL => {
+            style.shading.local_lights ^= true;
+            changed(format!(
+                "local lights {}",
+                on_off(style.shading.local_lights)
+            ))
+        }
+        KeyCode::KeyB => {
+            style.shadows.enabled ^= true;
+            changed(format!("blob shadows {}", on_off(style.shadows.enabled)))
+        }
         KeyCode::BracketLeft | KeyCode::BracketRight => {
             let bits = &mut style.color_reduction.bits;
             *bits = if key == KeyCode::BracketLeft {
@@ -112,7 +150,8 @@ pub fn apply_key(style: &mut RetroStyle, key: KeyCode) -> Option<StyleCommand> {
         }
         KeyCode::KeyP => {
             let next = match style.preset() {
-                StylePreset::Ps1 => StylePreset::Clean,
+                StylePreset::Ps1 => StylePreset::Ps2,
+                StylePreset::Ps2 => StylePreset::Clean,
                 StylePreset::Clean | StylePreset::Custom => StylePreset::Ps1,
             };
             *style = RetroStyle::from_preset(next).expect("named preset");
@@ -178,6 +217,11 @@ mod tests {
             KeyCode::Digit5,
             KeyCode::Digit6,
             KeyCode::Digit7,
+            KeyCode::Digit8,
+            KeyCode::Digit9,
+            KeyCode::Digit0,
+            KeyCode::KeyL,
+            KeyCode::KeyB,
         ];
         for key in keys {
             let mut s = RetroStyle::ps1();
@@ -215,6 +259,8 @@ mod tests {
     #[test]
     fn preset_key_cycles_and_resets_custom() {
         let mut s = RetroStyle::ps1();
+        apply_key(&mut s, KeyCode::KeyP);
+        assert_eq!(s.preset(), StylePreset::Ps2);
         apply_key(&mut s, KeyCode::KeyP);
         assert_eq!(s.preset(), StylePreset::Clean);
         apply_key(&mut s, KeyCode::KeyP);

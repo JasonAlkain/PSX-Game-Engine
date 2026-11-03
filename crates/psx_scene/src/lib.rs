@@ -23,7 +23,8 @@ pub mod transform;
 pub use batch::{BatchError, BatchReport, CommandBatch, apply_batch, parse_batch};
 pub use command::{Change, Command, CommandError, apply};
 pub use components::{
-    AudioBus, AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
+    AnimatorComponent, AudioBus, AudioSourceComponent, BehaviorComponent, BodyKind,
+    ColliderComponent, ColliderShape, LightComponent, ShadowComponent,
 };
 pub use file::{SceneFileError, load_scene, parse_scene, save_scene, scene_to_json};
 pub use history::History;

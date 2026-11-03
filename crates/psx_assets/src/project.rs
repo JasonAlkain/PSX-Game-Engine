@@ -550,6 +550,12 @@ pub struct AssetSummary {
     pub texture_size: Option<(u32, u32)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_secs: Option<f64>,
+    /// Skinned models: joint count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub joints: Option<usize>,
+    /// Skinned models: animation clip names.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub clips: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -648,6 +654,54 @@ pub fn check_scene_refs(
     out
 }
 
+/// Checks every animator against the clips of its entity's model.
+/// Models that failed to import are already reported elsewhere.
+pub fn check_animators(
+    scene: &Scene,
+    assets: &[AssetSummary],
+    file: Option<String>,
+) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for e in &scene.entities {
+        let (Some(animator), Some(mesh)) = (&e.animator, &e.mesh) else {
+            continue;
+        };
+        let MeshSource::Model { asset } = mesh.source else {
+            continue;
+        };
+        let Some(summary) = assets.iter().find(|a| a.id == asset && a.imported) else {
+            continue;
+        };
+        let problem = if summary.joints.is_none() {
+            Some(format!(
+                "\"{}\" has an animator but {} has no skin",
+                e.name, summary.path
+            ))
+        } else if !summary.clips.contains(&animator.clip) {
+            Some(format!(
+                "\"{}\" plays clip `{}`, which {} does not have (clips: {})",
+                e.name,
+                animator.clip,
+                summary.path,
+                if summary.clips.is_empty() {
+                    "none".to_owned()
+                } else {
+                    summary.clips.join(", ")
+                }
+            ))
+        } else {
+            None
+        };
+        if let Some(message) = problem {
+            let mut d = Diagnostic::new(Severity::Warning, file.clone(), message);
+            d.entity = Some(e.id);
+            d.asset = Some(asset);
+            out.push(d);
+        }
+    }
+    out
+}
+
 /// Full project check: project file, asset metadata, every import, every
 /// scene's contents and references. Needs no GPU or window.
 pub fn validate_project(root: &Path) -> ValidationReport {
@@ -677,6 +731,8 @@ pub fn validate_project(root: &Path) -> ValidationReport {
             triangles: None,
             texture_size: None,
             duration_secs: None,
+            joints: None,
+            clips: Vec::new(),
         };
         match AssetDatabase::import(&project, entry) {
             Ok(imported) => {
@@ -688,7 +744,11 @@ pub fn validate_project(root: &Path) -> ValidationReport {
                     diagnostics.push(d);
                 }
                 match imported {
-                    ImportedAsset::Model(m) => summary.triangles = Some(m.triangle_count()),
+                    ImportedAsset::Model(m) => {
+                        summary.triangles = Some(m.triangle_count());
+                        summary.joints = m.skeleton.as_ref().map(|s| s.joints.len());
+                        summary.clips = m.clips.iter().map(|c| c.name.clone()).collect();
+                    }
                     ImportedAsset::Texture(t) => summary.texture_size = Some((t.width, t.height)),
                     ImportedAsset::Audio(a) => summary.duration_secs = Some(a.duration_secs),
                 }
@@ -719,6 +779,7 @@ pub fn validate_project(root: &Path) -> ValidationReport {
         match psx_scene::load_scene(&path) {
             Ok(scene) => {
                 diagnostics.extend(check_scene_refs(&scene, &db, &failed, Some(rel.clone())));
+                diagnostics.extend(check_animators(&scene, &assets, Some(rel.clone())));
                 scenes.push(SceneSummary {
                     path: rel,
                     revision: Some(scene.revision),

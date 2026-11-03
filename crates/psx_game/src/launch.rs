@@ -26,7 +26,7 @@ use crate::sim::Simulation;
 pub const EXPORT_DATA_DIR: &str = "data";
 
 #[derive(Parser, Debug)]
-#[command(about = "Game built with PSX Engine (PS1-style MVP)")]
+#[command(about = "Game built with PSX Engine")]
 pub struct Args {
     /// Project folder (default: `data` next to the executable, else the
     /// development project the game was built from).

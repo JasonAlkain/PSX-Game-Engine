@@ -34,6 +34,8 @@ pub struct UserSettings {
     pub invert_y: bool,
     pub fullscreen: bool,
     pub vsync: bool,
+    /// Which look to render with; the content is the same either way.
+    pub graphics_style: GraphicsStyle,
     /// Key overrides as written by [`Bindings::to_json`]; empty = project
     /// defaults.
     pub bindings: Option<serde_json::Value>,
@@ -52,8 +54,48 @@ impl Default for UserSettings {
             invert_y: false,
             fullscreen: false,
             vsync: true,
+            graphics_style: GraphicsStyle::Scene,
             bindings: None,
         }
+    }
+}
+
+/// Player override for the scene's retro style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphicsStyle {
+    /// The style the scene was authored with.
+    #[default]
+    Scene,
+    /// The PS1 preset (affine textures, snapping, nearest filtering).
+    Ps1,
+    /// The PS2 preset (filtered, mipmapped, per-pixel lit).
+    Ps2,
+}
+
+impl GraphicsStyle {
+    pub const ALL: [GraphicsStyle; 3] = [Self::Scene, Self::Ps1, Self::Ps2];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Scene => "As authored",
+            Self::Ps1 => "PS1",
+            Self::Ps2 => "PS2",
+        }
+    }
+
+    /// The style to render a scene authored with `scene`: the preset's
+    /// look with the scene's own fog and atmosphere (which belong to the
+    /// level, not the console style).
+    pub fn apply(self, scene: &psx_core::RetroStyle) -> psx_core::RetroStyle {
+        let mut s = match self {
+            Self::Scene => return scene.clone(),
+            Self::Ps1 => psx_core::RetroStyle::ps1(),
+            Self::Ps2 => psx_core::RetroStyle::ps2(),
+        };
+        s.fog = scene.fog;
+        s.atmosphere = scene.atmosphere;
+        s
     }
 }
 

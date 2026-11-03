@@ -98,6 +98,7 @@ fn render(
         .objects
         .iter()
         .map(|(mesh, tex, material, model)| DrawItem {
+            joints: None,
             mesh,
             texture: &scene.textures[*tex],
             material,

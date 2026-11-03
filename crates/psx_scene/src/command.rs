@@ -16,7 +16,10 @@ use psx_core::EntityId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::components::{AudioSourceComponent, BehaviorComponent, ColliderComponent};
+use crate::components::{
+    AnimatorComponent, AudioSourceComponent, BehaviorComponent, ColliderComponent, LightComponent,
+    ShadowComponent,
+};
 use crate::scene::{
     CameraStart, Entity, MAX_DEPTH, MaterialOverride, MeshComponent, Scene, SceneLighting,
     SceneSettings,
@@ -111,6 +114,21 @@ pub enum Command {
         id: EntityId,
         behaviors: Vec<BehaviorComponent>,
     },
+    /// Adds, replaces or (with `null`) removes the point light.
+    SetLight {
+        id: EntityId,
+        light: Option<LightComponent>,
+    },
+    /// Adds, replaces or (with `null`) removes the animator.
+    SetAnimator {
+        id: EntityId,
+        animator: Option<AnimatorComponent>,
+    },
+    /// Adds, replaces or (with `null`) removes the blob shadow.
+    SetShadow {
+        id: EntityId,
+        shadow: Option<ShadowComponent>,
+    },
     /// Replaces any of the scene settings.
     SetSettings {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -137,12 +155,15 @@ impl Command {
             Command::SetCollider { .. } => "set_collider",
             Command::SetAudio { .. } => "set_audio",
             Command::SetBehaviors { .. } => "set_behaviors",
+            Command::SetLight { .. } => "set_light",
+            Command::SetAnimator { .. } => "set_animator",
+            Command::SetShadow { .. } => "set_shadow",
             Command::SetSettings { .. } => "set_settings",
         }
     }
 
     /// Every op with a one-line description, for `psx schema`.
-    pub const OPS: [(&'static str, &'static str); 12] = [
+    pub const OPS: [(&'static str, &'static str); 15] = [
         (
             "create_entity",
             "{id?, name, parent?, transform?, mesh?} -> created id",
@@ -179,6 +200,18 @@ impl Command {
             "{id, behaviors: [{kind, params?}]} replaces the list",
         ),
         ("set_settings", "{style?, lighting?, camera?}"),
+        (
+            "set_light",
+            "{id, light (null removes): {color?, intensity?, range?}}",
+        ),
+        (
+            "set_animator",
+            "{id, animator (null removes): {clip, speed?, looping?, autoplay?}}",
+        ),
+        (
+            "set_shadow",
+            "{id, shadow (null removes): {radius?, offset?}}",
+        ),
     ];
 }
 
@@ -534,6 +567,33 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
                 Ok(())
             })
         }
+        Command::SetLight { id, light } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.light = *light;
+                }
+                Ok(())
+            })
+        }
+        Command::SetAnimator { id, animator } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.animator = animator.clone();
+                }
+                Ok(())
+            })
+        }
+        Command::SetShadow { id, shadow } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.shadow = *shadow;
+                }
+                Ok(())
+            })
+        }
         Command::SetBehaviors { id, behaviors } => {
             require(scene, *id)?;
             tracked(scene, &[*id], |s| {
@@ -639,7 +699,7 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(Command::OPS.len(), 12);
+        assert_eq!(Command::OPS.len(), 15);
     }
 
     #[test]

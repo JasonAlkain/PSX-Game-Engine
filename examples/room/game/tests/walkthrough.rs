@@ -80,7 +80,58 @@ fn schema_lists_the_game_behaviours() {
         "room.lever",
         "room.inspect",
         "room.exit",
+        "room.caretaker",
     ] {
         assert!(kinds.contains(&k), "{k} missing from {kinds:?}");
     }
+}
+
+#[test]
+fn the_caretaker_waves_then_returns_to_idle() {
+    let mut sim = simulation();
+    let caretaker = sim
+        .find("00000000-0000-4000-8000-000000000080".parse().unwrap())
+        .expect("caretaker in the scene");
+    let step = |ticks, hold: &[&str], press: &[&str], look: [f32; 2]| Step {
+        ticks,
+        hold: hold.iter().map(|s| (*s).to_owned()).collect(),
+        press: press.iter().map(|s| (*s).to_owned()).collect(),
+        look,
+    };
+    // Turn right towards the caretaker (east of the start), walk up to
+    // him, and talk.
+    let script = Script {
+        steps: vec![
+            step(10, &[], &[], [5.11, -0.4]),
+            step(90, &["move_forward"], &[], [0.0, 0.0]),
+            step(1, &[], &["interact"], [0.0, 0.0]),
+            step(20, &[], &[], [0.0, 0.0]),
+        ],
+        ..Script::idle(0)
+    };
+    let report = headless::run(&mut sim, &script);
+    let events = report["events"].as_array().unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|e| e["event"] == "custom" && e["name"] == "talked"),
+        "{report:#}"
+    );
+    let clip = |sim: &Simulation| {
+        sim.world()
+            .get::<&psx_game::animation::Animator>(caretaker)
+            .ok()
+            .and_then(|a| a.state().map(|(c, _)| c.to_owned()))
+    };
+    assert_eq!(clip(&sim).as_deref(), Some("wave"));
+    // The wave (1.8 s) ends, is reported, and idle fades back in.
+    let report = headless::run(&mut sim, &Script::idle(150));
+    let events = report["events"].as_array().unwrap();
+    assert!(
+        events.iter().any(|e| e["event"] == "animation_finished"
+            && e["entity"] == "Caretaker"
+            && e["clip"] == "wave"),
+        "{report:#}"
+    );
+    assert_eq!(clip(&sim).as_deref(), Some("idle"));
 }

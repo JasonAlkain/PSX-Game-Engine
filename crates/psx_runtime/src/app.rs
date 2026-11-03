@@ -267,7 +267,7 @@ impl Running {
             reference_view: None,
             textures,
             objects,
-            lighting: Lighting::default(),
+            lighting: crate::comparison_scene::lighting(),
             style,
             style_path: config.style_path.clone(),
             split: config.split,
@@ -479,6 +479,7 @@ impl Running {
                 } else {
                     o.transform
                 },
+                joints: None,
             })
             .collect();
 

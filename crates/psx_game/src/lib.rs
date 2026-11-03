@@ -6,11 +6,13 @@
 //! - [`actions`]: named input actions and bindings files.
 //! - [`physics`]: rapier3d integration (bodies, character controller,
 //!   sensors, ray casts).
+//! - [`animation`]: skeletal animation playback and crossfades.
 //! - [`audio`]: kira integration (buses, spatial emitters, listener).
 //! - [`builtin`]: engine behaviours (`psx.player`, `psx.camera_zone`,
 //!   `psx.spin`).
 
 pub mod actions;
+pub mod animation;
 pub mod api;
 pub mod audio;
 pub mod builtin;

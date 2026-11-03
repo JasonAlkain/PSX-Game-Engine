@@ -8,6 +8,10 @@
 // Uniform layouts are checked against the Rust structs `FrameUniforms` and
 // `DrawUniforms` (retro.rs) by unit tests.
 
+const MAX_LOCAL_LIGHTS: u32 = 8u;
+const MAX_BLOB_SHADOWS: u32 = 8u;
+const MAX_JOINTS: u32 = 64u;
+
 struct FrameUniforms {
     view_proj: mat4x4<f32>,
     // xyz: camera position (world). w unused.
@@ -25,8 +29,16 @@ struct FrameUniforms {
     // xy: colour target size in pixels, z: snap grid in pixels,
     // w: snap strength (0 disables snapping).
     snap: vec4<f32>,
-    // x: 1.0 when affine UVs are enabled for this view. yzw unused.
+    // x: 1.0 when affine UVs are enabled for this view, y: 1.0 for
+    // per-pixel lighting, z: local light count, w: blob shadow count.
     options: vec4<f32>,
+    // x: blob shadow opacity. yzw unused.
+    shadow_params: vec4<f32>,
+    // Point lights, two entries each: (position.xyz, range) and
+    // (linear colour × intensity, unused).
+    lights: array<vec4<f32>, 16>,
+    // Blob shadows: (centre x, bottom y, centre z, radius).
+    blobs: array<vec4<f32>, 8>,
 };
 
 struct DrawUniforms {
@@ -41,18 +53,27 @@ struct DrawUniforms {
     // rgb: linear emitted colour added after shading (unaffected by
     // lights, still fogged). a unused.
     emissive: vec4<f32>,
+    // x: 1.0 when this draw is skinned with the bound joint palette.
+    skin: vec4<f32>,
+};
+
+struct JointPalette {
+    joints: array<mat4x4<f32>, 64>,
 };
 
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
+@group(0) @binding(1) var base_sampler: sampler;
 @group(1) @binding(0) var<uniform> draw: DrawUniforms;
 @group(2) @binding(0) var base_texture: texture_2d<f32>;
-@group(2) @binding(1) var base_sampler: sampler;
+@group(3) @binding(0) var<uniform> palette: JointPalette;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) color: vec4<f32>,
+    @location(4) joints: vec4<u32>,
+    @location(5) weights: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -67,6 +88,8 @@ struct VertexOutput {
     // World position, interpolated so fog distance is exact per fragment
     // even on large triangles.
     @location(4) world_position: vec3<f32>,
+    // World normal (per-pixel lighting and blob shadows).
+    @location(5) world_normal: vec3<f32>,
 };
 
 // Smallest clip-space w for which snapping is applied. Vertices at or behind
@@ -96,15 +119,69 @@ fn snap_vertex(clip: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(out_ndc * clip.w, clip.z, clip.w);
 }
 
+// Ambient + directional + bounded point lights at a world position. Point
+// lights fall off as (1 - (d / range)^2)^2, reaching exactly zero at range.
+fn light_at(n: vec3<f32>, p: vec3<f32>) -> vec3<f32> {
+    var lit = frame.ambient.rgb + frame.light_color.rgb * max(dot(n, frame.light_dir.xyz), 0.0);
+    let count = min(u32(frame.options.z), MAX_LOCAL_LIGHTS);
+    for (var i = 0u; i < count; i++) {
+        let pos_range = frame.lights[i * 2u];
+        let color = frame.lights[i * 2u + 1u].rgb;
+        let to_light = pos_range.xyz - p;
+        let d = length(to_light);
+        if d >= pos_range.w {
+            continue;
+        }
+        let x = d / pos_range.w;
+        let window = (1.0 - x * x) * (1.0 - x * x);
+        let l = to_light / max(d, 1.0e-4);
+        lit += color * window * max(dot(n, l), 0.0);
+    }
+    return lit;
+}
+
+// 0 = no shadow, 1 = full blob shadow at this point.
+fn blob_shadow(n: vec3<f32>, p: vec3<f32>) -> f32 {
+    let count = min(u32(frame.options.w), MAX_BLOB_SHADOWS);
+    var shadow = 0.0;
+    if n.y < 0.3 {
+        return 0.0;
+    }
+    for (var i = 0u; i < count; i++) {
+        let b = frame.blobs[i];
+        let r = max(b.w, 1.0e-3);
+        // Height of the caster's bottom above this point; the caster does
+        // not shadow itself (its surfaces are above its bottom).
+        let h = b.y - p.y;
+        if h < -0.02 || h > r * 4.0 {
+            continue;
+        }
+        let d = length(b.xz - p.xz);
+        let k = (1.0 - smoothstep(r * 0.35, r, d)) * (1.0 - clamp(h / (r * 4.0), 0.0, 1.0));
+        shadow = max(shadow, k);
+    }
+    return shadow;
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    let world = draw.model * vec4<f32>(in.position, 1.0);
+    var local_position = vec4<f32>(in.position, 1.0);
+    var local_normal = vec4<f32>(in.normal, 0.0);
+    if draw.skin.x > 0.5 {
+        let j = min(in.joints, vec4<u32>(MAX_JOINTS - 1u));
+        let skin = palette.joints[j.x] * in.weights.x + palette.joints[j.y] * in.weights.y
+            + palette.joints[j.z] * in.weights.z + palette.joints[j.w] * in.weights.w;
+        local_position = skin * local_position;
+        local_normal = skin * local_normal;
+    }
+    let world = draw.model * local_position;
+    // Zero-length normals (degenerate source data) stay zero instead of NaN.
+    let raw_n = (draw.normal_matrix * local_normal).xyz;
+    let n = select(vec3<f32>(0.0), normalize(raw_n), dot(raw_n, raw_n) > 1.0e-12);
 
     var lit = vec3<f32>(1.0);
-    if draw.params.y > 0.5 {
-        let n = normalize((draw.normal_matrix * vec4<f32>(in.normal, 0.0)).xyz);
-        let diffuse = max(dot(n, frame.light_dir.xyz), 0.0);
-        lit = frame.ambient.rgb + frame.light_color.rgb * diffuse;
+    if draw.params.y > 0.5 && frame.options.y < 0.5 {
+        lit = light_at(n, world.xyz);
     }
     let color = vec4<f32>(in.color.rgb * lit, in.color.a) * draw.tint;
 
@@ -115,16 +192,36 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.color_smooth = color;
     out.color_flat = color;
     out.world_position = world.xyz;
+    out.world_normal = n;
     return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Derivatives and implicit-LOD sampling need uniform control flow, so
+    // they come before any branch.
+    let face = normalize(cross(dpdx(in.world_position), dpdy(in.world_position)));
     let affine = frame.options.x > 0.5 && draw.params.w > 0.5;
     let uv = select(in.uv_perspective, in.uv_affine, affine);
     let texel = textureSample(base_texture, base_sampler, uv);
-    let shade = select(in.color_smooth, in.color_flat, draw.params.z > 0.5);
+
+    let flat_shading = draw.params.z > 0.5;
+    let shade = select(in.color_smooth, in.color_flat, flat_shading);
     var color = texel * shade;
+
+    if draw.params.y > 0.5 {
+        let to_eye = frame.camera_pos.xyz - in.world_position;
+        // The face normal (from screen-space derivatives) faces the camera.
+        let face_n = select(face, -face, dot(face, to_eye) < 0.0);
+        let wn = in.world_normal;
+        let smooth_n = select(face_n, normalize(wn), dot(wn, wn) > 1.0e-6);
+        let n = select(smooth_n, face_n, flat_shading);
+        if frame.options.y > 0.5 {
+            color = vec4<f32>(color.rgb * light_at(n, in.world_position), color.a);
+        }
+        let s = blob_shadow(n, in.world_position);
+        color = vec4<f32>(color.rgb * (1.0 - frame.shadow_params.x * s), color.a);
+    }
     color = vec4<f32>(color.rgb + draw.emissive.rgb, color.a);
 
     if draw.params.x >= 0.0 && color.a < draw.params.x {

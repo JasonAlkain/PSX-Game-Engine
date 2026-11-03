@@ -256,3 +256,88 @@ fn build_refuses_to_overwrite_an_unrelated_folder() {
     );
     std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn animated_models_lights_and_shadows_through_the_cli() {
+    let root = temp("animated");
+    let r = root.to_string_lossy().into_owned();
+    let (code, out) = psx(&["new", &r, "--name", "Anim", "--no-game"]);
+    assert_eq!(code, 0, "{out}");
+    std::fs::write(root.join("assets/arm.glb"), Fixture::skinned_arm().to_glb()).unwrap();
+    let (code, out) = psx(&["import", "--project", &r]);
+    assert_eq!(code, 0, "{out}");
+    let detail = &out["assets"][0]["detail"];
+    assert_eq!(detail["joints"], 2);
+    let clips: Vec<&str> = detail["clips"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(clips, ["bend", "lift"]);
+    let asset = out["assets"][0]["id"].as_str().unwrap().to_owned();
+
+    let arm = "0d8a7f52-1b1c-4c47-9e0e-2a3f9b6e7c01";
+    let batch = write_batch(
+        &root,
+        "arm.json",
+        json!({
+            "format": "psx_command_batch", "version": 1,
+            "commands": [
+                {"op": "create_entity", "id": arm, "name": "Arm",
+                 "mesh": {"source": {"kind": "model", "asset": asset}}},
+                {"op": "set_animator", "id": arm, "animator": {"clip": "bend", "speed": 0.5}},
+                {"op": "set_shadow", "id": arm, "shadow": {"radius": 0.4}},
+                {"op": "set_light", "id": arm, "light": {"color": [1.0, 0.8, 0.5], "range": 6.0}}
+            ]
+        }),
+    );
+    let (code, out) = psx(&["apply", &batch, "--project", &r]);
+    assert_eq!(code, 0, "{out}");
+    let (_, scene) = psx(&["inspect", "--project", &r]);
+    let e = scene["scene"]["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["id"] == arm)
+        .unwrap()
+        .clone();
+    assert_eq!(e["animator"]["clip"], "bend");
+    assert_eq!(e["light"]["range"], 6.0);
+    let (code, out) = psx(&["validate", "--project", &r]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["warnings"], 0, "{out}");
+
+    // A clip the model does not have is a warning naming the real clips.
+    let wrong = write_batch(
+        &root,
+        "wrong.json",
+        json!({
+            "format": "psx_command_batch", "version": 1,
+            "commands": [{"op": "set_animator", "id": arm, "animator": {"clip": "wave"}}]
+        }),
+    );
+    let (code, out) = psx(&["apply", &wrong, "--project", &r]);
+    assert_eq!(code, 0, "{out}");
+    let (_, out) = psx(&["validate", "--project", &r]);
+    let message = out["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["message"].as_str().unwrap().contains("wave"))
+        .map(|d| d["message"].as_str().unwrap().to_owned())
+        .unwrap_or_default();
+    assert!(message.contains("bend, lift"), "{out}");
+    // Out-of-range values are rejected by the batch.
+    let bad = write_batch(
+        &root,
+        "bad.json",
+        json!({
+            "format": "psx_command_batch", "version": 1,
+            "commands": [{"op": "set_light", "id": arm, "light": {"intensity": 99.0}}]
+        }),
+    );
+    let (code, out) = psx(&["apply", &bad, "--project", &r]);
+    assert_eq!(code, 1, "{out}");
+    std::fs::remove_dir_all(&root).unwrap();
+}

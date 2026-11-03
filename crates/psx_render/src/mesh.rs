@@ -16,15 +16,37 @@ pub struct Vertex {
     pub uv: [f32; 2],
     /// Linear RGBA vertex color, multiplied with the texture.
     pub color: [f32; 4],
+    /// Up to four joints (indices into the draw's joint palette) for
+    /// skinned meshes. Ignored unless the draw supplies joints.
+    pub joints: [u16; 4],
+    /// Weights of `joints`, summing to 1 for skinned meshes.
+    pub weights: [f32; 4],
 }
 
+/// Most joints in one skinned draw's palette.
+pub const MAX_JOINTS: usize = 64;
+
 impl Vertex {
-    pub const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    pub const ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x3,
         2 => Float32x2,
         3 => Float32x4,
+        4 => Uint16x4,
+        5 => Float32x4,
     ];
+
+    /// An unskinned vertex.
+    pub fn new(position: [f32; 3], normal: [f32; 3], uv: [f32; 2], color: [f32; 4]) -> Self {
+        Self {
+            position,
+            normal,
+            uv,
+            color,
+            joints: [0; 4],
+            weights: [0.0; 4],
+        }
+    }
 
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -49,6 +71,8 @@ pub enum MeshError {
     },
     #[error("vertex {0} contains a non-finite value")]
     NonFiniteVertex(usize),
+    #[error("vertex {vertex} uses joint {joint}; at most {MAX_JOINTS} joints are supported")]
+    JointOutOfRange { vertex: usize, joint: u16 },
     #[error("mesh has {0} vertices, more than a u32 index can address")]
     TooManyVertices(usize),
 }
@@ -89,9 +113,13 @@ impl MeshData {
                 .iter()
                 .chain(&v.normal)
                 .chain(&v.uv)
-                .chain(&v.color);
+                .chain(&v.color)
+                .chain(&v.weights);
             if !all.into_iter().all(|f| f.is_finite()) {
                 return Err(MeshError::NonFiniteVertex(i));
+            }
+            if let Some(&joint) = v.joints.iter().find(|&&j| usize::from(j) >= MAX_JOINTS) {
+                return Err(MeshError::JointOutOfRange { vertex: i, joint });
             }
         }
         Ok(())
@@ -162,6 +190,8 @@ impl MeshData {
                     normal,
                     uv,
                     color,
+                    joints: [0; 4],
+                    weights: [0.0; 4],
                 });
             }
             mesh.indices
@@ -183,6 +213,8 @@ impl MeshData {
             normal: n,
             uv: [u, v],
             color: c,
+            joints: [0; 4],
+            weights: [0.0; 4],
         };
         MeshData {
             vertices: vec![
@@ -212,6 +244,8 @@ impl MeshData {
                     normal: [0.0, 1.0, 0.0],
                     uv: [fx * uv_repeat.0, fz * uv_repeat.1],
                     color: [1.0; 4],
+                    joints: [0; 4],
+                    weights: [0.0; 4],
                 });
             }
         }
@@ -244,6 +278,8 @@ impl MeshData {
                     normal: n,
                     uv: [u, v],
                     color: [1.0; 4],
+                    joints: [0; 4],
+                    weights: [0.0; 4],
                 });
             }
         }
@@ -285,8 +321,19 @@ mod tests {
 
     #[test]
     fn vertex_layout_matches_struct_size() {
-        assert_eq!(std::mem::size_of::<Vertex>(), 48);
-        assert_eq!(Vertex::layout().array_stride, 48);
+        assert_eq!(std::mem::size_of::<Vertex>(), 72);
+        assert_eq!(Vertex::layout().array_stride, 72);
+        assert_eq!(Vertex::ATTRIBUTES[4].offset, 48);
+        assert_eq!(Vertex::ATTRIBUTES[5].offset, 56);
+        let mut m = MeshData::cube(1.0);
+        m.vertices[3].joints[2] = MAX_JOINTS as u16;
+        assert_eq!(
+            m.validate(),
+            Err(MeshError::JointOutOfRange {
+                vertex: 3,
+                joint: MAX_JOINTS as u16
+            })
+        );
     }
 
     #[test]

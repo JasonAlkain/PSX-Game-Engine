@@ -7,6 +7,9 @@
 //! - `room.lever`: interactive; sends `open` to `target` once.
 //! - `room.inspect`: interactive; shows `text`.
 //! - `room.exit`: when the player enters its sensor, the game is won.
+//! - `room.caretaker`: interactive character; crossfades from its looping
+//!   `idle` clip to `wave`, says `text`, and fades back to `idle` when the
+//!   wave ends.
 
 use glam::{Quat, Vec3};
 use psx_game::builtin::PlayerTag;
@@ -20,6 +23,7 @@ pub const DOOR: &str = "room.door";
 pub const LEVER: &str = "room.lever";
 pub const INSPECT: &str = "room.inspect";
 pub const EXIT: &str = "room.exit";
+pub const CARETAKER: &str = "room.caretaker";
 /// Game-state key set once the door has been opened (kept in saves).
 pub const DOOR_OPEN: &str = "door_open";
 
@@ -82,6 +86,27 @@ impl Game for LeverRoom {
             create: |p| {
                 Ok(Box::new(Exit {
                     message: p.text("message").to_owned(),
+                }))
+            },
+        });
+        r.register(BehaviorDescriptor {
+            kind: CARETAKER,
+            description: "Animated character: waves (crossfading from idle) and talks when used.",
+            fields: vec![
+                FieldDescriptor::text("prompt", "Talk", "interaction prompt"),
+                FieldDescriptor::text("text", "", "what the character says"),
+                FieldDescriptor::text("idle_clip", "idle", "looping clip between talks"),
+                FieldDescriptor::text("talk_clip", "wave", "clip played when used"),
+                FieldDescriptor::number("fade", 0.25, "crossfade length (s)"),
+            ],
+            create: |p| {
+                Ok(Box::new(Caretaker {
+                    prompt: p.text("prompt").to_owned(),
+                    text: p.text("text").to_owned(),
+                    idle: p.text("idle_clip").to_owned(),
+                    talk: p.text("talk_clip").to_owned(),
+                    fade: p.number("fade").clamp(0.0, 2.0),
+                    talking: false,
                 }))
             },
         });
@@ -238,5 +263,38 @@ impl Behavior for Exit {
         if entered && ctx.world().get::<&PlayerTag>(other).is_ok() {
             ctx.finish(self.message.clone());
         }
+    }
+}
+
+struct Caretaker {
+    prompt: String,
+    text: String,
+    idle: String,
+    talk: String,
+    fade: f32,
+    talking: bool,
+}
+
+impl Behavior for Caretaker {
+    fn fixed_update(&mut self, ctx: &mut Ctx, me: Entity) {
+        if self.talking && !ctx.is_animation_playing(me) {
+            self.talking = false;
+            ctx.play_animation(me, &self.idle, self.fade, true);
+        }
+    }
+
+    fn interaction_prompt(&self) -> Option<String> {
+        (!self.talking).then(|| self.prompt.clone())
+    }
+
+    fn on_interact(&mut self, ctx: &mut Ctx, me: Entity, _by: Entity) {
+        if !self.text.is_empty() {
+            ctx.show_message(self.text.clone(), 5.0);
+        }
+        self.talking = ctx.play_animation(me, &self.talk, self.fade, false);
+        ctx.log(GameEvent::Custom {
+            name: "talked".into(),
+            detail: ctx.name(me),
+        });
     }
 }

@@ -9,24 +9,19 @@ the project runnable.
 | 2 | PS1 visual slice: internal-resolution target, integer upscale/letterbox, materials, vertex snapping, affine UVs, colour reduction, dithering, fog, comparison scene, saveable style settings | Implemented; Windows runtime check pending (see STATUS) |
 | 3 | Authoring loop: versioned scenes, persistent IDs, static glTF import, editor panels (egui), transform editing, undo/redo, save/load, CLI validate/batch | Implemented; Windows runtime check pending (see STATUS) |
 | 4 | Playable PS1 MVP: game template, input actions, physics, audio, interactions, menus, child-process play mode, host export, exploration demo | Implemented as a PS1-style MVP; Windows runtime check pending (see STATUS) |
-| 5 | PS2 workflow: PS2 preset, filtered/mipmapped textures, skeletal animation, local lights, shadow option | Not started |
+| 5 | PS2 workflow: PS2 preset, filtered/mipmapped textures, skeletal animation, local lights, shadow option | Implemented; Windows runtime check pending (see STATUS) |
 | 6 | Hardening and platforms: performance measurement, regression coverage, Linux/macOS validation | Not started |
 
-## Next increment (Milestone 5: PS2 workflow)
+## Next increment (Milestone 6: hardening and platforms)
 
-1. PS2 style preset alongside PS1 and Clean: higher internal resolution,
-   no vertex snapping or affine UVs by default, 8-bit colour, filtered
-   textures. Switching presets must not require rebuilding content.
-2. Texture filtering per material (nearest or linear) and generated
-   mipmaps; the PS1 preset keeps nearest without mipmaps.
-3. glTF skins and animation clips: import joints, inverse bind matrices and
-   sampled clips; GPU skinning in the retro pipeline (snapping applied after
-   skinning); `animator` scene component with clip, speed, loop and a
-   basic two-clip crossfade; play from behaviours.
-4. Bounded local lights: point lights with a range, up to a fixed number
-   per object, per-vertex in PS1 style and per-pixel in PS2 style.
-5. A practical shadow option: blob shadows (projected decals) for
-   characters, switchable per entity.
-6. Extended import fixtures (skinned, animated, multi-clip, bad skins) and
-   an animated character in the demo; image tests that UVs and geometry stay
-   stable under the PS2 preset.
+1. Performance measurement: frame-time and tick-time capture in the player
+   and sandbox (`--bench`), a headless render benchmark over the example
+   room, and recorded numbers per backend.
+2. Lifecycle fixes found while measuring (resource churn on scene change,
+   surface loss, long sessions).
+3. Regression coverage: golden-image checks with tolerances for the PS1 and
+   PS2 renders of the example room, and format migration fixtures for every
+   version.
+4. Migration documentation for every file format version.
+5. Platform validation evidence for Linux (this container), with Windows and
+   macOS manual checklists.

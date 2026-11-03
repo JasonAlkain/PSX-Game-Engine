@@ -21,7 +21,8 @@ use psx_core::{AssetId, EntityId, RetroStyle, SceneId};
 use serde::{Deserialize, Serialize};
 
 use crate::components::{
-    AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
+    AnimatorComponent, AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent,
+    ColliderShape, LightComponent, ShadowComponent,
 };
 use crate::transform::Transform;
 
@@ -127,6 +128,15 @@ pub struct Entity {
     /// Since scene version 2. At most one of each kind.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub behaviors: Vec<BehaviorComponent>,
+    /// Since scene version 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<LightComponent>,
+    /// Since scene version 3. Needs a model mesh with a skin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animator: Option<AnimatorComponent>,
+    /// Since scene version 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<ShadowComponent>,
 }
 
 impl Entity {
@@ -140,6 +150,9 @@ impl Entity {
             collider: None,
             audio: None,
             behaviors: Vec::new(),
+            light: None,
+            animator: None,
+            shadow: None,
         }
     }
 
@@ -180,6 +193,23 @@ impl Entity {
             && let Some(p) = a.problem()
         {
             out.push(format!("audio: {p}"));
+        }
+        if let Some(p) = self.light.as_ref().and_then(LightComponent::problem) {
+            out.push(format!("light: {p}"));
+        }
+        if let Some(a) = &self.animator {
+            if let Some(p) = a.problem() {
+                out.push(format!("animator: {p}"));
+            }
+            if !matches!(
+                self.mesh.as_ref().map(|m| &m.source),
+                Some(MeshSource::Model { .. })
+            ) {
+                out.push("animator: needs a mesh component showing a model asset".into());
+            }
+        }
+        if let Some(p) = self.shadow.as_ref().and_then(ShadowComponent::problem) {
+            out.push(format!("shadow: {p}"));
         }
         for (i, b) in self.behaviors.iter().enumerate() {
             if let Some(p) = b.problem() {

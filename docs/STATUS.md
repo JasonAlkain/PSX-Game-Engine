@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-03 (Milestone 4: PS1-style MVP; PS2 work remains for Milestone 5).
+Last updated: 2026-11-03 (Milestone 5: PS2 workflow; Milestone 6 hardening is next).
 
 ## Working
 
@@ -26,8 +26,9 @@ unchanged. Milestone 2 adds the PS1 visual slice:
 - **Fog and atmosphere:** linear distance fog (exact per-fragment distance),
   background colour, camera near/far.
 - **Materials:** opaque, alpha cutout, alpha blended (sorted back-to-front per
-  object), lit or unlit, smooth or flat shading, double-sided, tint; nearest
-  sampled textures without mipmaps; vertex colours preserved.
+  object), lit or unlit, smooth or flat shading, double-sided, tint; vertex
+  colours preserved. Texture filtering and mipmaps are style settings
+  (Milestone 5).
 - **Style settings:** `RetroStyle` with PS1 and Clean presets, `Custom`
   detection, validation, versioned JSON file with atomic save and `.bak`
   copy, future-version rejection.
@@ -78,8 +79,8 @@ Completion criteria from the brief:
 
 ## Milestone 4: playable PS1-style MVP
 
-This is a **PS1-style MVP**. PS2-style features (filtered textures, skeletal
-animation, local lights, shadows) are Milestone 5.
+Milestone 4 delivered the playable PS1-style MVP; Milestone 5 (below) adds
+the PS2 workflow on top of it.
 
 - **Gameplay runtime (`psx_game`):** `Game`/`Behavior` API with a registry
   and typed behaviour schemas; `Simulation` builds a `hecs` world from a
@@ -122,6 +123,46 @@ Completion criteria from the brief:
 | Export it | `psx build --project examples/room --out "<dir>/Lever Room"`: 18 files, 29.3 MiB, notices for 464 crates |
 | Complete it in the standalone package | The exported executable, run from a folder whose path has spaces, completed `scripts/walkthrough.script.json` (535 ticks, `Finished`, all expected events). A windowed run of the export started, reached the game, and received keyboard input; completing it by synthetic mouse input under Xvfb was not achieved (see Not verified) |
 
+## Milestone 5: PS2 workflow
+
+- **PS2 preset** next to PS1 and Clean (editor Scene settings, sandbox `P`):
+  640×448 fit, no snapping, perspective UVs, full colour, filtered
+  mipmapped textures, per-pixel lighting. Style file v2 (`textures`,
+  `shading`, `shadows`); v1 files get PS1 values.
+- **Filtered and mipmapped textures:** full mip chains are always uploaded;
+  the style chooses nearest/linear and mipmaps on/off per frame, so
+  switching never reimports or re-uploads.
+- **Skeletal animation:** glTF skins (≤ 64 joints, parent-first reordering)
+  and clips (STEP/LINEAR, CUBICSPLINE approximated with a warning) import as
+  importer version 2; GPU skinning in the retro pipeline (snapping after
+  skinning); `animator` component (clip, speed, loop, autoplay);
+  `Ctx::play_animation` crossfades between clips, `stop_animation` fades to
+  rest, `AnimationFinished` events; editor viewport previews autoplaying
+  clips; `psx import` lists joints and clips; `psx validate` warns about
+  unknown clips.
+- **Bounded local lights:** `light` component (colour, intensity, range),
+  up to 8 nearest the camera, per vertex (PS1) or per pixel (PS2).
+- **Shadow option:** `shadow` component draws a blob shadow on lit,
+  upward-facing surfaces below the entity; style switch and opacity.
+- **Scene format v3** with the three components (v1 and v2 load unchanged),
+  editor inspectors for each, batch ops `set_light`, `set_animator`,
+  `set_shadow`.
+- **Player:** Settings > Graphics style (As authored / PS1 / PS2) renders
+  the same content in either style.
+- **Demo:** *The Lever Room* gains the caretaker (a generated skinned
+  character with `idle` and `wave` clips, `room.caretaker` behaviour:
+  talk, crossfade to the wave, fade back to idle), a ceiling lamp, coloured
+  lights on the exit and the machine, and blob shadows (built by
+  `examples/room/visuals.batch.json`).
+
+Completion criteria from the brief:
+
+| Criterion | Evidence |
+| --- | --- |
+| The same project can use either style without rebuilding content | `scene_resources::example_room_renders_in_both_styles_from_the_same_content` renders `examples/room` with its PS1 style and the PS2 preset from one upload (captures `target/tmp/room_ps1.ppm`, `room_ps2.ppm` inspected: caretaker, crates, pillars, blob shadow under the caretaker); windowed `lever_room --play` under Xvfb with `graphics_style` `scene` and `ps2` (screenshots inspected); style switching is a per-frame sampler/uniform choice |
+| An animated character works | `psx_game` animation unit tests (clip end reported once, crossfade midpoint, reversed and held playback, non-finite input); `simulation::animated_models_play_crossfade_and_report_finished_clips`; `walkthrough::the_caretaker_waves_then_returns_to_idle` (scripted walk up, talk, `wave`, `AnimationFinished`, back to `idle`); GPU test `skinned_models_draw_in_their_animated_pose`; renderer image test `skinning_moves_vertices`; editor under Xvfb shows the caretaker's animator, light and shadow inspectors with the model's clips |
+| Geometry and UVs are stable under the PS2 preset | Image test `ps2_preset_keeps_geometry_and_uvs_where_perspective_puts_them`: over six sub-pixel camera moves the far edge stays within 1 px and the texture boundary within 1.5 px of the perspective projection, while the same content under PS1 is off by more than 4 px (affine warping) |
+
 ## Verification record
 
 Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
@@ -131,7 +172,12 @@ Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
 | --- | --- |
 | `cargo fmt --all -- --check` | pass |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | pass |
-| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 171 tests, 1 ignored (a documentation example) |
+| `PSX_REQUIRE_GPU=1 cargo test --workspace --locked` | pass: 200 tests, 1 ignored (a documentation example) |
+| M5 image tests: linear filtering, mip averaging (trilinear distant texels ≈ the texture mean), point lights bounded and lit per vertex or per pixel, blob shadows (on lit floors only), skinning, PS2 geometry/UV stability | pass |
+| M5 GPU tests: skinned model drawn in its animated pose; example room in PS1 and PS2 from the same resources, no validation errors | pass, captures inspected |
+| M5 editor under Xvfb (debug): opens `examples/room`, Scene settings show PS2 and the new style switches, selecting Caretaker shows Animator (clip list from the model), Point light and Blob shadow inspectors; `--frames` exit, no wgpu validation errors | pass, screenshots inspected |
+| M5 player under Xvfb (debug): `lever_room --play --frames 900` with graphics style "as authored" and "PS2" | pass, screenshots inspected |
+| M5 `psx build` of `examples/room` (release): 20 files, 29.6 MiB, 464 crates in NOTICES; the exported executable completed the walkthrough script headless (535 ticks, finished, no warnings) | pass |
 | `psx test-scene --project examples/room --script examples/room/scripts/walkthrough.script.json` | pass, 535 ticks, finished |
 | `psx build` of `examples/room` (release) with the walkthrough verification | pass |
 | `psx new` then `psx test-scene`, with and without a game crate | pass |
@@ -159,7 +205,7 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 
 ## Not verified
 
-- **Windows 11 runtime** (primary target): not run for Milestones 1 to 4. CI
+- **Windows 11 runtime** (primary target): not run for Milestones 1 to 5. CI
   builds and tests on a Windows runner. Manual check:
   `cargo run -p psx_sandbox --release`, then press `C` for the split view,
   1–7 to toggle effects, F5 to save (`psx_style.json` appears in the working
@@ -194,6 +240,13 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   examples/room --out "%USERPROFILE%\Desktop\Lever Room"`, run
   `lever_room.exe` from that folder, finish the demo, quit, and confirm
   settings appear under `%APPDATA%\PSX Engine\the-lever-room\config`.
+- **M5 in a window:** talking to the caretaker and switching the graphics
+  style from the Settings menu were not driven by synthetic input here
+  (focus and relative mouse issues as above); both are covered headless and
+  by the settings file. Windows manual check: `cargo run -p lever_room
+  --release`, walk to the caretaker on the right, press E, watch the wave
+  blend back to idle; open Settings and switch Graphics style between PS1
+  and PS2 while playing.
 - Gamepads: not implemented.
 
 ## Known limitations
@@ -203,8 +256,14 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   drivers lack. Vulkan, DX12 and Metal support both.
 - Transparent objects are sorted per object by origin distance, not per
   triangle.
-- Lighting is per vertex only (ambient + one directional light); no local
-  lights or shadows yet.
+- Local lights: at most 8 per view (the nearest to the camera), no
+  per-object light selection; lights do not cast shadows. Blob shadows are
+  discs (no real occlusion), at most 8, and only fall on lit materials.
+- Animation: one skin per model, 64 joints, rotation/translation/scale
+  channels only (no morph targets), CUBICSPLINE approximated as linear,
+  two-clip crossfades (no layered or additive blending). The palette updates
+  per simulation tick (60 Hz) and is not interpolated between ticks.
+  Colliders of skinned models use the rest pose.
 - Style is per scene (and per view); there are no per-material style
   overrides beyond `allow_affine`.
 - The sandbox comparison scene is still hard-coded Rust data; the editor and
@@ -215,9 +274,9 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 - Asset hot-reload is manual (Assets tab: Reimport / Rescan assets folder); file watching is
   not implemented. Moving an asset outside the editor requires moving its
   `.meta.json` with it.
-- glTF: no skinning, animation, morph targets or PBR textures (see the
-  support matrix in ARCHITECTURE). Imported models share one texture per
-  primitive; texture samplers are ignored (nearest, no mipmaps).
+- glTF: no morph targets or PBR textures (see the support matrix in
+  ARCHITECTURE). Imported models share one texture per primitive; glTF
+  samplers are ignored (filtering is a style setting).
 - Picking tests triangles on the CPU every click; fine for small rooms, not
   for scenes with millions of triangles.
 - Saves hold the scene and the game state map, not the player's position;

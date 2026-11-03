@@ -253,6 +253,11 @@ pub enum GameEvent {
     SoundStarted {
         entity: String,
     },
+    /// A non-looping clip reached its end.
+    AnimationFinished {
+        entity: String,
+        clip: String,
+    },
     Message {
         text: String,
     },
