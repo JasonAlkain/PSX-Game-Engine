@@ -23,6 +23,7 @@
       { "event": "custom", "name": "door_opened", "detail": "Door" },
       { "event": "sound_started", "entity": "Door" },
       { "event": "sound_started", "entity": "Machine" },
+      { "event": "trigger_entered", "sensor": "Corridor camera zone", "other": "Player" },
       { "event": "trigger_entered", "sensor": "Exit" },
       { "event": "finished" }
     ]

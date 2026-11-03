@@ -265,6 +265,8 @@ impl Running {
     }
 
     fn set_screen(&mut self, screen: Screen) {
+        // Events from loads done in menus are already logged.
+        self.sim.take_events();
         let playing = screen == Screen::Playing;
         let was_playing = self.screen == Screen::Playing;
         self.screen = screen;
@@ -415,6 +417,7 @@ impl Running {
     }
 
     fn on_button(&mut self, button: Button, pressed: bool, repeat: bool) {
+        tracing::debug!(button = %button.name(), pressed, repeat, screen = ?self.screen, "input");
         if self.rebinding.is_some() {
             if pressed {
                 self.rebind(button);
@@ -456,9 +459,8 @@ impl Running {
                 self.settings.invert_y,
             );
             self.sim.tick(&input);
-            for e in self.sim.take_events() {
-                tracing::info!(target: "game", "{}", serde_json::to_string(&e).unwrap_or_default());
-            }
+            // The simulation already logs its events.
+            self.sim.take_events();
             for w in self.sim.take_warnings() {
                 self.notice(w);
             }

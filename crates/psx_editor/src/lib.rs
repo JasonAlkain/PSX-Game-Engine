@@ -4,9 +4,12 @@
 //! - [`viewport`]: screen ↔ world conversion for picking and gizmos, and the
 //!   editor camera.
 //! - [`ui`]: egui panels.
+//! - [`gameplay`]: collider/audio/behaviour inspectors, Play/Stop as a
+//!   child process, and export.
 //! - [`app`]: window, event loop and rendering.
 
 pub mod app;
+pub mod gameplay;
 pub mod session;
 pub mod ui;
 pub mod viewport;

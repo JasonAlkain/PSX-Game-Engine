@@ -2685,6 +2685,7 @@ dependencies = [
  "psx_render",
  "psx_runtime",
  "psx_scene",
+ "serde_json",
  "thiserror 2.0.21",
  "tracing",
  "wgpu",

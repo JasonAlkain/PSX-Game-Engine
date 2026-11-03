@@ -85,7 +85,7 @@ fn project_round_trip_through_the_cli() {
 
     let (_, after) = psx(&["inspect", "--project", &r]);
     let entities = after["scene"]["entities"].as_array().unwrap();
-    assert_eq!(entities.len(), 3);
+    assert_eq!(entities.len(), 5, "starter floor, cube and player plus two");
     let c = entities
         .iter()
         .find(|e| e["id"] == crate_id.as_str())
@@ -190,4 +190,69 @@ fn schema_and_usage_errors() {
             .unwrap()
             .contains("no project")
     );
+}
+
+#[test]
+fn new_writes_a_game_crate_unless_asked_not_to() {
+    let root = temp("template");
+    let r = root.to_string_lossy().into_owned();
+    let (code, out) = psx(&["new", &r, "--name", "Spooky Hall"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out["game_crate"], true);
+    let manifest = std::fs::read_to_string(root.join("game/Cargo.toml")).unwrap();
+    assert!(manifest.contains("name = \"spooky_hall\""), "{manifest}");
+    assert!(manifest.contains("/crates/psx_game'"), "{manifest}");
+    assert!(manifest.contains("[workspace]"));
+    let lib = std::fs::read_to_string(root.join("game/src/lib.rs")).unwrap();
+    assert!(lib.contains("\"Spooky Hall\".into()"));
+    assert!(root.join("game/rust-toolchain.toml").is_file());
+    assert!(root.join("game/Cargo.lock").is_file());
+    // The starter scene is playable: it has a player.
+    let (_, inspect) = psx(&["inspect", "--project", &r]);
+    let kinds: Vec<String> = inspect["scene"]["entities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|e| e["behaviors"].as_array().cloned().unwrap_or_default())
+        .filter_map(|b| b["kind"].as_str().map(str::to_owned))
+        .collect();
+    assert!(kinds.contains(&"psx.player".to_owned()), "{kinds:?}");
+
+    let plain = temp("plain");
+    let p = plain.to_string_lossy().into_owned();
+    let (code, out) = psx(&["new", &p, "--no-game"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!plain.join("game").exists());
+    std::fs::remove_dir_all(&root).unwrap();
+    std::fs::remove_dir_all(&plain).unwrap();
+}
+
+#[test]
+fn build_refuses_to_overwrite_an_unrelated_folder() {
+    let root = temp("build refuse");
+    let r = root.to_string_lossy().into_owned();
+    assert_eq!(psx(&["new", &r, "--no-game"]).0, 0);
+    let out_dir = root.join("dist");
+    std::fs::create_dir_all(&out_dir).unwrap();
+    std::fs::write(out_dir.join("notes.txt"), "keep me").unwrap();
+    let (code, out) = psx(&[
+        "build",
+        "--project",
+        &r,
+        "--out",
+        &out_dir.to_string_lossy(),
+        "--replace",
+    ]);
+    assert_eq!(code, 1, "{out}");
+    assert!(
+        out["error"]
+            .as_str()
+            .unwrap()
+            .contains("not an earlier export")
+    );
+    assert_eq!(
+        std::fs::read_to_string(out_dir.join("notes.txt")).unwrap(),
+        "keep me"
+    );
+    std::fs::remove_dir_all(&root).unwrap();
 }

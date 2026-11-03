@@ -10,18 +10,26 @@ crates/psx_editor ─┬─► psx_runtime ─┬─► psx_render ─► psx_co
  (lib + bin)       │                ├─► psx_assets ─┬─► psx_scene ─► psx_core
 apps/psx_cli ──────┴─► psx_assets   └─► psx_scene   └─► psx_core
 
+apps/psx_player ─┐
+game crates ─────┴─► psx_game ─┬─► psx_runtime (window, renderer, scene GPU data)
+ (examples/room/game)          └─► psx_assets, psx_scene, psx_core
+
 psx_render: wgpu, glam          psx_core / psx_scene / psx_assets: no GPU, no window
+psx_game: hecs, rapier3d, kira  the editor and CLI never link psx_game; they run a
+                                game executable as a child process
 ```
 
 | Crate | Owns today | Will own (per brief) |
 | --- | --- | --- |
 | `psx_core` | `FixedStep`; `EntityId`/`AssetId`/`SceneId` (UUID v4 newtypes); `atomic_write`; `RetroStyle` settings, presets, validation and versioned JSON file | Project configuration shared with gameplay |
-| `psx_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material components, settings), versioned scene file, `Command`/`Change`, `History` (undo/redo), command batches | Runtime ECS mirror (`hecs`), gameplay components |
-| `psx_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, static glTF and PNG/JPEG import into CPU meshes/textures, project validation, test fixtures | Cooked asset cache, animation import (M5) |
+| `psx_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material, collider, audio and behaviour components, settings), versioned scene file (v2, migrates v1), `Command`/`Change`, `History` (undo/redo), command batches | Animation components (M5) |
+| `psx_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, static glTF, PNG/JPEG and WAV/OGG import, project validation, `GameTarget` (find/build/run a project's game), `export` (standalone folder), test fixtures | Cooked asset cache, animation import (M5) |
 | `psx_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
 | `psx_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
-| `psx_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, `psx_editor` binary | Play mode, more gizmos |
-| `apps/psx_cli` | `psx` binary: `new`, `schema`, `validate`, `import`, `inspect`, `apply` | Build/export |
+| `psx_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), background export, `psx_editor` binary | More gizmos |
+| `psx_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `psx_game::main` launcher | Animation playback (M5) |
+| `apps/psx_player` | Stock player: `psx_game::main` with only engine behaviours, for projects without a game crate | |
+| `apps/psx_cli` | `psx` binary: `new` (with game crate template), `schema`, `validate`, `import`, `inspect`, `apply`, `test-scene`, `build` | |
 
 `psx_render` takes any `wgpu::SurfaceTarget` and does not depend on winit.
 The editor is a library so its session logic is tested without a window.
@@ -44,8 +52,11 @@ The editor is a library so its session logic is tested without a window.
 | `tracing`, `tracing-subscriber`, `thiserror`, `anyhow` | latest | Diagnostics and errors |
 | `serde`, `serde_json` | 1.0 | Style, scene, batch, project and asset meta files |
 
-`hecs`, `rapier3d` and `kira` are deferred to Milestone 4, so no unused
-dependencies are built. Versions are centralised in the root `Cargo.toml`;
+| `hecs` | 0.11 | Runtime ECS built from the scene document |
+| `rapier3d` | 0.36 | Physics and kinematic character controller. It uses glam 0.33 internally (through `glamx`); `psx_game::physics` converts at the boundary |
+| `kira` | 0.12 (`cpal`, `wav`, `pcm`, `ogg`, `vorbis`) | Audio buses, tweens, spatial tracks, one listener. Linux needs `libasound2-dev` to build |
+| `directories` | 6 | Per-user config and data folders for player settings and saves |
+ Versions are centralised in the root `Cargo.toml`;
 `Cargo.lock` is committed.
 
 ## Conventions
@@ -317,3 +328,118 @@ issues commands through it. While open the editor holds
 `<project>/.psx/editor.lock` (holding its pid); a second editor or `psx apply`
 refuses, `--steal-lock` overrides a stale lock. Closing with unsaved changes
 asks Save / Quit without saving / Cancel.
+
+## Gameplay runtime (Milestone 4)
+
+### Game crates and the launcher
+
+A project's gameplay code is a normal Rust binary crate in `<project>/game/`
+(written by `psx new`). It implements `psx_game::Game` (title, behaviour
+registration, optional per-tick hooks) and its `main` is one line:
+`psx_game::main(|| Box::new(MyGame), concat!(env!("CARGO_MANIFEST_DIR"), "/.."))`. Every
+game executable therefore accepts the same arguments:
+
+| Flag | Meaning |
+| --- | --- |
+| `--project <dir>` | Project to load. Default: `<exe dir>/data` if it holds `project.json` (an export), else the development project |
+| `--scene <file>` | Scene to start in (default: the project's startup scene) |
+| `--play` | Editor play mode: skip the title screen, never read or write saves |
+| `--schema` | Print the behaviour schema (`psx_game_schema`) and exit |
+| `--headless --script <file> [--ticks n] [--report <file>]` | Run without window, GPU or audio; print a `psx_run_report` |
+| `--frames <n>` | Exit after n frames (smoke tests) |
+| `--user-dir <dir>` | Keep settings and saves here instead of the OS user folders |
+
+Exit codes: 0 ok, 1 the scene cannot be played or an expectation failed, 2
+usage, 4 project or file error. Logs go to stderr so stdout JSON stays clean.
+
+`psx_assets::game::GameTarget` finds what to run: `game/Cargo.toml` is run
+with `cargo run` from the crate folder (so its `rust-toolchain.toml`
+applies; arguments are absolute paths); without a crate the stock
+`psx_player` next to the running tool is used. The editor and the CLI only
+talk to games through this process boundary.
+
+### Simulation
+
+`Simulation` builds a `hecs` world from a `Scene` (read only, never
+written back) and advances it at 60 Hz. Tick order (also in
+`psx_game::sim` docs): start new behaviours; game and behaviour
+`fixed_update`; interaction (aim ray picks the nearest interactive entity
+within reach, the interact action calls `on_interact`); deferred commands;
+world transforms and kinematic targets; physics step; trigger events
+(`on_trigger`) and commands; final transforms, audio emitters and listener.
+Behaviours change the world only through `Ctx` (transforms, state map,
+messages, sounds, spawn/despawn, finish), so headless and windowed runs are
+identical for the same input. The renderer interpolates between the last
+two ticks.
+
+Transform policy: static colliders are built once from world transforms.
+Kinematic bodies follow their entity's transform (set by behaviours) as
+next-tick targets; dynamic bodies write poses back to the entity. Collider
+sizes are multiplied by the entity's world scale. The player is a capsule
+moved by rapier's `KinematicCharacterController`; because that controller
+ignores kinematic bodies, a second shape-cast sweep stops it against moving
+doors and platforms.
+
+`GameState` is a string→JSON map that behaviours read and write; it is
+what saves contain.
+
+### Input
+
+Named actions (`move_forward`, `move_back`, `move_left`, `move_right`,
+`jump`, `interact`, `pause`, plus any the game declares) map to keys and
+mouse buttons in `<project>/input.json` (`psx_input` v1). The player's
+`settings.json` may overlay user bindings. Mouse look uses raw device
+motion while the cursor is captured; sensitivity and invert-Y are user
+settings. Losing focus releases the cursor and pauses. Gamepads are not
+supported yet.
+
+### Audio
+
+kira with three buses: master, music and effects (user volumes, 0..1). A
+scene `audio` component plays a sound asset on the music or effects bus
+(volume in dB, looping, autoplay, optionally spatial with min/max
+distance); behaviours can play, stop and fade sounds through `Ctx`. Spatial emitters follow their entity and the
+single listener follows the camera. When no output device exists the
+player logs a warning and runs silently; headless runs never open a
+device. Pausing pauses the effects track with a short fade.
+
+### Player, settings and saves
+
+`psx_game::player` owns the window: title screen (New game / Continue /
+Settings / Quit), HUD (crosshair, interaction prompt, messages), pause
+menu, settings (volumes, sensitivity, invert-Y, fullscreen, vsync, key
+rebinding) and the finished screen. Menus are labelled "PS1-style MVP".
+Settings (`psx_player_settings` v1) live in the OS config folder and saves
+(`psx_save` v1: scene path + `GameState`) in the OS data folder, under
+`PSX Engine/<game title slug>`. Writes are atomic; a damaged file is
+renamed to `*.json.bad` and defaults are used. A save is written when the
+player quits to the title or quits from the pause menu, never in `--play`
+mode, and is deleted when the game finishes.
+
+### Formats added in Milestone 4
+
+| Format | Where | Notes |
+| --- | --- | --- |
+| `psx_scene` v2 | `scenes/*.scene.json` | Adds `collider` (box, sphere, capsule, or triangle mesh for static bodies; static/kinematic/dynamic; sensor; offset), `audio` and `behaviors` (kind + scalar params). v1 files load and migrate |
+| `psx_input` v1 | `<project>/input.json` | Action → bindings |
+| `psx_game_schema` v1 | stdout of `--schema`, cached in `.psx/game_schema.json` | Behaviour kinds with typed fields; drives the editor inspector and `psx schema --project` |
+| `psx_script` v1 | e.g. `scripts/*.script.json` | Steps `{ticks, hold, press, look}` plus `expect {finished, events}`; events match by subset |
+| `psx_run_report` v1 | stdout or `--report` | Ticks, outcome, events, warnings, camera, `passed`, `failures` |
+| `psx_player_settings` v1, `psx_save` v1 | OS user folders | See above |
+| `psx_export` v1 | `export.json` in an export folder | Marks a folder that `psx build --replace` may overwrite |
+
+### Play mode and export
+
+Editor Play (F5) writes the current, possibly unsaved, scene to
+`.psx/play/<scene>` and runs the game with `--project <abs> --scene <copy>
+--play`; the child's stdout/stderr stream into the console. Stop kills the
+child. The authored scene and the editor's undo history are never touched.
+
+`psx build` (and Game > Export in the editor) builds the game in release,
+then writes `<out>/<exe>`, `data/` (project.json, input.json, scenes,
+assets), `NOTICES.txt` (licences of every crate in the binary's
+dependency graph, from `cargo metadata`), `README.txt` and `export.json`.
+It refuses to write into a non-empty folder that has no `export.json`, and
+replaces an earlier export only with `--replace`. Unless `--no-verify` is
+given, the export is then run headless from a temporary folder whose name
+contains spaces, optionally with a script.

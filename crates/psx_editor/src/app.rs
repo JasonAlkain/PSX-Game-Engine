@@ -21,6 +21,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, OwnedDisplayHandle};
 use winit::window::{Window, WindowId};
 
+use crate::gameplay::GameTools;
 use crate::session::EditorSession;
 use crate::ui::{self, Action, UiContext, UiState};
 use crate::viewport::{EditorCamera, ViewportGeometry};
@@ -80,6 +81,7 @@ struct Running {
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
     session: EditorSession,
+    tools: GameTools,
     ui: UiState,
     camera: EditorCamera,
     last_frame: Instant,
@@ -137,6 +139,7 @@ impl Running {
             egui_wgpu::RendererOptions::default(),
         );
         let camera = EditorCamera::from_start(&session.scene.settings.camera);
+        let tools = GameTools::new(&session);
         let running = Self {
             window,
             gpu,
@@ -148,6 +151,7 @@ impl Running {
             egui_state,
             egui_renderer,
             session,
+            tools,
             ui: UiState::default(),
             camera,
             last_frame: Instant::now(),
@@ -223,6 +227,9 @@ impl Running {
         let dt = (now - self.last_frame).as_secs_f32().min(0.1);
         self.last_frame = now;
 
+        // 0. Output of the game process and background jobs.
+        self.tools.poll(&mut self.session);
+
         // 1. UI (may edit the scene).
         let raw = self.egui_state.take_egui_input(&self.window);
         let mut output = None;
@@ -231,6 +238,7 @@ impl Running {
                 ui,
                 UiContext {
                     session: &mut self.session,
+                    tools: &mut self.tools,
                     state: &mut self.ui,
                     camera: &mut self.camera,
                     resources: &self.resources,

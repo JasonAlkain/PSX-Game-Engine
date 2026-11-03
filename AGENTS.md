@@ -31,6 +31,20 @@ Read this before changing the repository.
   (`psx_core::style`). A new effect gets a settings field with validation, a
   sandbox key, and an image test in `crates/psx_render/tests/retro_images.rs`.
 - `examples/room` must keep passing `psx validate --project examples/room`.
+- Gameplay lives in `psx_game`. The editor and CLI must not link it: they
+  run a game executable (`psx_assets::game::GameTarget`) as a child process
+  and read its `--schema`. Keep `psx_game::launch` flags and exit codes
+  stable; document new ones in ARCHITECTURE.
+- The simulation must never write the authored `Scene`, and must behave the
+  same headless and windowed for the same input. Behaviours change the world
+  only through `Ctx`.
+- A change to gameplay, physics or the demo must keep
+  `psx test-scene --project examples/room --script
+  examples/room/scripts/walkthrough.script.json` passing (it also runs as
+  `cargo test -p lever_room`).
+- Behaviour parameters are scalars (bool, number, string, entity); add a
+  `FieldDescriptor` for each so the editor can show it.
+- Logs go to stderr; stdout of `--schema` and `--headless` is JSON only.
 - Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
   checked by the naga layout tests in `psx_render::retro`.
 
@@ -44,5 +58,6 @@ cargo build --workspace --release
 ```
 
 `PSX_REQUIRE_GPU=1` turns a skipped GPU test into a failure. On Linux without a
-GPU, install Mesa lavapipe (`mesa-vulkan-drivers`). Report exactly which checks
+GPU, install Mesa lavapipe (`mesa-vulkan-drivers`). Building
+`kira` on Linux needs `libasound2-dev`. Report exactly which checks
 ran and which were skipped.

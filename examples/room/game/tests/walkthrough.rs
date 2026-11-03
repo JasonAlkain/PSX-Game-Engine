@@ -35,6 +35,10 @@ fn walkthrough_script_reaches_the_exit_and_leaves_the_scene_file_alone() {
         "{report:#}"
     );
     assert_eq!(sim.state().get(lever_room::DOOR_OPEN), Some(&true.into()));
+    // The corridor's fixed camera (psx.camera_zone) is active at the exit.
+    let cam = &report["camera"]["position"];
+    assert!((cam[0].as_f64().unwrap() - 0.7).abs() < 1e-3, "{cam}");
+    assert!((cam[1].as_f64().unwrap() - 2.6).abs() < 1e-3, "{cam}");
     sim.shutdown();
     assert_eq!(
         std::fs::read(&scene_file).unwrap(),

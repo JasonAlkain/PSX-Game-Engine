@@ -150,7 +150,7 @@ impl Project {
         project.save()?;
         let ignore = root.join(".gitignore");
         if !ignore.exists() {
-            std::fs::write(&ignore, ".psx/\n*.tmp\n*.bak\n").map_err(io_err(&ignore))?;
+            std::fs::write(&ignore, ".psx/\ndist/\n*.tmp\n*.bak\n").map_err(io_err(&ignore))?;
         }
         Ok(project)
     }

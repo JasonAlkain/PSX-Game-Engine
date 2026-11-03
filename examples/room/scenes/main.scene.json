@@ -4,7 +4,7 @@
   "scene": {
     "id": "6da14d69-ca00-4d56-be46-f873b9126ad0",
     "name": "Main",
-    "revision": 2,
+    "revision": 3,
     "settings": {
       "style": {
         "low_res": {
@@ -1308,7 +1308,7 @@
           "shape": {
             "kind": "box",
             "size": [
-              2.0,
+              1.8,
               2.0,
               1.6
             ]
@@ -1351,6 +1351,107 @@
             "kind": "psx.player",
             "params": {
               "jump_speed": 4.0
+            }
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000072",
+        "name": "Player body",
+        "parent": "00000000-0000-4000-8000-000000000070",
+        "transform": {
+          "translation": [
+            0.0,
+            0.85,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            0.5,
+            1.7,
+            0.5
+          ]
+        },
+        "mesh": {
+          "source": {
+            "kind": "primitive",
+            "shape": "cube"
+          },
+          "material": {
+            "tint": [
+              0.25,
+              0.3,
+              0.55,
+              1.0
+            ]
+          }
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000063",
+        "name": "Corridor camera",
+        "transform": {
+          "translation": [
+            0.7,
+            2.6,
+            -14.7
+          ],
+          "rotation": [
+            9.4608765e-9,
+            0.976296,
+            0.21643962,
+            -4.2675254e-8
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
+      },
+      {
+        "id": "00000000-0000-4000-8000-000000000064",
+        "name": "Corridor camera zone",
+        "transform": {
+          "translation": [
+            0.0,
+            1.25,
+            -12.6
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "collider": {
+          "shape": {
+            "kind": "box",
+            "size": [
+              1.8,
+              2.4,
+              4.4
+            ]
+          },
+          "body": "static",
+          "sensor": true
+        },
+        "behaviors": [
+          {
+            "kind": "psx.camera_zone",
+            "params": {
+              "camera": "00000000-0000-4000-8000-000000000063"
             }
           }
         ]
