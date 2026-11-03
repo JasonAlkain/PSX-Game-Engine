@@ -44,6 +44,12 @@ fn parse_args(args: impl Iterator<Item = String>) -> anyhow::Result<AppConfig> {
 }
 
 fn main() -> anyhow::Result<()> {
+    use copperframe_core::report;
+    report::install(
+        "copperframe_sandbox",
+        report::engine_data_dir(),
+        Some(report::REPORT_EMAIL),
+    );
     copperframe_runtime::init_logging();
     let config = parse_args(std::env::args())?;
     copperframe_runtime::run(config)

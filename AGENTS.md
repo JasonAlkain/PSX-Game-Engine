@@ -62,6 +62,11 @@ Read this before changing the repository.
   released on scene change (see `Simulation::load_scene`,
   `SceneResources::release_unused`).
 - Logs go to stderr; stdout of `--schema` and `--headless` is JSON only.
+- A new binary calls `copperframe_core::report::install` before
+  `init_logging`. Engine tools pass `REPORT_EMAIL`; anything built on
+  `copperframe_game` passes `None` (games never email the engine author).
+  Never add SMTP credentials, API keys or upload endpoints to the engine:
+  reports leave the machine only as a user-sent email draft.
 - Uniform structs shared with WGSL use only `vec4`/`mat4x4` members and are
   checked by the naga layout tests in `copperframe_render::retro`.
 

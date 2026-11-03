@@ -8,6 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+copperframe_core.workspace = true
 copperframe_runtime.workspace = true
 anyhow.workspace = true
 

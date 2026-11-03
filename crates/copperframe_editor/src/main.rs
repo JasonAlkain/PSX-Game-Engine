@@ -47,6 +47,12 @@ fn parse(args: impl Iterator<Item = String>) -> anyhow::Result<EditorConfig> {
 }
 
 fn main() -> anyhow::Result<()> {
+    use copperframe_core::report;
+    report::install(
+        "copperframe_editor",
+        report::engine_data_dir(),
+        Some(report::REPORT_EMAIL),
+    );
     copperframe_runtime::init_logging();
     copperframe_editor::run(parse(std::env::args())?)
 }

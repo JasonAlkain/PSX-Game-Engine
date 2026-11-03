@@ -87,6 +87,9 @@ jobs:
 
           for b in "$BIN_EDITOR" "$BIN_CLI" "$BIN_PLAYER"; do
             cp "target/release/$b.exe" "$out/"
+            # Line tables (profile.release) live in the .pdb; next to the
+            # .exe they put file and line numbers into crash reports.
+            cp "target/release/$b.pdb" "$out/"
           done
 
           # The example project's data. Its Rust game crate and dev tools stay

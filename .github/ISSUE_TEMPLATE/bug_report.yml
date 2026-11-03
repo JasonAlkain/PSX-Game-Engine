@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in the editor, CLI, player or a game crashed or misbehaved.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. If the editor crashed, it saved a crash report and
+        offers to email it the next time it starts; you can also paste it below.
+        Reports and logs are in the Copperframe data folder:
+        `%APPDATA%\Copperframe Engine\copperframe-engine\data` on Windows,
+        `~/.local/share/copperframe-engine` on Linux
+        (`crash_reports/` and `logs/`).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open examples/room in the editor
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: Version and platform
+      placeholder: "0.1.0, Windows 11, NVIDIA RTX 3060"
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Crash report or log
+      description: Paste the crash report or the relevant part of the .log file.
+      render: text

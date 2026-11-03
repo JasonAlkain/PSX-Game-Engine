@@ -1,6 +1,18 @@
 # Status
 
-Last updated: 2026-11-03 (renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+Last updated: 2026-11-03 (crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+
+## Crash and bug reporting (2026-11-03)
+
+Every engine binary saves a crash report and a log file in the user's data
+folder; the editor offers to email unseen crash reports (and Help → "Report
+a bug…") as a draft in the user's own mail program, to
+`zacharyaars+copperframeengine@gmail.com`. Games keep reports locally and
+never offer that address. Release builds keep line tables. Verified on Linux
+(Xvfb + lavapipe): a real startup panic produced a report, the editor showed
+it on the next start. Opening the mail draft is unverified on Windows 11.
+See [IMPROVEMENTS.md](IMPROVEMENTS.md) and ARCHITECTURE "Crash and bug
+reports".
 
 ## Rename to Copperframe (2026-11-03)
 

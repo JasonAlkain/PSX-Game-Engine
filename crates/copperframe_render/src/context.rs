@@ -54,6 +54,13 @@ impl GpuContext {
             driver_info = %info.driver_info,
             "selected graphics adapter"
         );
+        copperframe_core::report::set_context(
+            "graphics",
+            format!(
+                "{} ({:?}, {:?}, driver {} {})",
+                info.name, info.backend, info.device_type, info.driver, info.driver_info
+            ),
+        );
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
