@@ -1,0 +1,22 @@
+[package]
+name = "copperframe_render"
+description = "wgpu renderer: GPU state, cameras, meshes, textures and WGSL shaders."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+copperframe_core.workspace = true
+wgpu.workspace = true
+glam.workspace = true
+bytemuck.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+naga.workspace = true
+pollster.workspace = true
+
+[lints]
+workspace = true

@@ -35,12 +35,12 @@ env:
   # tags the upload as a Windows download on the itch page.
   ITCH_TARGET: allyn-david/copperframe-engine:windows
   # Cargo packages and the executables they produce. Rename here only.
-  PKG_EDITOR: psx_editor
-  BIN_EDITOR: psx_editor
-  PKG_CLI: psx_cli
-  BIN_CLI: psx
-  PKG_PLAYER: psx_player
-  BIN_PLAYER: psx_player
+  PKG_EDITOR: copperframe_editor
+  BIN_EDITOR: copperframe_editor
+  PKG_CLI: copperframe_cli
+  BIN_CLI: copperframe
+  PKG_PLAYER: copperframe_player
+  BIN_PLAYER: copperframe_player
   ENGINE_NAME: Copperframe Engine
 
 jobs:

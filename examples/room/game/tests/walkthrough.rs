@@ -1,12 +1,12 @@
 //! Plays the example project headless with the committed walkthrough
-//! script: the same check `psx test-scene` and CI run.
+//! script: the same check `copperframe test-scene` and CI run.
 
 use std::path::{Path, PathBuf};
 
-use psx_assets::project::Project;
-use psx_game::Simulation;
-use psx_game::audio::Audio;
-use psx_game::headless::{self, Script, Step};
+use copperframe_assets::project::Project;
+use copperframe_game::Simulation;
+use copperframe_game::audio::Audio;
+use copperframe_game::headless::{self, Script, Step};
 
 fn project_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -119,7 +119,7 @@ fn the_caretaker_waves_then_returns_to_idle() {
     );
     let clip = |sim: &Simulation| {
         sim.world()
-            .get::<&psx_game::animation::Animator>(caretaker)
+            .get::<&copperframe_game::animation::Animator>(caretaker)
             .ok()
             .and_then(|a| a.state().map(|(c, _)| c.to_owned()))
     };
@@ -140,12 +140,12 @@ fn the_caretaker_waves_then_returns_to_idle() {
 fn benchmark_renders_every_style_offscreen() {
     let project = Project::open(&project_root()).expect("example project");
     let scene = PathBuf::from(&project.file.startup_scene);
-    let options = psx_game::bench::BenchOptions {
+    let options = copperframe_game::bench::BenchOptions {
         frames: 3,
         size: (160, 120),
         script: None,
     };
-    let report = match psx_game::bench::run(
+    let report = match copperframe_game::bench::run(
         project,
         &scene,
         || Box::new(lever_room::LeverRoom),
@@ -154,7 +154,7 @@ fn benchmark_renders_every_style_offscreen() {
         Ok(r) => r,
         Err(e)
             if e.contains("no graphics adapter")
-                && std::env::var("PSX_REQUIRE_GPU").as_deref() != Ok("1") =>
+                && std::env::var("COPPERFRAME_REQUIRE_GPU").as_deref() != Ok("1") =>
         {
             eprintln!("SKIPPED: {e}");
             return;

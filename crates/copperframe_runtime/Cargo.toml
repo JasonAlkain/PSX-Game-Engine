@@ -1,0 +1,31 @@
+[package]
+name = "copperframe_runtime"
+description = "Application lifecycle: window/event loop, input, fixed-step scheduling and frame presentation."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+egui.workspace = true
+image.workspace = true
+copperframe_core.workspace = true
+copperframe_render.workspace = true
+copperframe_scene.workspace = true
+copperframe_assets.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+glam.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+pollster.workspace = true
+image.workspace = true
+copperframe_core.workspace = true
+
+[lints]
+workspace = true

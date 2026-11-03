@@ -1,8 +1,17 @@
-# PSX Engine
+<p align="center">
+  <img src="assets/branding/copperframe_header.png" alt="Copperframe Engine: a Rust game engine for PS1- and PS2-inspired worlds" width="100%">
+</p>
+
+# Copperframe Engine
 
 A Rust game engine for making original 3D games with PlayStation 1 and
 PlayStation 2-inspired visuals on modern PCs. It is not an emulator or a
-console SDK. "PSX Engine" is a working name.
+console SDK. (Formerly "PSX Engine"; see
+[docs/MIGRATION.md](docs/MIGRATION.md#rename-to-copperframe) for what the
+rename changed.)
+
+Built editor downloads will be published on itch.io:
+[allyn-david.itch.io/copperframe-engine](https://allyn-david.itch.io/copperframe-engine).
 
 **Status: all six milestones implemented (Milestone 6: performance
 measurement, hardening, regression images, migration guide). Validated on
@@ -15,7 +24,7 @@ mapping, colour reduction, ordered dithering, fog; filtered and mipmapped
 textures, per-vertex or per-pixel lighting, bounded point lights, blob
 shadows); skinned glTF characters with animation clips and crossfades;
 versioned JSON scenes edited in an egui editor and
-by the `psx` command-line tool through one command layer; glTF (static and
+by the `copperframe` command-line tool through one command layer; glTF (static and
 skinned) and PNG/JPEG import; and gameplay: Rust behaviours registered by a game crate,
 rapier3d physics (static/dynamic/kinematic bodies, sensors, ray casts, a
 first-person character controller), kira audio (music/effects buses,
@@ -51,7 +60,7 @@ scene's own style, PS1 and PS2 while playing. `W` `A` `S` `D` move, the mouse lo
 `Shift` runs, `Space` jumps, `E` (or left click) interacts, `Esc` pauses.
 Settings (volumes, mouse sensitivity and inversion, fullscreen, vsync,
 graphics style, key rebinding) and the save used by *Continue* are stored in your user folder
-(for example `%APPDATA%\PSX Engine\the-lever-room` on Windows), never in
+(for example `%APPDATA%\Copperframe Engine\the-lever-room` on Windows), never in
 the project.
 
 Every game executable also accepts:
@@ -76,25 +85,25 @@ cargo run -p lever_room -- --script examples/room/scripts/walkthrough.script.jso
 Open the example project in the editor:
 
 ```sh
-cargo run -p psx_editor --release -- examples/room
+cargo run -p copperframe_editor --release -- examples/room
 ```
 
 Or create a new project and open it:
 
 ```sh
-cargo run -p psx_cli --release -- new my_game --name "My game"
-cargo run -p psx_editor --release -- my_game
+cargo run -p copperframe_cli --release -- new my_game --name "My game"
+cargo run -p copperframe_editor --release -- my_game
 ```
 
 A project is a folder with `project.json`, `assets/` (source files plus
 `.meta.json` sidecars that hold each asset's stable ID), `scenes/`, an
 optional `input.json` (default key bindings) and `game/`, a Rust crate with
-the game's behaviours. `psx new` writes that crate with a path dependency on
+the game's behaviours. `copperframe new` writes that crate with a path dependency on
 this engine checkout (so keep the checkout where it is) and a starter scene
 you can play at once; `--no-game` skips it and the project then plays in the
-stock `psx_player` with engine behaviours only. Copy `.gltf`/`.glb` models,
+stock `copperframe_player` with engine behaviours only. Copy `.gltf`/`.glb` models,
 `.png`/`.jpg` textures and `.wav`/`.ogg` sounds into `assets/`; the editor's
-Assets tab (or `psx import`) registers them.
+Assets tab (or `copperframe import`) registers them.
 
 **Play** (or `F5`) builds and runs the game in its own window on a copy of
 the current scene, unsaved edits included; the authored scene file is never
@@ -126,22 +135,22 @@ holds `.psx/editor.lock` while open, warns before closing with unsaved
 changes, and refuses to overwrite a scene that changed on disk unless you
 choose to.
 
-`psx` commands (add `--json` for machine-readable output; exit codes 0 ok,
+`copperframe` commands (add `--json` for machine-readable output; exit codes 0 ok,
 1 validation or batch failure, 2 usage, 3 conflict or editor lock, 4 I/O):
 
 ```sh
-psx new DIR [--name NAME]
-psx validate [--project DIR]                 # project, metadata, imports, scenes
-psx import [--project DIR] [FILE]            # register + test-import assets
-psx inspect [--project DIR] [SCENE]          # entities with IDs and components
-psx apply [--project DIR] [--scene SCENE] [--dry-run] BATCH  # all-or-nothing; BATCH may be -
-psx schema [--project DIR]                   # formats, components, commands (+ the game's behaviours)
-psx test-scene [--project DIR] [SCENE] [--script FILE | --ticks N]  # headless play, JSON report
-psx build --out DIR [--project DIR] [--replace] [--script FILE] [--no-verify]  # export
-psx bench [--project DIR] [SCENE] [--script FILE] [--frames N] [--size WxH]  # release build, frame/tick times
+copperframe new DIR [--name NAME]
+copperframe validate [--project DIR]                 # project, metadata, imports, scenes
+copperframe import [--project DIR] [FILE]            # register + test-import assets
+copperframe inspect [--project DIR] [SCENE]          # entities with IDs and components
+copperframe apply [--project DIR] [--scene SCENE] [--dry-run] BATCH  # all-or-nothing; BATCH may be -
+copperframe schema [--project DIR]                   # formats, components, commands (+ the game's behaviours)
+copperframe test-scene [--project DIR] [SCENE] [--script FILE | --ticks N]  # headless play, JSON report
+copperframe build --out DIR [--project DIR] [--replace] [--script FILE] [--no-verify]  # export
+copperframe bench [--project DIR] [SCENE] [--script FILE] [--frames N] [--size WxH]  # release build, frame/tick times
 ```
 
-`psx build` validates the project, builds the game in release mode, and
+`copperframe build` validates the project, builds the game in release mode, and
 writes `DIR/` with the executable, `data/` (project file, scenes, assets),
 `NOTICES.txt` (third-party crates and licences from the dependency graph),
 `README.txt` and `export.json`. It only replaces a folder that holds an
@@ -149,12 +158,12 @@ earlier export, and then runs the export headless from a temporary folder
 whose name has spaces. The executable finds `data/` next to itself, so the
 folder can be moved or zipped.
 
-Use `cargo run -p psx_cli --release -- <command>` or the built
-`target/release/psx`. `examples/room/build_room.batch.json`,
+Use `cargo run -p copperframe_cli --release -- <command>` or the built
+`target/release/copperframe`. `examples/room/build_room.batch.json`,
 `build_demo.batch.json`, `fixed_camera.batch.json` and
 `visuals.batch.json` (caretaker, lights, shadows) are the batches that built
 the example scene, in that order. The example's art (including the skinned
-caretaker) is generated by `cargo run -p psx_assets --example
+caretaker) is generated by `cargo run -p copperframe_assets --example
 make_room_assets`. Command batches and file formats are
 documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -163,7 +172,7 @@ documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 The renderer comparison scene from Milestone 2:
 
 ```sh
-cargo run -p psx_sandbox --release
+cargo run -p copperframe_sandbox --release
 ```
 
 Camera: click in the window to capture the mouse, move the mouse to look,
@@ -203,11 +212,11 @@ cargo test --workspace
 
 The offscreen image tests (one per effect), the comparison-scene camera
 sweep and the scene-resource test need a graphics adapter and print `SKIPPED` without one. Set
-`PSX_REQUIRE_GPU=1` to make a missing adapter a failure. Debug images land
+`COPPERFRAME_REQUIRE_GPU=1` to make a missing adapter a failure. Debug images land
 in `target/tmp/`. Reference images of the example room live in
-`crates/psx_runtime/tests/golden/` and are compared only on Mesa llvmpipe
+`crates/copperframe_runtime/tests/golden/` and are compared only on Mesa llvmpipe
 (the CI adapter); after an intended visual change, regenerate them with
-`PSX_UPDATE_GOLDEN=1 cargo test -p psx_runtime --test scene_resources` and
+`COPPERFRAME_UPDATE_GOLDEN=1 cargo test -p copperframe_runtime --test scene_resources` and
 review the PNGs. File format history and API changes per milestone are in
 [docs/MIGRATION.md](docs/MIGRATION.md); platform checklists in
 [docs/PLATFORMS.md](docs/PLATFORMS.md). Gameplay tests (physics, audio state, the simulation and
@@ -224,16 +233,16 @@ are in [docs/RELEASING.md](docs/RELEASING.md).
 
 | Path | Purpose |
 | --- | --- |
-| `crates/psx_core` | Fixed-step timing, stable IDs, atomic file writes, retro style settings and their JSON file format. No GPU/window deps. |
-| `crates/psx_scene` | Scene document (entities, hierarchy, transforms, mesh/material, collider, audio, behaviour, light, animator and shadow components), versioned scene file, commands, undo/redo history, command batches. No GPU/window deps. |
-| `crates/psx_assets` | Projects, asset metadata and database, glTF (static and skinned) and texture import, animation data, validation, export. No GPU/window deps. |
-| `crates/psx_render` | wgpu device, surface presenter, retro renderer (scene + composite passes), materials, fit policy, camera, mesh/texture data, WGSL shaders. |
-| `crates/psx_runtime` | winit event loop, input sampling, fly camera, comparison scene, style keys, frame loop, logging, GPU scene resources and picking. |
-| `crates/psx_game` | Gameplay runtime: behaviour registry and game API, hecs runtime world, physics (rapier3d), audio (kira), input actions, headless runner, animation playback, benchmark, the game window with menus, and the command line every game binary shares. |
-| `crates/psx_editor` | egui scene editor (library + `psx_editor` binary). |
-| `apps/psx_cli` | `psx` command-line tool. |
-| `apps/psx_player` | Stock player for projects without a game crate. |
-| `apps/psx_sandbox` | Sandbox application showing the comparison scene. |
+| `crates/copperframe_core` | Fixed-step timing, stable IDs, atomic file writes, retro style settings and their JSON file format. No GPU/window deps. |
+| `crates/copperframe_scene` | Scene document (entities, hierarchy, transforms, mesh/material, collider, audio, behaviour, light, animator and shadow components), versioned scene file, commands, undo/redo history, command batches. No GPU/window deps. |
+| `crates/copperframe_assets` | Projects, asset metadata and database, glTF (static and skinned) and texture import, animation data, validation, export. No GPU/window deps. |
+| `crates/copperframe_render` | wgpu device, surface presenter, retro renderer (scene + composite passes), materials, fit policy, camera, mesh/texture data, WGSL shaders. |
+| `crates/copperframe_runtime` | winit event loop, input sampling, fly camera, comparison scene, style keys, frame loop, logging, GPU scene resources and picking. |
+| `crates/copperframe_game` | Gameplay runtime: behaviour registry and game API, hecs runtime world, physics (rapier3d), audio (kira), input actions, headless runner, animation playback, benchmark, the game window with menus, and the command line every game binary shares. |
+| `crates/copperframe_editor` | egui scene editor (library + `copperframe_editor` binary). |
+| `apps/copperframe_cli` | `copperframe` command-line tool. |
+| `apps/copperframe_player` | Stock player for projects without a game crate. |
+| `apps/copperframe_sandbox` | Sandbox application showing the comparison scene. |
 | `examples/room` | Example project *The Lever Room*: scenes, models, texture, generated sounds (`tools/make_sounds.py`), scripts, and its game crate `game/` (`lever_room`). |
 
 ## License

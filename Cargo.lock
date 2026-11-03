@@ -518,6 +518,154 @@ dependencies = [
 ]
 
 [[package]]
+name = "copperframe_assets"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "copperframe_core",
+ "copperframe_scene",
+ "glam 0.34.2",
+ "gltf",
+ "image",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "copperframe_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "copperframe_assets",
+ "copperframe_core",
+ "copperframe_scene",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "copperframe_core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "copperframe_editor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "copperframe_assets",
+ "copperframe_core",
+ "copperframe_render",
+ "copperframe_runtime",
+ "copperframe_scene",
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "glam 0.34.2",
+ "pollster",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "copperframe_game"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "copperframe_assets",
+ "copperframe_core",
+ "copperframe_render",
+ "copperframe_runtime",
+ "copperframe_scene",
+ "directories",
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "glam 0.34.2",
+ "hecs",
+ "kira",
+ "pollster",
+ "rapier3d",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "copperframe_player"
+version = "0.1.0"
+dependencies = [
+ "copperframe_game",
+]
+
+[[package]]
+name = "copperframe_render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "copperframe_core",
+ "glam 0.34.2",
+ "naga",
+ "pollster",
+ "thiserror 2.0.21",
+ "tracing",
+ "wgpu",
+]
+
+[[package]]
+name = "copperframe_runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "copperframe_assets",
+ "copperframe_core",
+ "copperframe_render",
+ "copperframe_scene",
+ "egui",
+ "glam 0.34.2",
+ "image",
+ "pollster",
+ "thiserror 2.0.21",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "copperframe_sandbox"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "copperframe_runtime",
+]
+
+[[package]]
+name = "copperframe_scene"
+version = "0.1.0"
+dependencies = [
+ "copperframe_core",
+ "glam 0.34.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1602,10 +1750,10 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 name = "lever_room"
 version = "0.1.0"
 dependencies = [
+ "copperframe_assets",
+ "copperframe_core",
+ "copperframe_game",
  "glam 0.34.2",
- "psx_assets",
- "psx_core",
- "psx_game",
  "serde_json",
 ]
 
@@ -2630,153 +2778,6 @@ checksum = "4488a4a36b9a4ba6b9334a32a39971f77c1436ec82c38707bce707699cc3bbcb"
 dependencies = [
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "psx_assets"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "glam 0.34.2",
- "gltf",
- "image",
- "psx_core",
- "psx_scene",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "psx_cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "psx_assets",
- "psx_core",
- "psx_scene",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "psx_core"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "uuid",
-]
-
-[[package]]
-name = "psx_editor"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "egui",
- "egui-wgpu",
- "egui-winit",
- "glam 0.34.2",
- "pollster",
- "psx_assets",
- "psx_core",
- "psx_render",
- "psx_runtime",
- "psx_scene",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
- "wgpu",
- "winit",
-]
-
-[[package]]
-name = "psx_game"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "directories",
- "egui",
- "egui-wgpu",
- "egui-winit",
- "glam 0.34.2",
- "hecs",
- "kira",
- "pollster",
- "psx_assets",
- "psx_core",
- "psx_render",
- "psx_runtime",
- "psx_scene",
- "rapier3d",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tracing",
- "wgpu",
- "winit",
-]
-
-[[package]]
-name = "psx_player"
-version = "0.1.0"
-dependencies = [
- "psx_game",
-]
-
-[[package]]
-name = "psx_render"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "glam 0.34.2",
- "naga",
- "pollster",
- "psx_core",
- "thiserror 2.0.21",
- "tracing",
- "wgpu",
-]
-
-[[package]]
-name = "psx_runtime"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "glam 0.34.2",
- "image",
- "pollster",
- "psx_assets",
- "psx_core",
- "psx_render",
- "psx_scene",
- "thiserror 2.0.21",
- "tracing",
- "tracing-subscriber",
- "wgpu",
- "winit",
-]
-
-[[package]]
-name = "psx_sandbox"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "psx_runtime",
-]
-
-[[package]]
-name = "psx_scene"
-version = "0.1.0"
-dependencies = [
- "glam 0.34.2",
- "psx_core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
 ]
 
 [[package]]

@@ -1,0 +1,17 @@
+[package]
+name = "copperframe_scene"
+description = "Authored scene model: entities, transform hierarchy, versioned scene files, edit commands with undo/redo. No window, GPU or editor dependencies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+copperframe_core.workspace = true
+glam.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -4,34 +4,37 @@
 
 Dependency direction is strictly downward:
 
+Crate names below drop the `copperframe_` prefix (`runtime` is
+`copperframe_runtime`, and so on).
+
 ```
-apps/psx_sandbox ─► psx_runtime
-crates/psx_editor ─┬─► psx_runtime ─┬─► psx_render ─► psx_core
- (lib + bin)       │                ├─► psx_assets ─┬─► psx_scene ─► psx_core
-apps/psx_cli ──────┴─► psx_assets   └─► psx_scene   └─► psx_core
+apps/copperframe_sandbox ─► runtime
+crates/copperframe_editor ─┬─► runtime ─┬─► render ─► core
+ (lib + bin)               │            ├─► assets ─┬─► scene ─► core
+apps/copperframe_cli ──────┴─► assets   └─► scene   └─► core
 
-apps/psx_player ─┐
-game crates ─────┴─► psx_game ─┬─► psx_runtime (window, renderer, scene GPU data)
- (examples/room/game)          └─► psx_assets, psx_scene, psx_core
+apps/copperframe_player ─┐
+game crates ─────────────┴─► game ─┬─► runtime (window, renderer, scene GPU data)
+ (examples/room/game)              └─► assets, scene, core
 
-psx_render: wgpu, glam          psx_core / psx_scene / psx_assets: no GPU, no window
-psx_game: hecs, rapier3d, kira  the editor and CLI never link psx_game; they run a
-                                game executable as a child process
+render: wgpu, glam          core / scene / assets: no GPU, no window
+game: hecs, rapier3d, kira  the editor and CLI never link game; they run a
+                            game executable as a child process
 ```
 
 | Crate | Owns today | Will own (per brief) |
 | --- | --- | --- |
-| `psx_core` | `FixedStep`; `EntityId`/`AssetId`/`SceneId` (UUID v4 newtypes); `atomic_write`; `RetroStyle` settings, presets, validation and versioned JSON file | Project configuration shared with gameplay |
-| `psx_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material, collider, audio and behaviour components, settings), versioned scene file (v3, migrates v1 and v2), light/animator/shadow components, `Command`/`Change`, `History` (undo/redo), command batches | |
-| `psx_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, glTF (static and skinned, with clips), PNG/JPEG and WAV/OGG import, `anim` (skeletons, poses, clip sampling, blending), project validation, `GameTarget` (find/build/run a project's game), `export` (standalone folder), test fixtures | Cooked asset cache |
-| `psx_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
-| `psx_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
-| `psx_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), background export, `psx_editor` binary | More gizmos |
-| `psx_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `psx_game::main` launcher, `animation` (per-entity clip playback and crossfades) | |
-| `apps/psx_player` | Stock player: `psx_game::main` with only engine behaviours, for projects without a game crate | |
-| `apps/psx_cli` | `psx` binary: `new` (with game crate template), `schema`, `validate`, `import`, `inspect`, `apply`, `test-scene`, `build` | |
+| `copperframe_core` | `FixedStep`; `EntityId`/`AssetId`/`SceneId` (UUID v4 newtypes); `atomic_write`; `RetroStyle` settings, presets, validation and versioned JSON file | Project configuration shared with gameplay |
+| `copperframe_scene` | `Scene` document (entities, hierarchy, `Transform`, mesh/material, collider, audio and behaviour components, settings), versioned scene file (v3, migrates v1 and v2), light/animator/shadow components, `Command`/`Change`, `History` (undo/redo), command batches | |
+| `copperframe_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, glTF (static and skinned, with clips), PNG/JPEG and WAV/OGG import, `anim` (skeletons, poses, clip sampling, blending), project validation, `GameTarget` (find/build/run a project's game), `export` (standalone folder), test fixtures | Cooked asset cache |
+| `copperframe_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
+| `copperframe_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
+| `copperframe_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), background export, `copperframe_editor` binary | More gizmos |
+| `copperframe_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `copperframe_game::main` launcher, `animation` (per-entity clip playback and crossfades) | |
+| `apps/copperframe_player` | Stock player: `copperframe_game::main` with only engine behaviours, for projects without a game crate | |
+| `apps/copperframe_cli` | `copperframe` binary: `new` (with game crate template), `schema`, `validate`, `import`, `inspect`, `apply`, `test-scene`, `build` | |
 
-`psx_render` takes any `wgpu::SurfaceTarget` and does not depend on winit.
+`copperframe_render` takes any `wgpu::SurfaceTarget` and does not depend on winit.
 The editor is a library so its session logic is tested without a window.
 
 ## Dependency set (resolved 2026-11-02, extended 2026-11-03)
@@ -47,13 +50,13 @@ The editor is a library so its session logic is tested without a window.
 | `gltf` | 1.4 (`import`, `utils`, `names`, `KHR_materials_unlit`) | glTF document parsing; buffers and URIs are resolved by our own bounded code |
 | `image` | 0.25 (`png`, `jpeg` only) | Texture decoding with size/allocation limits |
 | `base64` | 0.22 | `data:` URIs in `.gltf` files |
-| `clap` | 4.x (`derive`) | `psx` CLI |
+| `clap` | 4.x (`derive`) | `copperframe` CLI |
 | `bytemuck`, `pollster` | 1.x | GPU buffer casting; blocking on wgpu futures |
 | `tracing`, `tracing-subscriber`, `thiserror`, `anyhow` | latest | Diagnostics and errors |
 | `serde`, `serde_json` | 1.0 | Style, scene, batch, project and asset meta files |
 
 | `hecs` | 0.11 | Runtime ECS built from the scene document |
-| `rapier3d` | 0.36 | Physics and kinematic character controller. It uses glam 0.33 internally (through `glamx`); `psx_game::physics` converts at the boundary |
+| `rapier3d` | 0.36 | Physics and kinematic character controller. It uses glam 0.33 internally (through `glamx`); `copperframe_game::physics` converts at the boundary |
 | `kira` | 0.12 (`cpal`, `wav`, `pcm`, `ogg`, `vorbis`) | Audio buses, tweens, spatial tracks, one listener. Linux needs `libasound2-dev` to build |
 | `directories` | 6 | Per-user config and data folders for player settings and saves |
  Versions are centralised in the root `Cargo.toml`;
@@ -200,7 +203,7 @@ that differs between PS1 and PS2 is a `RetroStyle` field, read per frame.
 
 ### Skeletal animation
 
-`psx_assets::anim` holds the CPU side. A `Skeleton` lists joints parents
+`copperframe_assets::anim` holds the CPU side. A `Skeleton` lists joints parents
 first (the importer reorders the skin's joints by node depth and remaps
 `JOINTS_0`), each with a rest `Trs` and, for root joints, the transform of
 any non-joint ancestors and the import scale. `palette(pose)` returns
@@ -209,7 +212,7 @@ STEP or LINEAR keys per joint property; sampling outside the keys holds the
 first/last key, rotations use normalised lerp. `Pose::blend` mixes two poses
 per joint (translation and scale lerp, rotation nlerp). At most 64 joints.
 
-At runtime (`psx_game::animation`) an entity with an `animator` and a
+At runtime (`copperframe_game::animation`) an entity with an `animator` and a
 skinned model gets an `Animator`: the current clip (time, speed, loop,
 running), an optional clip being faded out (or the rest pose), and the
 palette. It advances in tick phase 8; a non-looping clip that reaches its
@@ -294,11 +297,11 @@ revision (another tool changed it) and offers Overwrite or Reload.
 
 ## Commands, undo and batches
 
-Every edit, from the editor or the CLI, is a `psx_scene::Command`
+Every edit, from the editor or the CLI, is a `copperframe_scene::Command`
 (JSON-tagged by `"op"`): `create_entity`, `delete_entity` (with
 descendants), `duplicate_entity` (subtree, fresh IDs), `rename`,
 `set_transform`, `set_parent` (`keep_world_transform`, default true),
-`set_mesh`, `set_material`, `set_settings`. `psx schema` lists their fields.
+`set_mesh`, `set_material`, `set_settings`. `copperframe schema` lists their fields.
 
 `apply(scene, command)` validates first and changes nothing on failure. On
 success it returns a `Change`: the before/after snapshot and index of every
@@ -315,7 +318,7 @@ A command batch is
 "commands": [...]}`. `apply_batch` runs on a copy: if any command fails or
 the result is invalid, nothing is written and the error names the command
 index. On success the revision increments and the report lists created IDs.
-`psx apply` refuses while the editor lock is held (exit 3), and refuses a
+`copperframe apply` refuses while the editor lock is held (exit 3), and refuses a
 stale `expected_revision` (exit 3).
 
 ## Projects and assets
@@ -332,7 +335,7 @@ lives in the sidecar, so moving a source together with its sidecar keeps
 scene references. `AssetDatabase::scan` builds the ID → path table and
 reports duplicate IDs, orphaned sidecars and unregistered sources.
 
-Import (`psx_assets::import`) produces CPU data only (`ImportedModel`: parts
+Import (`copperframe_assets::import`) produces CPU data only (`ImportedModel`: parts
 of `CpuMesh` + `ImportedMaterial` + optional `CpuTexture`); the runtime
 uploads it. Importers never panic on input: buffer and accessor reads are
 bounds-checked by our own reader, and the whole import runs inside
@@ -358,12 +361,12 @@ retro look keeps hard texels).
 
 `validate_project` checks the project file, every sidecar, every import and
 every scene (schema, hierarchy, asset references that are unknown or of the
-wrong kind) and returns diagnostics with severities; `psx validate` exits 1
+wrong kind) and returns diagnostics with severities; `copperframe validate` exits 1
 if any is an error.
 
 ## GPU scene resources and picking
 
-`psx_runtime::scene_gpu::SceneResources` uploads each referenced asset once
+`copperframe_runtime::scene_gpu::SceneResources` uploads each referenced asset once
 and turns a `Scene` into renderer draw items using world matrices.
 A missing or failed asset draws as an unlit magenta/black checker cube so it
 stays visible and selectable. If a reimport fails after a successful one,
@@ -378,13 +381,13 @@ both faces). The nearest hit wins.
 
 ## Editor
 
-`psx_editor` runs winit + egui (egui-winit, egui-wgpu). Each frame the world
+`copperframe_editor` runs winit + egui (egui-winit, egui-wgpu). Each frame the world
 renders through `RetroRenderer` into the viewport rectangle (the central
 egui area), then egui draws on top using a non-sRGB view of the swapchain
 (`Presenter::overlay_format`) because egui outputs gamma-space colours.
 `EditorSession` owns the scene, history, asset database and log; the UI only
 issues commands through it. While open the editor holds
-`<project>/.psx/editor.lock` (holding its pid); a second editor or `psx apply`
+`<project>/.psx/editor.lock` (holding its pid); a second editor or `copperframe apply`
 refuses, `--steal-lock` overrides a stale lock. Closing with unsaved changes
 asks Save / Quit without saving / Cancel.
 
@@ -393,9 +396,9 @@ asks Save / Quit without saving / Cancel.
 ### Game crates and the launcher
 
 A project's gameplay code is a normal Rust binary crate in `<project>/game/`
-(written by `psx new`). It implements `psx_game::Game` (title, behaviour
+(written by `copperframe new`). It implements `copperframe_game::Game` (title, behaviour
 registration, optional per-tick hooks) and its `main` is one line:
-`psx_game::main(|| Box::new(MyGame), concat!(env!("CARGO_MANIFEST_DIR"), "/.."))`. Every
+`copperframe_game::main(|| Box::new(MyGame), concat!(env!("CARGO_MANIFEST_DIR"), "/.."))`. Every
 game executable therefore accepts the same arguments:
 
 | Flag | Meaning |
@@ -411,17 +414,17 @@ game executable therefore accepts the same arguments:
 Exit codes: 0 ok, 1 the scene cannot be played or an expectation failed, 2
 usage, 4 project or file error. Logs go to stderr so stdout JSON stays clean.
 
-`psx_assets::game::GameTarget` finds what to run: `game/Cargo.toml` is run
+`copperframe_assets::game::GameTarget` finds what to run: `game/Cargo.toml` is run
 with `cargo run` from the crate folder (so its `rust-toolchain.toml`
 applies; arguments are absolute paths); without a crate the stock
-`psx_player` next to the running tool is used. The editor and the CLI only
+`copperframe_player` next to the running tool is used. The editor and the CLI only
 talk to games through this process boundary.
 
 ### Simulation
 
 `Simulation` builds a `hecs` world from a `Scene` (read only, never
 written back) and advances it at 60 Hz. Tick order (also in
-`psx_game::sim` docs): start new behaviours; game and behaviour
+`copperframe_game::sim` docs): start new behaviours; game and behaviour
 `fixed_update`; interaction (aim ray picks the nearest interactive entity
 within reach, the interact action calls `on_interact`); deferred commands;
 world transforms and kinematic targets; physics step; trigger events
@@ -464,13 +467,13 @@ device. Pausing pauses the effects track with a short fade.
 
 ### Player, settings and saves
 
-`psx_game::player` owns the window: title screen (New game / Continue /
+`copperframe_game::player` owns the window: title screen (New game / Continue /
 Settings / Quit), HUD (crosshair, interaction prompt, messages), pause
 menu, settings (volumes, sensitivity, invert-Y, fullscreen, vsync, key
 rebinding, graphics style) and the finished screen.
 Settings (`psx_player_settings` v1) live in the OS config folder and saves
 (`psx_save` v1: scene path + `GameState`) in the OS data folder, under
-`PSX Engine/<game title slug>`. Writes are atomic; a damaged file is
+`Copperframe Engine/<game title slug>`. Writes are atomic; a damaged file is
 renamed to `*.json.bad` and defaults are used. A save is written when the
 player quits to the title or quits from the pause menu, never in `--play`
 mode, and is deleted when the game finishes.
@@ -481,11 +484,11 @@ mode, and is deleted when the game finishes.
 | --- | --- | --- |
 | `psx_scene` v2 | `scenes/*.scene.json` | Adds `collider` (box, sphere, capsule, or triangle mesh for static bodies; static/kinematic/dynamic; sensor; offset), `audio` and `behaviors` (kind + scalar params). v1 files load and migrate |
 | `psx_input` v1 | `<project>/input.json` | Action → bindings |
-| `psx_game_schema` v1 | stdout of `--schema`, cached in `.psx/game_schema.json` | Behaviour kinds with typed fields; drives the editor inspector and `psx schema --project` |
+| `psx_game_schema` v1 | stdout of `--schema`, cached in `.psx/game_schema.json` | Behaviour kinds with typed fields; drives the editor inspector and `copperframe schema --project` |
 | `psx_script` v1 | e.g. `scripts/*.script.json` | Steps `{ticks, hold, press, look}` plus `expect {finished, events}`; events match by subset |
 | `psx_run_report` v1 | stdout or `--report` | Ticks, outcome, events, warnings, camera, `passed`, `failures` |
 | `psx_player_settings` v1, `psx_save` v1 | OS user folders | See above |
-| `psx_export` v1 | `export.json` in an export folder | Marks a folder that `psx build --replace` may overwrite |
+| `psx_export` v1 | `export.json` in an export folder | Marks a folder that `copperframe build --replace` may overwrite |
 
 ### Formats changed in Milestone 5
 
@@ -493,11 +496,11 @@ mode, and is deleted when the game finishes.
 | --- | --- |
 | `psx_scene` v3 | Optional `light` (`color` linear 0..1, `intensity` 0..16, `range` 0.05..100 m), `animator` (`clip`, `speed` −10..10, `looping`, `autoplay`; needs a model mesh) and `shadow` (`radius`, `offset`) entity fields; the style inside gains the v2 sections. v1 and v2 files load unchanged |
 | `psx_style` v2 | `textures {filter: nearest|linear, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}`; v1 files get PS1 values |
-| Importer version 2 | glTF skins and clips; `psx import` reports `joints` and `clips` |
+| Importer version 2 | glTF skins and clips; `copperframe import` reports `joints` and `clips` |
 | `psx_player_settings` v1 | Adds `graphics_style` (`scene`, `ps1`, `ps2`), defaulted when absent |
 | Command batches v1 | New ops `set_light`, `set_animator`, `set_shadow` |
 
-`psx validate` warns when an animator names a clip the model does not have
+`copperframe validate` warns when an animator names a clip the model does not have
 (listing the clips) or the model has no skin.
 
 ### Formats added in Milestone 6
@@ -510,12 +513,12 @@ See [MIGRATION.md](MIGRATION.md) for every format version.
 
 ## Performance measurement and lifecycle (Milestone 6)
 
-`psx_game::bench` runs a fresh `Simulation` per style with the same input
+`copperframe_game::bench` runs a fresh `Simulation` per style with the same input
 (idle or a script), renders each tick's state offscreen into an sRGB target
 at the requested output size through the same `SceneResources` and
 renderer calls as the player, and waits for the GPU after each frame. The
 first 10 frames per style are not measured (pipeline creation, uploads).
-`psx bench` builds the game in release first so numbers are not debug
+`copperframe bench` builds the game in release first so numbers are not debug
 numbers.
 
 Caches and their lifetimes:
@@ -534,7 +537,7 @@ Editor Play (F5) writes the current, possibly unsaved, scene to
 --play`; the child's stdout/stderr stream into the console. Stop kills the
 child. The authored scene and the editor's undo history are never touched.
 
-`psx build` (and Game > Export in the editor) builds the game in release,
+`copperframe build` (and Game > Export in the editor) builds the game in release,
 then writes `<out>/<exe>`, `data/` (project.json, input.json, scenes,
 assets), `NOTICES.txt` (licences of every crate in the binary's
 dependency graph, from `cargo metadata`), `README.txt` and `export.json`.
