@@ -537,6 +537,11 @@ impl Simulation {
     pub fn title(&self) -> String {
         self.game.title()
     }
+    /// The asset database scanned when the simulation was created.
+    pub fn asset_db(&self) -> &AssetDatabase {
+        &self.core.assets.db
+    }
+
     pub fn project(&self) -> &Project {
         &self.core.assets.project
     }

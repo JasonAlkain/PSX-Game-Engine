@@ -182,6 +182,18 @@ where
         self.volumes
     }
 
+    /// Pauses (or resumes) gameplay sound effects with a short fade, e.g.
+    /// for the pause menu. Music keeps playing.
+    pub fn set_paused(&mut self, paused: bool) {
+        if let Some(d) = &mut self.device {
+            if paused {
+                d.effects.pause(tween(0.1));
+            } else {
+                d.effects.resume(tween(0.1));
+            }
+        }
+    }
+
     /// Moves the listener (the active camera). `rotation` maps the
     /// listener's local axes (−Z forward, +Y up) to world.
     pub fn set_listener(&mut self, position: Vec3, rotation: Quat) {

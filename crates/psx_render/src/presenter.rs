@@ -109,6 +109,24 @@ impl Presenter {
     }
 
     /// Current size in physical pixels.
+    /// Switches between vsync (`AutoVsync`) and lowest latency
+    /// (`AutoNoVsync`, which falls back to vsync where unsupported).
+    pub fn set_vsync(&mut self, gpu: &GpuContext, vsync: bool) {
+        let mode = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        if self.config.present_mode != mode {
+            self.config.present_mode = mode;
+            self.configure(gpu);
+        }
+    }
+
+    pub fn vsync(&self) -> bool {
+        self.config.present_mode == wgpu::PresentMode::AutoVsync
+    }
+
     pub fn size(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
     }

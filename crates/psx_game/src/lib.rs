@@ -14,7 +14,11 @@ pub mod actions;
 pub mod api;
 pub mod audio;
 pub mod builtin;
+pub mod headless;
+pub mod launch;
 pub mod physics;
+pub mod player;
+pub mod settings;
 pub mod sim;
 
 pub use api::{
@@ -22,3 +26,5 @@ pub use api::{
     Registry, TimedEvent,
 };
 pub use sim::{CameraState, Ctx, Outcome, Simulation, TICK_DT, TICK_HZ};
+
+pub use launch::main;

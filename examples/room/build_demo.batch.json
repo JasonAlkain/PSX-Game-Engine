@@ -1,0 +1,922 @@
+{
+  "format": "psx_command_batch",
+  "version": 1,
+  "expected_revision": 1,
+  "commands": [
+    {
+      "op": "set_collider",
+      "id": "d10ad2e8-1830-4a3e-925a-a948b50117dc",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            0.2,
+            1
+          ]
+        },
+        "body": "static",
+        "offset": [
+          0,
+          -0.1,
+          0
+        ]
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000011",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000012",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000013",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "delete_entity",
+      "id": "00000000-0000-4000-8000-000000000010"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000014",
+      "name": "Wall north west",
+      "transform": {
+        "translation": [
+          -3,
+          1.5,
+          -5
+        ],
+        "scale": [
+          4,
+          3,
+          0.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000015",
+      "name": "Wall north east",
+      "transform": {
+        "translation": [
+          3,
+          1.5,
+          -5
+        ],
+        "scale": [
+          4,
+          3,
+          0.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000016",
+      "name": "Door lintel",
+      "transform": {
+        "translation": [
+          0,
+          2.75,
+          -5
+        ],
+        "scale": [
+          2,
+          0.5,
+          0.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.6,
+            0.7,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000014",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000015",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000016",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000020",
+      "collider": {
+        "shape": {
+          "kind": "mesh"
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000021",
+      "collider": {
+        "shape": {
+          "kind": "mesh"
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000022",
+      "collider": {
+        "shape": {
+          "kind": "mesh"
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000023",
+      "collider": {
+        "shape": {
+          "kind": "mesh"
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000030",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000031",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000032",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            0.05
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000033",
+      "collider": {
+        "shape": {
+          "kind": "sphere",
+          "radius": 0.5
+        },
+        "body": "dynamic",
+        "mass": 2.0
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000030",
+      "behaviors": [
+        {
+          "kind": "room.inspect",
+          "params": {
+            "prompt": "Read label",
+            "text": "Shipping label: 'Door controls moved to the lever by the north door.'"
+          }
+        }
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000040",
+      "name": "Door",
+      "transform": {
+        "translation": [
+          0,
+          1.25,
+          -5
+        ],
+        "scale": [
+          2,
+          2.5,
+          0.18
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.55,
+            0.3,
+            0.22,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000040",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "kinematic"
+      }
+    },
+    {
+      "op": "set_audio",
+      "id": "00000000-0000-4000-8000-000000000040",
+      "audio": {
+        "sound": "cc9ec486-405b-4579-a154-28bccb14eac2",
+        "volume_db": -2.0,
+        "min_distance": 2.0,
+        "max_distance": 18.0
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000040",
+      "behaviors": [
+        {
+          "kind": "room.door",
+          "params": {
+            "slide_x": 2.0,
+            "speed": 1.6
+          }
+        }
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000042",
+      "name": "Lever plate",
+      "transform": {
+        "translation": [
+          -1.8,
+          1.2,
+          -4.88
+        ],
+        "scale": [
+          0.4,
+          0.6,
+          0.04
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.25,
+            0.25,
+            0.28,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000041",
+      "name": "Lever",
+      "transform": {
+        "translation": [
+          -1.8,
+          1.2,
+          -4.8
+        ],
+        "scale": [
+          0.08,
+          0.4,
+          0.08
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.9,
+            0.75,
+            0.2,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000041",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            3.0,
+            1.2,
+            3.0
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_audio",
+      "id": "00000000-0000-4000-8000-000000000041",
+      "audio": {
+        "sound": "5b7679fc-a48c-42a1-a372-609402d87add",
+        "min_distance": 1.0,
+        "max_distance": 10.0
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000041",
+      "behaviors": [
+        {
+          "kind": "room.lever",
+          "params": {
+            "target": "00000000-0000-4000-8000-000000000040",
+            "prompt": "Pull lever"
+          }
+        }
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000050",
+      "name": "Corridor",
+      "transform": {
+        "translation": [
+          0,
+          0,
+          0
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000051",
+      "name": "Corridor floor",
+      "transform": {
+        "translation": [
+          0,
+          0,
+          -10
+        ],
+        "scale": [
+          2.2,
+          1,
+          10
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "plane",
+          "texture": "22f5ae69-6cfb-4f07-b108-a536dd6faea1"
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000050"
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000051",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            0.2,
+            1
+          ]
+        },
+        "body": "static",
+        "offset": [
+          0,
+          -0.1,
+          0
+        ]
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000052",
+      "name": "Corridor wall west",
+      "transform": {
+        "translation": [
+          -1.1,
+          1.5,
+          -10
+        ],
+        "scale": [
+          0.2,
+          3,
+          10
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.42,
+            0.45,
+            0.5,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000050"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000053",
+      "name": "Corridor wall east",
+      "transform": {
+        "translation": [
+          1.1,
+          1.5,
+          -10
+        ],
+        "scale": [
+          0.2,
+          3,
+          10
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.42,
+            0.45,
+            0.5,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000050"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000054",
+      "name": "Corridor end wall",
+      "transform": {
+        "translation": [
+          0,
+          1.5,
+          -15
+        ],
+        "scale": [
+          2.4,
+          3,
+          0.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.42,
+            0.45,
+            0.5,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000050"
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000055",
+      "name": "Corridor ceiling",
+      "transform": {
+        "translation": [
+          0,
+          3.1,
+          -10
+        ],
+        "scale": [
+          2.4,
+          0.2,
+          10
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.2,
+            0.2,
+            0.24,
+            1.0
+          ]
+        }
+      },
+      "parent": "00000000-0000-4000-8000-000000000050"
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000052",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000053",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000054",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000055",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000062",
+      "name": "Machine",
+      "transform": {
+        "translation": [
+          0.65,
+          0.45,
+          -9.0
+        ],
+        "scale": [
+          0.6,
+          0.9,
+          1.2
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.35,
+            0.4,
+            0.35,
+            1.0
+          ]
+        }
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000062",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            1,
+            1,
+            1
+          ]
+        },
+        "body": "static"
+      }
+    },
+    {
+      "op": "set_audio",
+      "id": "00000000-0000-4000-8000-000000000062",
+      "audio": {
+        "sound": "a3dbb5c2-77e4-41c0-9193-b8fde2721b82",
+        "volume_db": -4.0,
+        "looping": true,
+        "autoplay": true,
+        "min_distance": 1.0,
+        "max_distance": 9.0
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000062",
+      "behaviors": [
+        {
+          "kind": "room.inspect",
+          "params": {
+            "prompt": "Inspect machine",
+            "text": "An old generator, humming steadily. The air ahead smells fresher."
+          }
+        }
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000061",
+      "name": "Exit light",
+      "transform": {
+        "translation": [
+          0,
+          2.6,
+          -14.85
+        ],
+        "scale": [
+          0.8,
+          0.25,
+          0.05
+        ]
+      },
+      "mesh": {
+        "source": {
+          "kind": "primitive",
+          "shape": "cube"
+        },
+        "material": {
+          "tint": [
+            0.3,
+            1.0,
+            0.4,
+            1.0
+          ],
+          "lit": false
+        }
+      }
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000060",
+      "name": "Exit",
+      "transform": {
+        "translation": [
+          0,
+          1.0,
+          -13.8
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "op": "set_collider",
+      "id": "00000000-0000-4000-8000-000000000060",
+      "collider": {
+        "shape": {
+          "kind": "box",
+          "size": [
+            2.0,
+            2.0,
+            1.6
+          ]
+        },
+        "body": "static",
+        "sensor": true
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000060",
+      "behaviors": [
+        {
+          "kind": "room.exit",
+          "params": {
+            "message": "You found the way out. Thanks for playing!"
+          }
+        }
+      ]
+    },
+    {
+      "op": "create_entity",
+      "id": "00000000-0000-4000-8000-000000000070",
+      "name": "Player",
+      "transform": {
+        "translation": [
+          0,
+          0,
+          3.5
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "op": "set_behaviors",
+      "id": "00000000-0000-4000-8000-000000000070",
+      "behaviors": [
+        {
+          "kind": "psx.player",
+          "params": {
+            "jump_speed": 4.0
+          }
+        }
+      ]
+    }
+  ]
+}

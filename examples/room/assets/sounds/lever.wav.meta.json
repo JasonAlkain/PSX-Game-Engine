@@ -1,0 +1,10 @@
+{
+  "format": "psx_asset_meta",
+  "version": 1,
+  "id": "5b7679fc-a48c-42a1-a372-609402d87add",
+  "importer": "audio",
+  "settings": {
+    "scale": 1.0,
+    "max_texture_size": 1024
+  }
+}
