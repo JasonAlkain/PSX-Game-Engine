@@ -159,6 +159,8 @@ pub enum Command {
     /// Replaces any of the scene settings.
     SetSettings {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        look: Option<crate::scene::LookSource>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         style: Option<copperframe_core::RetroStyle>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lighting: Option<SceneLighting>,
@@ -237,7 +239,10 @@ impl Command {
             "set_behaviors",
             "{id, behaviors: [{kind, params?}]} replaces the list",
         ),
-        ("set_settings", "{style?, lighting?, camera?}"),
+        (
+            "set_settings",
+            "{look? (\"scene\" | \"project\"), style?, lighting?, camera?}",
+        ),
         (
             "set_light",
             "{id, light (null removes): {color?, intensity?, range?}}",
@@ -722,12 +727,16 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             })
         }
         Command::SetSettings {
+            look,
             style,
             lighting,
             camera,
         } => {
             let before = scene.settings.clone();
             let mut after = before.clone();
+            if let Some(look) = look {
+                after.look = *look;
+            }
             if let Some(style) = style {
                 style
                     .validate()
@@ -938,6 +947,7 @@ mod tests {
                 name: "x".repeat(crate::scene::MAX_NAME_LEN + 1),
             },
             Command::SetSettings {
+                look: None,
                 style: None,
                 lighting: Some(SceneLighting {
                     direction: Vec3::ZERO,

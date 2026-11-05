@@ -117,7 +117,10 @@ pub fn run(
         sim.load_scene_file(scene).map_err(|e| e.to_string())?;
         title = sim.title();
         warnings.extend(sim.take_warnings());
-        let Some(authored) = sim.scene().map(|s| s.settings.style.clone()) else {
+        let Some(authored) = sim
+            .scene()
+            .map(|s| sim.project().file.style.scene_style(&s.settings))
+        else {
             return Err("the scene did not load".into());
         };
         scene_name = sim.scene().map(|s| s.name.clone()).unwrap_or_default();

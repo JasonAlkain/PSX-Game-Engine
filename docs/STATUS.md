@@ -1,6 +1,26 @@
 # Status
 
-Last updated: 2026-11-05 (scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Project look and scene overrides (2026-11-05, v0.8.0)
+
+Shared settings now live at project level with per-scene overrides. Global
+already: window, input, physics, build, the player's PS1/PS2 default. New:
+the project look (`project.json` v3 `style.look`), the console look every
+scene set to *Project look* renders with in the editor, player and
+benchmark. Fog, background, lighting and start camera stay per scene.
+Scenes gain `settings.look` (scene format 7). Scenes from before keep their
+own look, so nothing changes until you switch them, one at a time in Scene
+settings or all at once from Project settings > Look (after a
+confirmation, keeping fog/background/lighting). New scenes and new
+projects use the project look. The viewport previews unsaved project look
+edits.
+
+Verified on Linux (Xvfb): switching the example room to the project look,
+the Look page, and a live PS2 preview from the draft. Unit tests cover the
+resolution (`scene_style`), the v6 scene and v2 project fixtures, and the
+v7 round trip. Not yet verified on Windows 11. Audio settings are not
+project-level yet (next phase).
 
 ## Scene workflow (2026-11-05, v0.7.0)
 

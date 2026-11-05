@@ -88,11 +88,12 @@ impl SceneTemplate {
         }
     }
 
-    /// A new scene called `name` with the look and lighting of `settings`
-    /// and the default start camera.
+    /// A new scene called `name` using the project look, with the fog,
+    /// background and lighting of `settings` and the default start camera.
     pub fn build(self, name: &str, settings: &SceneSettings) -> Scene {
         let mut scene = Scene::new(name);
         scene.settings = SceneSettings {
+            look: copperframe_scene::LookSource::Project,
             camera: Default::default(),
             ..settings.clone()
         };
@@ -235,6 +236,12 @@ impl EditorSession {
 
     pub fn is_dirty(&self) -> bool {
         self.history.is_dirty()
+    }
+
+    /// The style the open scene is authored with (its own, or the saved
+    /// project look with its fog and background).
+    pub fn scene_style(&self) -> copperframe_core::RetroStyle {
+        self.project.file.style.scene_style(&self.scene.settings)
     }
 
     /// Applies one command as an undo step. Errors are logged; returns the

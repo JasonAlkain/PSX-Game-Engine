@@ -1,0 +1,24 @@
+{
+  "format": "psx_project",
+  "version": 2,
+  "name": "Version two",
+  "startup_scene": "scenes/main.scene.json",
+  "display": {
+    "width": 1280,
+    "height": 960,
+    "fullscreen": false,
+    "vsync": true
+  },
+  "style": {
+    "default": "ps2",
+    "player_can_change": false
+  },
+  "build": {
+    "export_dir": "",
+    "check_after_export": true,
+    "check_script": ""
+  },
+  "physics": {
+    "gravity": [0.0, -5.0, 0.0]
+  }
+}

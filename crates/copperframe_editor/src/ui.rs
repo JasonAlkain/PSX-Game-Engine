@@ -7,11 +7,11 @@
 //! gesture.
 
 use copperframe_assets::AssetKind;
-use copperframe_core::{AssetId, EntityId, RetroStyle, TextureFilter};
+use copperframe_core::{AssetId, EntityId};
 use copperframe_render::Rect;
 use copperframe_runtime::scene_gpu::{AssetStatus, SceneResources};
 use copperframe_scene::{
-    AlphaSetting, Command, MeshComponent, MeshSource, PrimitiveShape, quat_to_euler_deg,
+    AlphaSetting, Command, LookSource, MeshComponent, MeshSource, PrimitiveShape, quat_to_euler_deg,
 };
 use egui::{Color32, Key, KeyboardShortcut, Modifiers};
 use glam::Vec3;
@@ -33,7 +33,7 @@ use crate::session::{
 };
 use crate::viewport::{EditorCamera, snap};
 use crate::viewport_panel::{self, GizmoDrag};
-use crate::{theme, toolbar};
+use crate::{look_editor, theme, toolbar};
 
 /// Requests the app must carry out (they need the GPU, the event loop or
 /// another project).
@@ -128,6 +128,9 @@ pub struct UiState {
     pub reporting: Reporting,
     /// The Grid and snapping window is open.
     pub snap_settings_open: bool,
+    /// A panel to open once the dock is back (panels can't open panels
+    /// while they draw).
+    open_pane: Option<Pane>,
 }
 
 impl Default for UiState {
@@ -149,6 +152,7 @@ impl Default for UiState {
             stats: Stats::default(),
             reporting: Reporting::default(),
             snap_settings_open: false,
+            open_pane: None,
         }
     }
 }
@@ -293,7 +297,9 @@ impl PaneContents for Panes<'_> {
             Pane::SceneSettings => {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| scene_settings(ui, self.session, self.camera));
+                    .show(ui, |ui| {
+                        scene_settings(ui, self.session, self.state, self.camera)
+                    });
             }
             Pane::Assets => {
                 self.state
@@ -376,6 +382,9 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         }
         state.dock = dock;
     });
+    if let Some(pane) = state.open_pane.take() {
+        state.dock.set_open(pane, true);
+    }
     for request in std::mem::take(&mut state.assets.requests) {
         match request {
             PanelRequest::OpenScene(path) => {
@@ -1316,96 +1325,69 @@ fn status_line(ui: &mut egui::Ui, status: Option<&AssetStatus>) {
     }
 }
 
-fn scene_settings(ui: &mut egui::Ui, session: &mut EditorSession, camera: &EditorCamera) {
+fn scene_settings(
+    ui: &mut egui::Ui,
+    session: &mut EditorSession,
+    state: &mut UiState,
+    camera: &EditorCamera,
+) {
+    let project = state.project_settings.style_settings(session).look.clone();
     ui.vertical(|ui| {
         let before = session.scene.settings.clone();
+        let mut look = before.look;
         let mut style = before.style.clone();
         let mut lighting = before.lighting;
         let mut finished = false;
+
+        ui.label(egui::RichText::new("Look").strong());
         ui.horizontal(|ui| {
-            ui.label(format!("Style: {}", style.preset().label()));
-            if ui.button("PS1").clicked() {
-                style = RetroStyle::ps1();
-            }
-            if ui.button("PS2").clicked() {
-                style = RetroStyle::ps2();
-            }
-            if ui.button("Clean").clicked() {
-                style = RetroStyle::clean();
+            for source in [LookSource::Project, LookSource::Scene] {
+                if ui
+                    .selectable_label(look == source, source.label())
+                    .on_hover_text(match source {
+                        LookSource::Project => {
+                            "Use the look set in Project settings > Look, shared by every \
+                             scene that uses it"
+                        }
+                        LookSource::Scene => "Give this scene its own look",
+                    })
+                    .clicked()
+                    && look != source
+                {
+                    // Switching keeps what is on screen: the console
+                    // settings are copied across, fog and background stay.
+                    style = look_editor::with_scene_atmosphere(&project, &style);
+                    look = source;
+                    finished = true;
+                }
             }
         });
-        ui.checkbox(&mut style.low_res.enabled, "Low resolution");
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut style.vertex_snap.enabled, "Vertex snapping")
-                .on_hover_text("The PS1 wobble effect, not the toolbar's snapping tool");
-            let r =
-                ui.add(egui::Slider::new(&mut style.vertex_snap.grid, 0.25..=8.0).text("grid px"));
-            finished |= r.drag_stopped();
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut style.affine_uv.enabled, "Affine UVs")
-                .on_hover_text("PS1 texture swim on large polygons");
-            let r = ui
-                .add_enabled(
-                    style.affine_uv.enabled,
-                    egui::Slider::new(&mut style.affine_uv.correction_distance, 0.0..=10.0)
-                        .text("close-up fix m"),
-                )
-                .on_hover_text(
-                    "Textures within this distance of the camera stay steady, so walking up \
-                     to a model no longer warps it. Farther polygons keep the PS1 swim. \
-                     0 warps everywhere",
+        match look {
+            LookSource::Project => {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Uses the project look ({}). Fog and background below are this \
+                         scene's own.",
+                        project.preset().label()
+                    ))
+                    .small()
+                    .color(theme::TEXT_DIM),
                 );
-            finished |= r.drag_stopped();
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut style.color_reduction.enabled, "Colour reduction");
-            let r = ui.add(egui::Slider::new(&mut style.color_reduction.bits, 1..=8).text("bits"));
-            finished |= r.drag_stopped();
-        });
-        ui.checkbox(&mut style.dither.enabled, "Dithering");
-        ui.horizontal(|ui| {
-            let linear = style.textures.filter == TextureFilter::Linear;
-            let mut l = linear;
-            ui.checkbox(&mut l, "Filtered textures");
-            if l != linear {
-                style.textures.filter = if l {
-                    TextureFilter::Linear
-                } else {
-                    TextureFilter::Nearest
-                };
+                if ui.button("Edit the project look…").clicked() {
+                    state.project_settings.page = crate::project_settings::Page::Look;
+                    // The dock is out while panels draw: open it afterwards.
+                    state.open_pane = Some(Pane::ProjectSettings);
+                }
             }
-            ui.checkbox(&mut style.textures.mipmaps, "Mipmaps");
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut style.shading.per_pixel, "Per-pixel lighting");
-            ui.checkbox(&mut style.shading.local_lights, "Point lights");
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut style.shadows.enabled, "Blob shadows");
-            let r =
-                ui.add(egui::Slider::new(&mut style.shadows.opacity, 0.0..=1.0).text("opacity"));
-            finished |= r.drag_stopped();
-        });
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut style.fog.enabled, "Fog");
-            ui.color_edit_button_srgb(&mut style.fog.color);
-            let r1 = ui.add(
-                egui::DragValue::new(&mut style.fog.start)
-                    .speed(0.1)
-                    .prefix("start "),
-            );
-            let r2 = ui.add(
-                egui::DragValue::new(&mut style.fog.end)
-                    .speed(0.1)
-                    .prefix("end "),
-            );
-            finished |= r1.drag_stopped() || r2.drag_stopped();
-        });
-        ui.horizontal(|ui| {
-            ui.label("Background");
-            ui.color_edit_button_srgb(&mut style.atmosphere.background);
-        });
+            LookSource::Scene => {
+                finished |= look_editor::console_look(ui, &mut style);
+            }
+        }
+        ui.separator();
+        ui.label(egui::RichText::new("Atmosphere").strong());
+        finished |= look_editor::atmosphere(ui, &mut style);
+        ui.separator();
+        ui.label(egui::RichText::new("Lighting").strong());
         ui.horizontal(|ui| {
             ui.label("Light dir");
             for c in [
@@ -1442,11 +1424,13 @@ fn scene_settings(ui: &mut egui::Ui, session: &mut EditorSession, camera: &Edito
                 lighting.ambient = Vec3::splat(ambient);
             }
         });
+        let look_changed = look != before.look;
         let style_changed = style != before.style;
         let lighting_changed = lighting != before.lighting;
-        if (style_changed || lighting_changed) && style.validate().is_ok() {
+        if (look_changed || style_changed || lighting_changed) && style.validate().is_ok() {
             session.execute_merging(
                 Command::SetSettings {
+                    look: look_changed.then_some(look),
                     style: style_changed.then_some(style),
                     lighting: lighting_changed.then_some(lighting),
                     camera: None,
@@ -1457,8 +1441,10 @@ fn scene_settings(ui: &mut egui::Ui, session: &mut EditorSession, camera: &Edito
         if finished {
             session.end_merge();
         }
+        ui.separator();
         if ui.button("Use current view as start camera").clicked() {
             session.execute(Command::SetSettings {
+                look: None,
                 style: None,
                 lighting: None,
                 camera: Some(camera.to_start()),
@@ -1653,7 +1639,12 @@ fn scene_dialog(
             .weak(),
         );
         if dialog.kind == SceneDialogKind::New {
-            ui.label(egui::RichText::new("Uses the open scene's look and lighting.").weak());
+            ui.label(
+                egui::RichText::new(
+                    "Uses the project look, with the open scene's fog, background and lighting.",
+                )
+                .weak(),
+            );
         } else {
             ui.label(
                 egui::RichText::new(

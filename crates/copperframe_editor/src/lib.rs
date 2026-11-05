@@ -33,6 +33,7 @@ pub mod gizmo;
 pub mod hierarchy;
 pub mod hub;
 pub mod icons;
+pub mod look_editor;
 pub mod project_settings;
 pub mod reporting;
 pub mod session;

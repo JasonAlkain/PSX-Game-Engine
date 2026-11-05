@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! my_game/
-//!   project.json          {"format": "psx_project", "version": 2, ...}
+//!   project.json          {"format": "psx_project", "version": 3, ...}
 //!   input.json            default key bindings (optional, see [`crate::input`])
 //!   assets/               source files + <source>.meta.json sidecars
 //!   scenes/               *.scene.json
@@ -33,7 +33,7 @@ pub use crate::project_settings::{
 pub const PROJECT_FILE: &str = "project.json";
 pub const PROJECT_FORMAT: &str = "psx_project";
 /// Version 2 added the `display`, `style`, `build` and `physics` sections.
-pub const PROJECT_VERSION: u32 = 2;
+pub const PROJECT_VERSION: u32 = 3;
 pub const ASSETS_DIR: &str = "assets";
 pub const SCENES_DIR: &str = "scenes";
 pub const LOCK_FILE: &str = ".psx/editor.lock";
@@ -86,6 +86,10 @@ impl ProjectFile {
         if let Some(p) = self.physics.problem() {
             return Err(p);
         }
+        self.style
+            .look
+            .validate()
+            .map_err(|e| format!("style.look: {e}"))?;
         let script = self.build.check_script.trim();
         if !script.is_empty() && !is_safe_relative(script) {
             return Err(format!(
@@ -166,6 +170,7 @@ impl Project {
             file,
         };
         let mut scene = Scene::new("Main");
+        scene.settings.look = copperframe_scene::LookSource::Project;
         let mut floor = Entity::new("Floor");
         floor.transform.scale = glam::Vec3::new(8.0, 1.0, 8.0);
         floor.mesh = Some(MeshComponent {
@@ -1188,11 +1193,29 @@ mod tests {
         p.file.build.export_dir = "../builds/room".into();
         p.save().unwrap();
         let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
-        assert!(text.contains("\"version\": 2") && text.contains("\"style\""));
+        assert!(text.contains("\"version\": 3") && text.contains("\"look\""));
         let again = Project::open(&root).unwrap();
         p.file.version = PROJECT_VERSION;
         assert_eq!(again.file, p.file);
         assert_eq!(again.export_dir(), root.join("../builds/room"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn version_2_project_files_load_with_the_ps1_project_look() {
+        let root = temp("v2");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/v2.project.json"),
+            root.join(PROJECT_FILE),
+        )
+        .unwrap();
+        let p = Project::open(&root).unwrap();
+        assert_eq!(p.file.version, 2);
+        assert_eq!(p.file.style.default, GraphicsStyle::Ps2);
+        assert!(!p.file.style.player_can_change);
+        assert_eq!(p.file.style.look, copperframe_core::RetroStyle::ps1());
+        assert_eq!(p.file.physics.gravity.y, -5.0);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -1220,13 +1243,13 @@ mod tests {
         // So does a newer version.
         let text = std::fs::read_to_string(root.join(PROJECT_FILE))
             .unwrap()
-            .replace("\"version\": 2", "\"version\": 3");
+            .replace("\"version\": 3", "\"version\": 4");
         std::fs::write(root.join(PROJECT_FILE), text).unwrap();
         assert!(
             Project::open(&root)
                 .unwrap_err()
                 .to_string()
-                .contains("version 3")
+                .contains("version 4")
         );
         std::fs::remove_dir_all(&root).unwrap();
     }

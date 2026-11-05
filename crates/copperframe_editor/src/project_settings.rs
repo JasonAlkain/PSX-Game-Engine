@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 
 use copperframe_assets::input::{self, BUTTON_NAMES, InputMap};
 use copperframe_assets::project::{
-    DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings, ProjectFile,
+    DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings, ProjectFile, StyleSettings,
 };
+use copperframe_scene::{Command, LookSource};
 use egui::{Color32, RichText};
 
 use crate::gameplay::GameTools;
@@ -128,6 +129,70 @@ pub struct ProjectSettingsPanel {
     new_action: String,
     /// Result of the last save, shown under the header.
     message: Option<(bool, String)>,
+    /// Each scene's look source (relative path), and when it was read.
+    looks: Option<(f64, Vec<(String, LookSource)>)>,
+    /// "Make all use the project look" is asking for confirmation.
+    confirm_migrate: bool,
+}
+
+/// The look source of every scene file (unreadable files are skipped).
+fn scene_looks(session: &EditorSession) -> Vec<(String, LookSource)> {
+    session
+        .scene_files()
+        .into_iter()
+        .filter_map(|p| {
+            let look = if p == session.scene_path {
+                session.scene.settings.look
+            } else {
+                copperframe_scene::load_scene(&p).ok()?.settings.look
+            };
+            Some((session.project.relative(&p), look))
+        })
+        .collect()
+}
+
+/// Switches the listed scenes to the saved project look, keeping their fog
+/// and background (the open scene as an undoable edit). Returns how many
+/// changed.
+fn use_project_look(session: &mut EditorSession, scenes: &[String]) -> usize {
+    let look = session.project.file.style.look.clone();
+    let mut n = 0;
+    for rel in scenes {
+        let path = session.project.resolve(rel);
+        if path == session.scene_path {
+            let style =
+                crate::look_editor::with_scene_atmosphere(&look, &session.scene.settings.style);
+            if session
+                .execute(Command::SetSettings {
+                    look: Some(LookSource::Project),
+                    style: Some(style),
+                    lighting: None,
+                    camera: None,
+                })
+                .is_some()
+            {
+                n += 1;
+            }
+            continue;
+        }
+        let mut scene = match copperframe_scene::load_scene(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                session.error(e.to_string());
+                continue;
+            }
+        };
+        scene.settings.style =
+            crate::look_editor::with_scene_atmosphere(&look, &scene.settings.style);
+        scene.settings.look = LookSource::Project;
+        scene.revision += 1;
+        match copperframe_scene::save_scene(&scene, &path) {
+            Ok(()) => n += 1,
+            Err(e) => session.error(e.to_string()),
+        }
+    }
+    session.info(format!("{n} scenes now use the project look"));
+    n
 }
 
 impl ProjectSettingsPanel {
@@ -142,6 +207,112 @@ impl ProjectSettingsPanel {
 
     pub fn is_dirty(&self) -> bool {
         self.draft.as_ref().is_some_and(Draft::is_dirty)
+    }
+
+    /// The look settings to preview: the draft's while the panel has
+    /// unsaved edits, so changes show in the viewport before Save.
+    pub fn style_settings<'a>(&'a self, session: &'a EditorSession) -> &'a StyleSettings {
+        match &self.draft {
+            Some(d) => &d.file.style,
+            None => &session.project.file.style,
+        }
+    }
+
+    /// The Look page: the player's PS1/PS2 choice, the project look, and
+    /// which scenes use it.
+    fn look(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, draft: &mut Draft) {
+        look(ui, draft);
+        ui.separator();
+        ui.label(RichText::new("Project look").strong());
+        hint(
+            ui,
+            "The console look of every scene set to \"Project look\" in Scene settings: \
+             resolution, wobble, textures, shading and shadows. Each scene keeps its own \
+             fog, background and lighting.",
+        );
+        let mut style = draft.file.style.look.clone();
+        crate::look_editor::console_look(ui, &mut style);
+        if style != draft.file.style.look && style.validate().is_ok() {
+            draft.file.style.look = style;
+        }
+        ui.horizontal(|ui| {
+            if ui
+                .button("Copy from the open scene")
+                .on_hover_text("Take the open scene's look as the project look")
+                .clicked()
+            {
+                draft.file.style.look = session.scene_style();
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.label(RichText::new("Scenes").strong());
+        let now = ui.input(|i| i.time);
+        if self.looks.as_ref().is_none_or(|(t, _)| now - t > 2.0) {
+            self.looks = Some((now, scene_looks(session)));
+        }
+        let own: Vec<String> = self
+            .looks
+            .as_ref()
+            .map(|(_, l)| {
+                l.iter()
+                    .filter(|(_, s)| *s == LookSource::Scene)
+                    .map(|(p, _)| p.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let total = self.looks.as_ref().map_or(0, |(_, l)| l.len());
+        if own.is_empty() {
+            let text = if total == 1 {
+                "The scene uses the project look.".to_owned()
+            } else {
+                format!("All {total} scenes use the project look.")
+            };
+            hint(ui, &text);
+            return;
+        }
+        hint(
+            ui,
+            &format!(
+                "{} of {total} scenes have their own look (scenes made before project looks \
+                 keep theirs until you change them):",
+                own.len()
+            ),
+        );
+        for rel in &own {
+            ui.label(RichText::new(format!("  {rel}")).color(theme::TEXT_DIM));
+        }
+        let saved = draft.file.style.look == draft.base_file.style.look;
+        let r = ui
+            .add_enabled(
+                saved,
+                egui::Button::new(format!("Make all {} use the project look…", own.len())),
+            )
+            .on_hover_text(
+                "Their own console settings are replaced by the project look; fog, \
+                 background and lighting are kept",
+            )
+            .on_disabled_hover_text("Save the project settings first");
+        if r.clicked() {
+            self.confirm_migrate = true;
+        }
+        if self.confirm_migrate {
+            ui.horizontal(|ui| {
+                ui.colored_label(
+                    crate::ui::level_color(crate::session::LogLevel::Warning),
+                    "Replace their look settings?",
+                );
+                if ui.button("Replace").clicked() {
+                    let n = use_project_look(session, &own);
+                    self.message = Some((true, format!("{n} scenes now use the project look")));
+                    self.looks = None;
+                    self.confirm_migrate = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.confirm_migrate = false;
+                }
+            });
+        }
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, tools: &mut GameTools) {
@@ -245,13 +416,13 @@ impl ProjectSettingsPanel {
         }
     }
 
-    fn page(&mut self, ui: &mut egui::Ui, session: &EditorSession, draft: &mut Draft) {
+    fn page(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, draft: &mut Draft) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| match self.page {
                 Page::General => general(ui, session, draft),
                 Page::Display => display(ui, &mut draft.file.display),
-                Page::Look => look(ui, draft),
+                Page::Look => self.look(ui, session, draft),
                 Page::Input => self.input(ui, draft),
                 Page::Physics => physics(ui, &mut draft.file.physics),
                 Page::Build => build(ui, session, draft),
