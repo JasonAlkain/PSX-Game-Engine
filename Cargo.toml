@@ -51,7 +51,7 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 # Asset import (Milestone 3): static glTF/GLB and PNG/JPEG textures.
 gltf = { version = "1.4.1", default-features = false, features = ["import", "utils", "names", "KHR_materials_unlit"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
-base64 = "0.22"
+base64 = "0.23"
 
 # Canonical paths without the Windows verbatim prefix (cargo rejects it in manifests).
 dunce = "1.0"
