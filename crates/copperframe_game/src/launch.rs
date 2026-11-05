@@ -6,6 +6,9 @@
 //! }
 //! ```
 //!
+//! With `--control stdin` the editor can pause, resume, single-step and
+//! close the game (see [`copperframe_assets::play_control`]).
+//!
 //! Exit codes: 0 success; 1 the scene cannot be played, a headless
 //! expectation failed, or the benchmark could not run (no adapter); 2 usage
 //! error; 4 project or file error.
@@ -18,6 +21,7 @@ use copperframe_assets::project::{PROJECT_FILE, Project};
 
 use crate::api::Game;
 use crate::audio::Audio;
+use crate::control::ControlInput;
 use crate::headless::{self, Script};
 use crate::player::{self, PlayerOptions};
 use crate::settings::UserDirs;
@@ -69,6 +73,16 @@ pub struct Args {
     /// Folder for settings and saves (default: the user's per-game folders).
     #[arg(long)]
     pub user_dir: Option<PathBuf>,
+    /// Accept editor commands (pause, resume, step [n], quit) on this
+    /// input; the game closes when the input ends. Windowed runs only.
+    #[arg(long, value_enum)]
+    pub control: Option<ControlSource>,
+}
+
+/// Where `--control` reads editor commands from.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlSource {
+    Stdin,
 }
 
 fn parse_size(s: &str) -> Result<(u32, u32), String> {
@@ -155,6 +169,9 @@ pub fn run(args: Args, create: fn() -> Box<dyn Game>, dev_project: &Path) -> Exi
         .clone()
         .unwrap_or_else(|| PathBuf::from(&project.file.startup_scene));
 
+    if args.control.is_some() && (args.bench || args.headless || args.script.is_some()) {
+        tracing::warn!("--control applies to windowed runs only; ignored");
+    }
     if args.bench {
         return run_bench(&args, project, &scene, create);
     }
@@ -167,6 +184,9 @@ pub fn run(args: Args, create: fn() -> Box<dyn Game>, dev_project: &Path) -> Exi
         skip_title: args.play,
         exit_after_frames: args.frames,
         dirs: args.user_dir.as_deref().map(UserDirs::at),
+        control: args
+            .control
+            .map(|ControlSource::Stdin| ControlInput::stdin()),
     };
     match player::run(options, create()) {
         Ok(()) => ExitCode::SUCCESS,

@@ -87,6 +87,7 @@ step, and the order you see is the order saved in the scene file.
 | Grid | Metre lines on the ground plane, drawn over the scene |
 | Colliders | Collider wireframes |
 | Play / Stop | Runs the game (`F5`) |
+| Pause / Resume, Step | While the game runs: freeze and continue it (`F6`), or advance it by one tick, 1/60 s (`F7`). The label beside them shows the state and, while paused, the tick |
 
 ## Viewport controls
 
@@ -133,6 +134,8 @@ settings is unrelated: it is the PS1 wobble effect (see
 | `Ctrl+D` | Duplicate the selection (with its children) |
 | `Delete` | Delete the selection (with its children) |
 | `F5` | Play / Stop |
+| `F6` | Pause / Resume the running game |
+| `F7` | Advance the running game by one tick (pauses it first) |
 
 ## Menus
 
@@ -412,8 +415,26 @@ Closing, or switching scene or project, with unsaved changes asks
 **Play** (or `F5`) writes the current scene, unsaved edits included, to
 `.psx/play/` in the project and runs the game on that copy in its own
 window, skipping the title screen. The game's log streams into the
-Console. **Stop** ends it. Play mode never writes the authored scene, the
-undo history, or the game's saves.
+Console. Play mode never writes the authored scene, the undo history, or
+the game's saves.
+
+While the game runs, the toolbar (and the **Game** menu) has:
+
+- **Pause** (`F6`): the simulation stops; the game window keeps drawing
+  the frozen frame and shows *Paused by the editor · tick N*. Sound pauses
+  and the mouse is released.
+- **Resume** (`F6` again): it continues at normal speed.
+- **Step** (`F7`): it advances by exactly one fixed tick (1/60 s) and stays
+  paused. Stepping uses the same tick as normal play and headless tests, so
+  a game stepped 30 times is in the same state as one that ran 30 ticks
+  with the same input. Keys held in the game window apply to each step.
+- **Stop** (`F5`): the game is asked to close, so scene unload and
+  `Game::shutdown` run, and is ended if it has not closed within 3 seconds.
+  Stop while the game is still compiling ends the build.
+
+Pause and Step become available once the game has loaded (the label reads
+*Starting…* until then). If the editor exits or crashes, the game closes
+by itself.
 
 If the project has a `game/` crate, Play runs it with `cargo run` (so the
 first Play compiles it). Without one, the stock `copperframe_player` is

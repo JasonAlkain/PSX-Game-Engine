@@ -14,6 +14,7 @@ my_game.exe [OPTIONS]            # an exported game
 | `--project DIR` | Project to load. Default: `data/` next to the executable if it holds `project.json` (an export), otherwise the development project the game was built from |
 | `--scene FILE` | Scene to start in, relative to the project (default: the startup scene) |
 | `--play` | Editor play mode: no title screen, never reads or writes saves |
+| `--control stdin` | Accept editor commands on stdin: `pause`, `resume`, `step [N]` (1–600 ticks), `quit`. The game closes when stdin ends. Windowed runs only. See below |
 | `--user-dir DIR` | Keep settings and saves in `DIR` instead of the OS user folders |
 | `--frames N` | Exit after presenting N frames (smoke tests). With `--bench`: measured frames per style |
 | `--schema` | Print the behaviour kinds the game registers (`psx_game_schema` JSON) and exit |
@@ -74,3 +75,28 @@ Hardware GPU numbers have not been recorded yet.
 | `RUST_LOG` | Log filter, for example `debug` or `copperframe_game=trace` |
 | `WGPU_BACKEND` | Force `vulkan`, `dx12`, `metal` or `gl` |
 | `COPPERFRAME_CRASH_DIR` | Where crash reports go (the editor sets this during Play so it can show a game's crash) |
+
+## Editor control (`--control stdin`)
+
+The editor's Pause, Resume and Step use this option. Each line on stdin is
+one command:
+
+| Line | Effect |
+| --- | --- |
+| `pause` | Stop advancing the simulation; the window keeps drawing |
+| `resume` | Continue at normal speed |
+| `step` or `step N` | Pause if needed, then advance exactly N fixed ticks (default 1, at most 600) |
+| `quit` | Close normally (scene unload and `Game::shutdown` run) |
+
+The game answers on stdout with one status line per command, when the game
+has loaded, and when a step finishes:
+
+```text
+@copperframe {"format":"copperframe_play_status","version":1,"state":"paused","tick":31}
+```
+
+`state` is `running`, `paused`, `stepping` (a step is still running) or
+`quitting`; `tick` counts fixed ticks since the game started. A line that
+is not a command gets a status with an `error` field and is otherwise
+ignored. When stdin ends (the editor closed it or exited), the game closes.
+

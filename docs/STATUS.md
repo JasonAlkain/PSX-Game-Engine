@@ -1,6 +1,26 @@
 # Status
 
-Last updated: 2026-11-05 (audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Play mode pause, resume and step (2026-11-05, v0.10.0)
+
+The editor can pause, resume and single-step a running game. Play starts
+the game with `--control stdin`; Pause/Resume (F6) and Step (F7, one
+60 Hz tick) are lines on its stdin, and the game reports its state and
+tick back on stdout (`copperframe_play_status` v1, shown on the toolbar
+and in the game window's corner). Steps run through the normal
+`Simulation::tick`, so they match headless runs. Stop now asks the game to
+close (unload and `Game::shutdown` run) and kills it after 3 s; a game
+whose stdin closes exits, so a crashed editor or a killed `cargo run` no
+longer leaves the game running. The child-process design is unchanged.
+
+Verified on Linux (Xvfb, lavapipe): protocol and pacing unit tests; the
+debug `lever_room` driven by hand-written commands (pause at tick 0, step
+1 then 30 → tick 31, an invalid `step 0` reported and ignored, resume for
+0.5 s → about 30 more ticks, stdin closed → exit 0); the editor's
+toolbar Pause, three Steps (*Paused · tick 3* in the editor and the game
+window), Resume and Stop with the game closing cleanly. Not yet verified
+on Windows 11.
 
 ## Audio mixer and sound preview (2026-11-05, v0.9.0)
 

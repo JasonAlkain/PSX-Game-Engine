@@ -455,6 +455,7 @@ game executable therefore accepts the same arguments:
 | `--headless --script <file> [--ticks n] [--report <file>]` | Run without window, GPU or audio; print a `psx_run_report` |
 | `--frames <n>` | Exit after n frames (smoke tests) |
 | `--user-dir <dir>` | Keep settings and saves here instead of the OS user folders |
+| `--control stdin` | Editor control: `pause`, `resume`, `step [n]`, `quit` lines on stdin; status lines on stdout; stdin EOF closes the game (windowed only) |
 
 Exit codes: 0 ok, 1 the scene cannot be played or an expectation failed, 2
 usage, 4 project or file error. Logs go to stderr so stdout JSON stays clean.
@@ -556,6 +557,7 @@ mode, and is deleted when the game finishes.
 
 | Format | Where | Notes |
 | --- | --- | --- |
+| `copperframe_play_status` v1 (0.10) | stdout lines after `@copperframe ` from `--control stdin` | `state` (`running`, `paused`, `stepping`, `quitting`), `tick`, optional `error` |
 | `psx_bench` v1 | stdout of `--bench` or `--report` | Adapter (name, backend, device type, driver), output size, frames, build profile, and per style (`scene`, `ps1`, `ps2`): internal size, draws, triangles, `tick` and `frame` stats (`mean_ms`, `p50_ms`, `p95_ms`, `max_ms`) |
 
 See [MIGRATION.md](MIGRATION.md) for every format version.
@@ -619,8 +621,25 @@ Caches and their lifetimes:
 
 Editor Play (F5) writes the current, possibly unsaved, scene to
 `.psx/play/<scene>` and runs the game with `--project <abs> --scene <copy>
---play`; the child's stdout/stderr stream into the console. Stop kills the
-child. The authored scene and the editor's undo history are never touched.
+--play --control stdin`; the child's stdout/stderr stream into the console.
+The authored scene and the editor's undo history are never touched.
+
+Pause (F6), Resume and Step (F7) are lines on the child's stdin, defined
+with the status reply in `copperframe_assets::play_control` (shared because
+the editor does not link `copperframe_game`). The game's reader thread
+feeds `copperframe_game::control::Pacing`: while paused only step ticks run
+(at most 8 per frame), through the same `Simulation::tick` as normal play,
+so stepping is deterministic like headless runs. Editor pause also pauses
+audio, releases the cursor and suppresses the focus-loss pause menu. The
+game prints `@copperframe {copperframe_play_status v1}` on stdout when it
+has loaded, after each command and when a step finishes; the editor takes
+those lines out of the console and shows the state on the toolbar.
+
+Stop sends `quit` and closes stdin, so unload and `Game::shutdown` run, and
+kills the child after 3 s if it is still there (at once while it is still
+compiling, before its first status). A game whose stdin ends exits, so a
+game left by a crashed editor, or by killing `cargo run` while the game
+runs under it, closes by itself.
 
 `copperframe build` (and Game > Export in the editor) builds the game in release,
 then writes `<out>/<exe>`, `data/` (project.json, input.json, scenes,
