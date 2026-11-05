@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-05 (project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
 
-## Project settings (2026-11-05, v0.2.0)
+## Project settings (2026-11-05, v0.3.0)
 
 A **Project settings** panel (toolbar cog, **File > Project Settings…**) edits
 settings for the whole game as a draft with Save/Revert: name and start scene,
