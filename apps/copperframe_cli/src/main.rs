@@ -141,15 +141,18 @@ enum Cmd {
         #[arg(long, default_value = ".")]
         project: PathBuf,
         /// Output folder (created; must be empty or an earlier export).
+        /// Default: the project's build settings, else dist/<name>.
         #[arg(long)]
-        out: PathBuf,
+        out: Option<PathBuf>,
         /// Overwrite an earlier export in --out.
         #[arg(long)]
         replace: bool,
-        /// Script for the post-export check (default: idle run).
+        /// Script for the post-export check (default: the project's build
+        /// settings, else an idle run).
         #[arg(long)]
         script: Option<PathBuf>,
-        /// Skip the post-export check.
+        /// Skip the post-export check (also skipped when the project's build
+        /// settings turn it off).
         #[arg(long)]
         no_verify: bool,
     },
@@ -243,7 +246,7 @@ fn main() -> ExitCode {
             no_verify,
         } => build(
             &project,
-            &out,
+            out.as_deref(),
             replace,
             script.as_deref(),
             no_verify,
@@ -532,13 +535,18 @@ fn bench(
 
 fn build(
     root: &Path,
-    out: &Path,
+    out: Option<&Path>,
     replace: bool,
     script: Option<&Path>,
     no_verify: bool,
     json_output: bool,
 ) -> Result<Success, Failure> {
     let project = Project::open(root)?;
+    let out = out.map_or_else(|| project.export_dir(), Path::to_path_buf);
+    let out = out.as_path();
+    let default_script = project.export_check_script();
+    let script = script.or(default_script.as_deref());
+    let no_verify = no_verify || !project.file.build.check_after_export;
     // Refuse an unusable output folder before finding or building the game.
     check_output_folder(out, replace).map_err(|e| Failure::new(1, e))?;
     let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
@@ -564,7 +572,7 @@ fn build(
         report.crates
     );
     let verified = if no_verify {
-        text.push_str("  post-export check skipped (--no-verify)\n");
+        text.push_str("  post-export check skipped\n");
         Value::Null
     } else {
         let run = verify_export(&report.executable, script, 120).map_err(|e| Failure::new(1, e))?;

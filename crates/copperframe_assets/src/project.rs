@@ -2,7 +2,8 @@
 //!
 //! ```text
 //! my_game/
-//!   project.json          {"format": "psx_project", "version": 1, ...}
+//!   project.json          {"format": "psx_project", "version": 2, ...}
+//!   input.json            default key bindings (optional, see [`crate::input`])
 //!   assets/               source files + <source>.meta.json sidecars
 //!   scenes/               *.scene.json
 //!   .psx/editor.lock      present while an editor has the project open
@@ -24,10 +25,14 @@ use thiserror::Error;
 
 use crate::import::{CpuTexture, ImportError, ImportedModel};
 use crate::meta::{self, AssetKind, AssetMeta, ImportSettings, MetaError};
+pub use crate::project_settings::{
+    BuildSettings, DisplaySettings, GraphicsStyle, StyleSettings, file_slug,
+};
 
 pub const PROJECT_FILE: &str = "project.json";
 pub const PROJECT_FORMAT: &str = "psx_project";
-pub const PROJECT_VERSION: u32 = 1;
+/// Version 2 added the `display`, `style` and `build` sections.
+pub const PROJECT_VERSION: u32 = 2;
 pub const ASSETS_DIR: &str = "assets";
 pub const SCENES_DIR: &str = "scenes";
 pub const LOCK_FILE: &str = ".psx/editor.lock";
@@ -40,6 +45,49 @@ pub struct ProjectFile {
     pub name: String,
     /// Scene opened first, relative to the project root.
     pub startup_scene: String,
+    #[serde(default)]
+    pub display: DisplaySettings,
+    #[serde(default)]
+    pub style: StyleSettings,
+    #[serde(default)]
+    pub build: BuildSettings,
+}
+
+impl ProjectFile {
+    /// Checks the values a hand-edited file could get wrong. The editor's
+    /// Project Settings panel runs the same check before saving.
+    pub fn check(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("the project name is empty".into());
+        }
+        if !is_safe_relative(&self.startup_scene) {
+            return Err(format!(
+                "startup_scene `{}` must be a relative path inside the project",
+                self.startup_scene
+            ));
+        }
+        let d = &self.display;
+        if !DisplaySettings::WIDTH_RANGE.contains(&d.width)
+            || !DisplaySettings::HEIGHT_RANGE.contains(&d.height)
+        {
+            return Err(format!(
+                "display size {}x{} is outside {}..={} x {}..={}",
+                d.width,
+                d.height,
+                DisplaySettings::WIDTH_RANGE.start(),
+                DisplaySettings::WIDTH_RANGE.end(),
+                DisplaySettings::HEIGHT_RANGE.start(),
+                DisplaySettings::HEIGHT_RANGE.end()
+            ));
+        }
+        let script = self.build.check_script.trim();
+        if !script.is_empty() && !is_safe_relative(script) {
+            return Err(format!(
+                "build check_script `{script}` must be a relative path inside the project"
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Error)]
@@ -102,6 +150,9 @@ impl Project {
             version: PROJECT_VERSION,
             name: name.to_owned(),
             startup_scene: format!("{SCENES_DIR}/main.scene.json"),
+            display: DisplaySettings::default(),
+            style: StyleSettings::default(),
+            build: BuildSettings::default(),
         };
         let project = Project {
             root: root.to_path_buf(),
@@ -179,27 +230,45 @@ impl Project {
                 file.version
             )));
         }
-        if !is_safe_relative(&file.startup_scene) {
-            return Err(invalid(format!(
-                "startup_scene `{}` must be a relative path inside the project",
-                file.startup_scene
-            )));
-        }
+        file.check().map_err(invalid)?;
         Ok(Project {
             root: root.to_path_buf(),
             file,
         })
     }
 
+    /// Writes `project.json` in the current version (an older file is
+    /// upgraded the first time it is saved).
     pub fn save(&self) -> Result<(), ProjectError> {
         let path = self.root.join(PROJECT_FILE);
-        let mut text =
-            serde_json::to_string_pretty(&self.file).map_err(|e| ProjectError::Invalid {
-                path: path.clone(),
-                reason: e.to_string(),
-            })?;
+        let file = ProjectFile {
+            version: PROJECT_VERSION,
+            ..self.file.clone()
+        };
+        let mut text = serde_json::to_string_pretty(&file).map_err(|e| ProjectError::Invalid {
+            path: path.clone(),
+            reason: e.to_string(),
+        })?;
         text.push('\n');
         copperframe_core::fsutil::atomic_write(&path, text.as_bytes()).map_err(io_err(&path))
+    }
+
+    /// Where Build > Export Game writes by default: the build settings'
+    /// folder (relative to the project, or absolute), else
+    /// `dist/<project name>`.
+    pub fn export_dir(&self) -> PathBuf {
+        let dir = self.file.build.export_dir.trim();
+        if dir.is_empty() {
+            self.root.join("dist").join(file_slug(&self.file.name))
+        } else {
+            self.root.join(dir)
+        }
+    }
+
+    /// The test script the post-export check runs, if one is set.
+    pub fn export_check_script(&self) -> Option<PathBuf> {
+        let s = self.file.build.check_script.trim();
+        (!s.is_empty()).then(|| self.resolve(s))
     }
 
     pub fn assets_dir(&self) -> PathBuf {
@@ -1065,6 +1134,72 @@ mod tests {
         p.save().unwrap();
         assert!(Project::open(&root).is_err());
         assert!(!validate_project(&root).ok());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    #[test]
+    fn version_1_project_files_load_with_default_settings() {
+        let root = temp("v1");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/v1.project.json"),
+            root.join(PROJECT_FILE),
+        )
+        .unwrap();
+        let mut p = Project::open(&root).unwrap();
+        assert_eq!(p.file.version, 1);
+        assert_eq!(p.file.name, "Example room");
+        assert_eq!(p.file.display, DisplaySettings::default());
+        assert_eq!(p.file.style, StyleSettings::default());
+        assert_eq!(p.file.build, BuildSettings::default());
+        assert_eq!(p.export_dir(), root.join("dist/Example_room"));
+        assert_eq!(p.export_check_script(), None);
+
+        // Saving writes the current version with every section.
+        p.file.display.width = 640;
+        p.file.style.default = GraphicsStyle::Ps1;
+        p.file.build.export_dir = "../builds/room".into();
+        p.save().unwrap();
+        let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
+        assert!(text.contains("\"version\": 2") && text.contains("\"style\""));
+        let again = Project::open(&root).unwrap();
+        p.file.version = PROJECT_VERSION;
+        assert_eq!(again.file, p.file);
+        assert_eq!(again.export_dir(), root.join("../builds/room"));
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn project_settings_are_checked() {
+        let root = temp("settings");
+        let p = Project::create(&root, "T").unwrap();
+        let mut f = p.file.clone();
+        assert!(f.check().is_ok());
+        f.display.width = 10;
+        assert!(f.check().unwrap_err().contains("display size"));
+        f = p.file.clone();
+        f.name = "  ".into();
+        assert!(f.check().is_err());
+        f = p.file.clone();
+        f.build.check_script = "/abs/x.script.json".into();
+        assert!(f.check().is_err());
+        // A bad value in the file stops it opening with a clear message.
+        let text = std::fs::read_to_string(root.join(PROJECT_FILE))
+            .unwrap()
+            .replace("\"height\": 960", "\"height\": 5");
+        std::fs::write(root.join(PROJECT_FILE), text).unwrap();
+        let err = Project::open(&root).unwrap_err().to_string();
+        assert!(err.contains("display size"), "{err}");
+        // So does a newer version.
+        let text = std::fs::read_to_string(root.join(PROJECT_FILE))
+            .unwrap()
+            .replace("\"version\": 2", "\"version\": 3");
+        std::fs::write(root.join(PROJECT_FILE), text).unwrap();
+        assert!(
+            Project::open(&root)
+                .unwrap_err()
+                .to_string()
+                .contains("version 3")
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

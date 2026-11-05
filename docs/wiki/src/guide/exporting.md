@@ -5,13 +5,16 @@ the platform you run it on: export on Windows for a Windows build.
 
 ## From the editor
 
-1. Set the **Export folder** in the **Build** menu (default `dist/<name>`
-   in the project). **Browse…** picks another folder.
+1. Set the **Export folder** on the **Build** page of
+   [Project settings](editor.md#project-settings) (default `dist/<name>` in
+   the project). The **Build** menu shows the folder too and can change it
+   for this session.
 2. Click **Build > Export Game**.
 
 The editor saves unsaved changes, exports in the background (build output
 streams into the Console), replaces an earlier export in that folder, and
-runs the result once to check it starts. A results window shows where the
+runs the result once to check it starts (turn the check off, or pick a test
+script for it, on the same Build page). A results window shows where the
 game is; **Open folder** opens it.
 
 Projects without a `game/` crate export the stock player renamed after the
@@ -26,10 +29,10 @@ copperframe build --project my_game --out "my_game/dist/My Game"
 
 | Option | Meaning |
 | --- | --- |
-| `--out DIR` | Output folder. Created if missing; must be empty or an earlier export |
+| `--out DIR` | Output folder (default: the project's export folder setting, else `dist/<name>`). Created if missing; must be empty or an earlier export |
 | `--replace` | Overwrite an earlier export in `DIR` |
-| `--script FILE` | Script to use for the check run (default: an idle run) |
-| `--no-verify` | Skip the check run |
+| `--script FILE` | Script to use for the check run (default: the project's setting, else an idle run) |
+| `--no-verify` | Skip the check run (also skipped when the project's build settings turn it off) |
 | `--json` | Machine-readable result |
 
 ## What happens

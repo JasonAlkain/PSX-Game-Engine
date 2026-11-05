@@ -20,7 +20,7 @@ so existing projects keep loading.
 
 | Format | Current | File | Contents |
 | --- | --- | --- | --- |
-| `psx_project` | 1 | `project.json` | `name`, `startup_scene` |
+| `psx_project` | 2 | `project.json` | `name`, `startup_scene`; optional `display {width, height, fullscreen, vsync}`, `style {default, player_can_change}`, `build {export_dir, check_after_export, check_script}` (the [Project settings](../guide/editor.md#project-settings) panel) |
 | `psx_scene` | 3 | `scenes/*.scene.json` | ID, name, revision, settings, entities. v1 and v2 load unchanged. See [Scenes](../guide/scenes.md) |
 | `psx_asset_meta` | 1 | `assets/**/<file>.meta.json` | Asset `id`, `importer` (`gltf`, `texture`, `audio`), `settings` (`scale`, `max_texture_size`). See [Asset pipeline](../guide/assets.md) |
 | `psx_input` | 1 | `input.json` (optional) | Action → bindings. See [Input](../guide/player.md#input) |

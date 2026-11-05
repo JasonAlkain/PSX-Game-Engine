@@ -1,6 +1,22 @@
 # Status
 
-Last updated: 2026-11-04 (dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+Last updated: 2026-11-05 (project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+
+## Project settings (2026-11-05, v0.3.0)
+
+A **Project settings** panel (toolbar cog, **File > Project Settings…**) edits
+settings for the whole game as a draft with Save/Revert: name and start scene,
+the game window size and first-run fullscreen/vsync, the default PS1/PS2 look
+and whether players may change it, the default keys (`input.json`, with custom
+actions), and export defaults (folder, start check and its script). They are
+stored in `project.json` (format version 2; version 1 loads with defaults) and
+used by the player, Build > Export Game and `copperframe build`. Layouts saved
+by older editors gain the panel, closed.
+
+Verified on Linux (Xvfb, lavapipe): the panel opens from the cog, pages
+switch, and Save writes version 2 with the change. Not yet verified on
+Windows 11; the player's use of the window size and first-run defaults is
+covered by unit tests, not by a windowed run.
 
 ## Editor layout and tools (2026-11-04)
 
