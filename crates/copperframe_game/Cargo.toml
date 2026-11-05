@@ -30,6 +30,7 @@ tracing.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+mlua.workspace = true
 
 [lints]
 workspace = true

@@ -16,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.10.0"
+version = "0.11.0"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
@@ -64,6 +64,9 @@ hecs = "0.11.2"
 rapier3d = "0.36.1"
 kira = { version = "0.12.6", default-features = false, features = ["cpal", "wav", "pcm", "ogg", "vorbis"] }
 directories = "6.0"
+# Lua gameplay scripts (0.11): Lua 5.4 built from source (vendored), so
+# neither developers nor players install anything.
+mlua = { version = "0.12.2", default-features = false, features = ["lua54", "vendored"] }
 
 # Native folder and file pickers in the editor (Windows: system dialogs;
 # Linux: the desktop portal, no GTK needed).

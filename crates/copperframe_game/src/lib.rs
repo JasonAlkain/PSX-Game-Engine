@@ -11,6 +11,8 @@
 //! - [`bench`]: offscreen frame and tick timing (`--bench`).
 //! - [`control`]: editor Pause/Resume/Step of a running game
 //!   (`--control stdin`).
+//! - [`lua`]: Lua 5.4 gameplay scripts (`scripts/**/*.lua`) as behaviour
+//!   kinds `lua.<path>`.
 //! - [`builtin`]: engine behaviours (`psx.player`, `psx.camera_zone`,
 //!   `psx.spin`).
 
@@ -23,6 +25,7 @@ pub mod builtin;
 pub mod control;
 pub mod headless;
 pub mod launch;
+pub mod lua;
 pub mod physics;
 pub mod player;
 pub mod settings;
@@ -30,7 +33,7 @@ pub mod sim;
 
 pub use api::{
     Behavior, BehaviorDescriptor, Entity, FieldDescriptor, FieldKind, Game, GameEvent, Params,
-    Registry, TimedEvent,
+    Registry, ScriptDiagnostic, TimedEvent,
 };
 pub use sim::{CameraState, Ctx, Outcome, Simulation, TICK_DT, TICK_HZ};
 

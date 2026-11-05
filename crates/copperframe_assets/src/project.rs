@@ -27,13 +27,14 @@ use crate::import::{CpuTexture, ImportError, ImportedModel};
 use crate::meta::{self, AssetKind, AssetMeta, ImportSettings, MetaError};
 pub use crate::project_settings::{
     AudioSettings, BuildSettings, BusSettings, DisplaySettings, GraphicsStyle, MAX_GRAVITY,
-    PhysicsSettings, StyleSettings, file_slug,
+    PhysicsSettings, ScriptingSettings, StyleSettings, file_slug,
 };
 
 pub const PROJECT_FILE: &str = "project.json";
 pub const PROJECT_FORMAT: &str = "psx_project";
-/// Version 2 added the `display`, `style`, `build` and `physics` sections.
-pub const PROJECT_VERSION: u32 = 4;
+/// Version 2 added the `display`, `style`, `build` and `physics` sections;
+/// 3 `style.look`; 4 `audio`; 5 `scripting`.
+pub const PROJECT_VERSION: u32 = 5;
 pub const ASSETS_DIR: &str = "assets";
 pub const SCENES_DIR: &str = "scenes";
 pub const LOCK_FILE: &str = ".psx/editor.lock";
@@ -57,6 +58,10 @@ pub struct ProjectFile {
     /// Since version 4.
     #[serde(default)]
     pub audio: AudioSettings,
+    /// Since version 5. Older files get the default (Lua on), which
+    /// changes nothing for a project without `.lua` files.
+    #[serde(default)]
+    pub scripting: ScriptingSettings,
 }
 
 impl ProjectFile {
@@ -171,6 +176,7 @@ impl Project {
             build: BuildSettings::default(),
             physics: PhysicsSettings::default(),
             audio: AudioSettings::default(),
+            scripting: ScriptingSettings::default(),
         };
         let project = Project {
             root: root.to_path_buf(),
@@ -1200,8 +1206,8 @@ mod tests {
         p.file.build.export_dir = "../builds/room".into();
         p.save().unwrap();
         let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
-        assert!(text.contains("\"version\": 4") && text.contains("\"look\""));
-        assert!(text.contains("\"audio\""));
+        assert!(text.contains("\"version\": 5") && text.contains("\"look\""));
+        assert!(text.contains("\"audio\"") && text.contains("\"scripting\""));
         let again = Project::open(&root).unwrap();
         p.file.version = PROJECT_VERSION;
         assert_eq!(again.file, p.file);
@@ -1232,6 +1238,27 @@ mod tests {
     }
 
     #[test]
+    fn version_4_project_files_load_with_lua_scripting_on() {
+        let root = temp("v4");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/v4.project.json"),
+            root.join(PROJECT_FILE),
+        )
+        .unwrap();
+        let p = Project::open(&root).unwrap();
+        assert_eq!(p.file.version, 4);
+        assert_eq!(p.file.audio.music.volume_db, -6.0);
+        assert_eq!(p.file.scripting, ScriptingSettings { lua: true });
+        p.save().unwrap();
+        let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
+        assert!(text.contains("\"version\": 5") && text.contains("\"scripting\""));
+        let again = Project::open(&root).unwrap();
+        assert_eq!(again.file.scripting, p.file.scripting);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
     fn project_settings_are_checked() {
         let root = temp("settings");
         let p = Project::create(&root, "T").unwrap();
@@ -1255,13 +1282,13 @@ mod tests {
         // So does a newer version.
         let text = std::fs::read_to_string(root.join(PROJECT_FILE))
             .unwrap()
-            .replace("\"version\": 4", "\"version\": 5");
+            .replace("\"version\": 5", "\"version\": 6");
         std::fs::write(root.join(PROJECT_FILE), text).unwrap();
         assert!(
             Project::open(&root)
                 .unwrap_err()
                 .to_string()
-                .contains("version 5")
+                .contains("version 6")
         );
         std::fs::remove_dir_all(&root).unwrap();
     }

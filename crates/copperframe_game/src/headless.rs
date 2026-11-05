@@ -110,7 +110,8 @@ impl Script {
 }
 
 /// Runs `script` on a simulation whose scene is already loaded. Returns
-/// the report; `report["passed"]` is false when an expectation failed.
+/// the report; `report["passed"]` is false when an expectation failed or
+/// a script reported a problem (listed under `diagnostics`).
 pub fn run(sim: &mut Simulation, script: &Script) -> Value {
     let known: Vec<String> = crate::actions::Bindings::default()
         .actions
@@ -151,7 +152,11 @@ pub fn run(sim: &mut Simulation, script: &Script) -> Value {
         .iter()
         .map(|e| serde_json::to_value(e).unwrap_or(Value::Null))
         .collect();
-    let mut failures = Vec::new();
+    let diagnostics = sim.take_diagnostics();
+    let mut failures: Vec<String> = diagnostics
+        .iter()
+        .map(|d| format!("script error: {d}"))
+        .collect();
     if let Some(expect) = &script.expect {
         if let Some(f) = expect.finished {
             let finished = matches!(sim.outcome(), Some(Outcome::Finished { .. }));
@@ -180,6 +185,7 @@ pub fn run(sim: &mut Simulation, script: &Script) -> Value {
         "outcome": sim.outcome(),
         "events": events_json,
         "warnings": warnings,
+        "diagnostics": diagnostics,
         "camera": {"position": cam.position.to_array(), "yaw_deg": cam.yaw.to_degrees(), "pitch_deg": cam.pitch.to_degrees()},
         "entities": sim.entity_count(),
         "bodies": sim.body_count(),

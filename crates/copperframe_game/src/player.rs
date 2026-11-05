@@ -285,11 +285,20 @@ impl Running {
             },
         };
         running.set_screen(screen);
+        running.show_script_problems();
         if running.control.is_some() {
             // Tells the editor the game is up and listening.
             control::report(&running.pacing.status(running.sim.tick_count()));
         }
         Ok(running)
+    }
+
+    /// Script errors are already in the log; show them in the corner too.
+    fn show_script_problems(&mut self) {
+        let now = Instant::now();
+        for d in self.sim.take_diagnostics() {
+            self.notices.push((format!("Script error: {d}"), now));
+        }
     }
 
     fn notice(&mut self, text: impl Into<String>) {
@@ -589,6 +598,7 @@ impl Running {
         for w in self.sim.take_warnings() {
             self.notice(w);
         }
+        self.show_script_problems();
         let Some(outcome) = self.sim.outcome().cloned() else {
             return false;
         };

@@ -5,8 +5,10 @@ binary crate that depends on `copperframe_game`. It registers **behaviour
 kinds**; scenes attach them to entities by name with parameters; the engine
 creates one behaviour instance per entity when the scene loads.
 
-There is no scripting language: behaviours are compiled Rust, so they are
-fast, type-checked and debuggable with normal Rust tools. The editor and the
+Rust behaviours are compiled, so they are fast, type-checked and
+debuggable with normal Rust tools. Behaviours can also be written in Lua,
+with no install and no game crate: see [Lua scripting](lua.md). Both kinds
+work together in one scene. The editor and the
 CLI never link your code. They build and run your game executable and ask
 it what it registers (`--schema`), so a broken game crate can never crash
 the editor.

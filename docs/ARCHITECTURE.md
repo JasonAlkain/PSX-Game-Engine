@@ -65,6 +65,7 @@ The editor is a library so its session logic is tested without a window.
 | `rapier3d` | 0.36 | Physics and kinematic character controller. It uses glam 0.33 internally (through `glamx`); `copperframe_game::physics` converts at the boundary |
 | `kira` | 0.12 (`cpal`, `wav`, `pcm`, `ogg`, `vorbis`) | Audio buses, tweens, spatial tracks, one listener. Linux needs `libasound2-dev` to build |
 | `directories` | 6 | Per-user config and data folders for player settings and saves |
+| `mlua` | 0.12 (`lua54`, `vendored`) | Lua 5.4 gameplay scripts (0.11). Vendored: Lua is compiled from source by the `cc` crate, so nobody installs Lua; the `unsafe` FFI stays inside mlua |
  Versions are centralised in the root `Cargo.toml`;
 `Cargo.lock` is committed.
 
@@ -491,6 +492,39 @@ doors and platforms.
 `GameState` is a string→JSON map that behaviours read and write; it is
 what saves contain.
 
+### Lua scripts (0.11)
+
+`copperframe_game::lua` turns `scripts/**/*.lua` into behaviour kinds
+`lua.<path>` (folders joined by dots; the scene format's kind rule limits
+names to `a-z0-9_`) when `project.json` v5 `scripting.lua` is on.
+`Simulation::new` and `--schema` call `lua::register_project_scripts`, so
+scripts work in game crates and the stock player alike and the editor sees
+their fields through the schema. Kinds found at run time use
+`Registry::register_dynamic` (owned names are leaked once per process,
+stateful `Rc` constructors); everything after `Registry::create` is the
+same as for Rust behaviours. One Lua state per simulation runs every
+script: `table`, `string`, `math`, `utf8`, `coroutine` only (no `io`,
+`os`, `require`, `debug`, `dofile`, `loadfile`), `print` to the log,
+`math.randomseed(0)` for determinism, and an instruction hook that stops a
+callback after 10 million instructions.
+
+Each callback gets `self` (a per-entity table of field values, `entity`
+and `prompt`, falling back to the script table) and one shared `ctx`
+table. Its methods forward by name to a closure created for that call in
+an mlua scope and stored in `ctx._d`, which wraps the `&mut Ctx`; the
+scope ends with the call, so a `ctx` kept by a script cannot reach the
+simulation later. (A scoped userdata with a method table was measured at
+about 40 µs per call because mlua builds a metatable per non-`'static`
+userdata; the forwarding table costs about 2 µs: 200 scripted entities
+run 600 ticks in 0.28 s, a release build in a Linux cloud container.)
+
+A callback error or a stopped loop becomes a `ScriptDiagnostic` (file,
+line, kind, entity, callback, message, tick) through
+`Ctx::report_script_problem`, and that behaviour is switched off; load
+problems are diagnostics from tick 0 and their kinds stay unregistered.
+`Simulation::take_diagnostics` drains them: headless reports list them
+and fail, the player shows them in the corner, everything is logged.
+
 ### Input
 
 Named actions (`move_forward`, `move_back`, `move_left`, `move_right`,
@@ -534,9 +568,9 @@ mode, and is deleted when the game finishes.
 | --- | --- | --- |
 | `psx_scene` v2 | `scenes/*.scene.json` | Adds `collider` (box, sphere, capsule, or triangle mesh for static bodies; static/kinematic/dynamic; sensor; offset), `audio` and `behaviors` (kind + scalar params). v1 files load and migrate |
 | `psx_input` v1 | `<project>/input.json` | Action → bindings |
-| `psx_game_schema` v1 | stdout of `--schema`, cached in `.psx/game_schema.json` | Behaviour kinds with typed fields; drives the editor inspector and `copperframe schema --project` |
+| `psx_game_schema` v1 | stdout of `--schema`, cached in `.psx/game_schema.json` | Behaviour kinds with typed fields; drives the editor inspector and `copperframe schema --project`. 0.11: includes the project's Lua kinds and an optional `problems` list (scripts that did not load) |
 | `psx_script` v1 | e.g. `scripts/*.script.json` | Steps `{ticks, hold, press, look}` plus `expect {finished, events}`; events match by subset |
-| `psx_run_report` v1 | stdout or `--report` | Ticks, outcome, events, warnings, camera, `passed`, `failures` |
+| `psx_run_report` v1 | stdout or `--report` | Ticks, outcome, events, warnings, camera, `passed`, `failures`; 0.11 adds `diagnostics` (script problems, each also a failure) |
 | `psx_player_settings` v1, `psx_save` v1 | OS user folders | See above |
 | `psx_export` v1 | `export.json` in an export folder | Marks a folder that `copperframe build --replace` may overwrite |
 
