@@ -17,6 +17,8 @@ pub enum Icon {
     Tune,
     FrameSelected,
     Play,
+    /// Two bars.
+    Pause,
     Stop,
     Model,
     Texture,
@@ -129,6 +131,15 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 color,
                 Stroke::NONE,
             ));
+        }
+        Icon::Pause => {
+            for x in [-0.4, 0.4] {
+                painter.rect_filled(
+                    Rect::from_center_size(at(x, 0.0), vec2(s * 0.24, s * 0.72)),
+                    1.0,
+                    color,
+                );
+            }
         }
         Icon::Stop => {
             painter.rect_filled(Rect::from_center_size(c, vec2(s, s) * 0.68), 1.0, color);

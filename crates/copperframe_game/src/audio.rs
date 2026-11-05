@@ -1,6 +1,9 @@
 //! Audio integration (kira).
 //!
-//! Two buses (music and effects) under a master volume, one listener (the
+//! Sounds play through the project mixer ([`copperframe_audio::Mixer`]):
+//! music, SFX, voice and ambient buses under the master, with the
+//! project's bus volumes, mutes and master limiter (`project.json`
+//! `audio`) and the player's volume sliders on top. One listener (the
 //! active camera), spatial emitters that follow entities, one-shot sounds,
 //! looping and fades. If no audio device can be opened the game keeps
 //! running silently: every call still updates the logical state (what is
@@ -11,6 +14,7 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
+use copperframe_audio::{AudioSettings, Mixer, PlayerGains};
 use copperframe_core::AssetId;
 use copperframe_scene::{AudioBus, AudioSourceComponent};
 use glam::{Quat, Vec3};
@@ -18,17 +22,11 @@ use kira::backend::Backend;
 use kira::listener::ListenerHandle;
 use kira::sound::PlaybackState;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
-use kira::track::{SpatialTrackBuilder, SpatialTrackHandle, TrackBuilder, TrackHandle};
-use kira::{AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween};
+use kira::track::{SpatialTrackBuilder, SpatialTrackHandle};
+use kira::{AudioManagerSettings, DefaultBackend, Tween};
 
 /// Linear volume (0..=1) to decibels.
-pub fn linear_to_db(v: f32) -> f32 {
-    if v <= 0.001 {
-        Decibels::SILENCE.0
-    } else {
-        (20.0 * v.log10()).max(Decibels::SILENCE.0)
-    }
-}
+pub use copperframe_audio::linear_to_db;
 
 fn tween(secs: f32) -> Tween {
     Tween {
@@ -56,9 +54,7 @@ impl Default for Volumes {
 }
 
 struct Device<B: Backend> {
-    manager: AudioManager<B>,
-    music: TrackHandle,
-    effects: TrackHandle,
+    mixer: Mixer<B>,
     listener: ListenerHandle,
 }
 
@@ -86,6 +82,7 @@ pub struct Audio<E: Copy + Eq + std::hash::Hash, B: Backend = DefaultBackend> {
     sounds: HashMap<AssetId, StaticSoundData>,
     emitters: HashMap<E, Emitter>,
     volumes: Volumes,
+    mixer: AudioSettings,
     events: Vec<AudioEvent<E>>,
 }
 
@@ -102,24 +99,14 @@ where
     B::Error: std::fmt::Debug,
 {
     pub fn open(settings: AudioManagerSettings<B>) -> (Self, Option<String>) {
-        let device = AudioManager::<B>::new(settings)
-            .map_err(|e| format!("no audio output ({e:?}); continuing without sound"))
-            .and_then(|mut manager| {
-                let music = manager
-                    .add_sub_track(TrackBuilder::new())
-                    .map_err(|e| e.to_string())?;
-                let effects = manager
-                    .add_sub_track(TrackBuilder::new())
-                    .map_err(|e| e.to_string())?;
-                let listener = manager
+        let device = Mixer::open(settings, AudioSettings::default())
+            .map_err(|e| format!("{e}; continuing without sound"))
+            .and_then(|mut mixer| {
+                let listener = mixer
+                    .manager()
                     .add_listener(Vec3::ZERO, Quat::IDENTITY)
                     .map_err(|e| e.to_string())?;
-                Ok(Device {
-                    manager,
-                    music,
-                    effects,
-                    listener,
-                })
+                Ok(Device { mixer, listener })
             });
         let (device, warning) = match device {
             Ok(d) => (Some(d), None),
@@ -130,6 +117,7 @@ where
             sounds: HashMap::new(),
             emitters: HashMap::new(),
             volumes: Volumes::default(),
+            mixer: AudioSettings::default(),
             events: Vec::new(),
         };
         audio.set_volumes(Volumes::default());
@@ -143,6 +131,7 @@ where
             sounds: HashMap::new(),
             emitters: HashMap::new(),
             volumes: Volumes::default(),
+            mixer: AudioSettings::default(),
             events: Vec::new(),
         }
     }
@@ -152,7 +141,26 @@ where
     }
 
     pub fn backend_mut(&mut self) -> Option<&mut B> {
-        self.device.as_mut().map(|d| d.manager.backend_mut())
+        self.device
+            .as_mut()
+            .map(|d| d.mixer.manager().backend_mut())
+    }
+
+    /// Applies the project's mixer (bus volumes, mutes, limiter).
+    pub fn set_mixer(&mut self, settings: AudioSettings) {
+        self.mixer = settings;
+        if let Some(d) = &mut self.device {
+            d.mixer.set_settings(settings);
+        }
+    }
+
+    pub fn mixer_settings(&self) -> AudioSettings {
+        self.mixer
+    }
+
+    /// The device's mixer (meters), if there is a device.
+    pub fn mixer(&self) -> Option<&Mixer<B>> {
+        self.device.as_ref().map(|d| &d.mixer)
     }
 
     /// Decodes a WAV/Ogg file for later playback.
@@ -178,11 +186,11 @@ where
     pub fn set_volumes(&mut self, v: Volumes) {
         self.volumes = v;
         if let Some(d) = &mut self.device {
-            d.manager
-                .main_track()
-                .set_volume(linear_to_db(v.master), tween(0.05));
-            d.music.set_volume(linear_to_db(v.music), tween(0.05));
-            d.effects.set_volume(linear_to_db(v.effects), tween(0.05));
+            d.mixer.set_player_gains(PlayerGains {
+                master: v.master,
+                music: v.music,
+                effects: v.effects,
+            });
         }
     }
 
@@ -190,15 +198,11 @@ where
         self.volumes
     }
 
-    /// Pauses (or resumes) gameplay sound effects with a short fade, e.g.
-    /// for the pause menu. Music keeps playing.
+    /// Pauses (or resumes) gameplay sound (effects, voice, ambience) with
+    /// a short fade, e.g. for the pause menu. Music keeps playing.
     pub fn set_paused(&mut self, paused: bool) {
         if let Some(d) = &mut self.device {
-            if paused {
-                d.effects.pause(tween(0.1));
-            } else {
-                d.effects.resume(tween(0.1));
-            }
+            d.mixer.set_gameplay_paused(paused);
         }
     }
 
@@ -227,10 +231,7 @@ where
             let builder = SpatialTrackBuilder::new()
                 .distances((source.min_distance, source.max_distance))
                 .persist_until_sounds_finish(false);
-            let bus = match source.bus {
-                AudioBus::Music => &mut d.music,
-                AudioBus::Effects => &mut d.effects,
-            };
+            let bus = d.mixer.track(source.bus);
             match bus.add_spatial_sub_track(&d.listener, position, builder) {
                 Ok(track) => emitter.track = Some(track),
                 Err(e) => tracing::warn!("audio emitter limit reached: {e}"),
@@ -265,10 +266,7 @@ where
         emitter.remaining = (!source.looping).then(|| data.duration().as_secs_f64());
         emitter.sound = match (&mut emitter.track, &mut self.device) {
             (Some(track), _) => track.play(data).ok(),
-            (None, Some(d)) => match source.bus {
-                AudioBus::Music => d.music.play(data).ok(),
-                AudioBus::Effects => d.effects.play(data).ok(),
-            },
+            (None, Some(d)) => d.mixer.track(source.bus).play(data).ok(),
             (None, None) => None,
         };
         emitter.playing = true;
@@ -316,11 +314,7 @@ where
         };
         if let Some(d) = &mut self.device {
             let data = data.volume(volume_db);
-            let result = match bus {
-                AudioBus::Music => d.music.play(data).map(|_| ()),
-                AudioBus::Effects => d.effects.play(data).map(|_| ()),
-            };
-            if let Err(e) = result {
+            if let Err(e) = d.mixer.track(bus).play(data) {
                 tracing::warn!("could not play sound: {e}");
             }
         }
@@ -452,5 +446,51 @@ mod tests {
         );
         assert_eq!(linear_to_db(1.0), 0.0);
         assert_eq!(linear_to_db(0.0), -60.0);
+    }
+
+    #[test]
+    fn emitters_play_through_the_project_mixer() {
+        use copperframe_audio::Strip;
+        let (mut audio, warning) = Audio::<u32, MockBackend>::open(AudioManagerSettings {
+            backend_settings: MockBackendSettings { sample_rate: 44100 },
+            ..Default::default()
+        });
+        assert!(warning.is_none());
+        let sound = AssetId::new();
+        let samples: Vec<f32> = (0..44100).map(|i| 0.5 * (i as f32 * 0.05).sin()).collect();
+        audio
+            .load(
+                sound,
+                copperframe_assets::import::audio::wav_bytes(44100, &samples).into(),
+            )
+            .unwrap();
+        let mut source = AudioSourceComponent::new(sound);
+        source.bus = AudioBus::Voice;
+        source.spatial = false;
+        source.autoplay = true;
+        source.looping = true;
+        audio.add_emitter(1, source, Vec3::ZERO);
+        let run = |audio: &mut Audio<u32, MockBackend>| {
+            let b = audio.backend_mut().unwrap();
+            for _ in 0..300 {
+                b.on_start_processing();
+                b.process();
+            }
+            let m = audio.mixer().unwrap();
+            (
+                m.meter(Strip::Master).take_peak(),
+                m.meter(Strip::Bus(AudioBus::Voice)).take_peak(),
+            )
+        };
+        let (master, voice) = run(&mut audio);
+        assert!(master > 0.1 && voice > 0.1, "{master} {voice}");
+        // A muted bus in project.json silences the emitter.
+        let mut mixer = copperframe_audio::AudioSettings::default();
+        mixer.voice.mute = true;
+        audio.set_mixer(mixer);
+        run(&mut audio);
+        let (master, _) = run(&mut audio);
+        assert!(master < 0.01, "{master}");
+        assert_eq!(audio.mixer_settings(), mixer);
     }
 }

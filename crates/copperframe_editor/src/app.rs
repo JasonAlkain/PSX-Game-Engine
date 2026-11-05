@@ -454,6 +454,7 @@ impl Running {
             ws.ui.assets.clear_thumbnails();
             let before = ws.session.db.entries.len();
             ws.session.rescan_assets();
+            ws.ui.audio.forget_missing(&ws.session);
             // Sidecars the rescan wrote are the editor's own change.
             ws.watcher.accept_own_changes();
             let added = ws.session.db.entries.len().saturating_sub(before);

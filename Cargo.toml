@@ -4,6 +4,7 @@ members = [
     "crates/copperframe_core",
     "crates/copperframe_scene",
     "crates/copperframe_assets",
+    "crates/copperframe_audio",
     "crates/copperframe_render",
     "crates/copperframe_runtime",
     "crates/copperframe_editor",
@@ -15,7 +16,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.97"
 license = "MIT"
@@ -27,6 +28,7 @@ copperframe_render = { path = "crates/copperframe_render" }
 copperframe_runtime = { path = "crates/copperframe_runtime" }
 copperframe_scene = { path = "crates/copperframe_scene" }
 copperframe_assets = { path = "crates/copperframe_assets" }
+copperframe_audio = { path = "crates/copperframe_audio" }
 copperframe_editor = { path = "crates/copperframe_editor" }
 copperframe_game = { path = "crates/copperframe_game" }
 

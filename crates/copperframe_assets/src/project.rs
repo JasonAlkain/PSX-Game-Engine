@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! my_game/
-//!   project.json          {"format": "psx_project", "version": 3, ...}
+//!   project.json          {"format": "psx_project", "version": 4, ...}
 //!   input.json            default key bindings (optional, see [`crate::input`])
 //!   assets/               source files + <source>.meta.json sidecars
 //!   scenes/               *.scene.json
@@ -26,14 +26,14 @@ use thiserror::Error;
 use crate::import::{CpuTexture, ImportError, ImportedModel};
 use crate::meta::{self, AssetKind, AssetMeta, ImportSettings, MetaError};
 pub use crate::project_settings::{
-    BuildSettings, DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings, StyleSettings,
-    file_slug,
+    AudioSettings, BuildSettings, BusSettings, DisplaySettings, GraphicsStyle, MAX_GRAVITY,
+    PhysicsSettings, StyleSettings, file_slug,
 };
 
 pub const PROJECT_FILE: &str = "project.json";
 pub const PROJECT_FORMAT: &str = "psx_project";
 /// Version 2 added the `display`, `style`, `build` and `physics` sections.
-pub const PROJECT_VERSION: u32 = 3;
+pub const PROJECT_VERSION: u32 = 4;
 pub const ASSETS_DIR: &str = "assets";
 pub const SCENES_DIR: &str = "scenes";
 pub const LOCK_FILE: &str = ".psx/editor.lock";
@@ -54,6 +54,9 @@ pub struct ProjectFile {
     pub build: BuildSettings,
     #[serde(default)]
     pub physics: PhysicsSettings,
+    /// Since version 4.
+    #[serde(default)]
+    pub audio: AudioSettings,
 }
 
 impl ProjectFile {
@@ -84,6 +87,9 @@ impl ProjectFile {
             ));
         }
         if let Some(p) = self.physics.problem() {
+            return Err(p);
+        }
+        if let Some(p) = self.audio.problem() {
             return Err(p);
         }
         self.style
@@ -164,6 +170,7 @@ impl Project {
             style: StyleSettings::default(),
             build: BuildSettings::default(),
             physics: PhysicsSettings::default(),
+            audio: AudioSettings::default(),
         };
         let project = Project {
             root: root.to_path_buf(),
@@ -1193,7 +1200,8 @@ mod tests {
         p.file.build.export_dir = "../builds/room".into();
         p.save().unwrap();
         let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
-        assert!(text.contains("\"version\": 3") && text.contains("\"look\""));
+        assert!(text.contains("\"version\": 4") && text.contains("\"look\""));
+        assert!(text.contains("\"audio\""));
         let again = Project::open(&root).unwrap();
         p.file.version = PROJECT_VERSION;
         assert_eq!(again.file, p.file);
@@ -1216,6 +1224,10 @@ mod tests {
         assert!(!p.file.style.player_can_change);
         assert_eq!(p.file.style.look, copperframe_core::RetroStyle::ps1());
         assert_eq!(p.file.physics.gravity.y, -5.0);
+        assert_eq!(p.file.audio, AudioSettings::default());
+        let mut f = p.file.clone();
+        f.audio.music.volume_db = 40.0;
+        assert!(f.check().unwrap_err().contains("audio.music"));
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -1243,13 +1255,13 @@ mod tests {
         // So does a newer version.
         let text = std::fs::read_to_string(root.join(PROJECT_FILE))
             .unwrap()
-            .replace("\"version\": 3", "\"version\": 4");
+            .replace("\"version\": 4", "\"version\": 5");
         std::fs::write(root.join(PROJECT_FILE), text).unwrap();
         assert!(
             Project::open(&root)
                 .unwrap_err()
                 .to_string()
-                .contains("version 4")
+                .contains("version 5")
         );
         std::fs::remove_dir_all(&root).unwrap();
     }

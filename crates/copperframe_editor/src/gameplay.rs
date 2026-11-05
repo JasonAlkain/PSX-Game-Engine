@@ -955,17 +955,11 @@ pub fn audio_editor(
         });
     ui.horizontal(|ui| {
         egui::ComboBox::from_id_salt("audio-bus")
-            .selected_text(match a.bus {
-                AudioBus::Effects => "Effects",
-                AudioBus::Music => "Music",
-            })
+            .selected_text(format!("Bus: {}", a.bus.label()))
             .show_ui(ui, |ui| {
-                done |= ui
-                    .selectable_value(&mut a.bus, AudioBus::Effects, "Effects")
-                    .changed();
-                done |= ui
-                    .selectable_value(&mut a.bus, AudioBus::Music, "Music")
-                    .changed();
+                for bus in AudioBus::ALL {
+                    done |= ui.selectable_value(&mut a.bus, bus, bus.label()).changed();
+                }
             });
         done |= ui.checkbox(&mut a.looping, "loop").changed();
         done |= ui.checkbox(&mut a.autoplay, "autoplay").changed();

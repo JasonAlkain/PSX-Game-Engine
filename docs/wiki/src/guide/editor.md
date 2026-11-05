@@ -241,8 +241,8 @@ the kinds it registers.
   kinematic), mass, gravity scale, linear and angular damping, and lock
   rotation. Only root entities can have one. Press **Play** to see it
   simulate; the editor scene itself never moves.
-- **Audio source**: sound, bus (effects or music), loop, autoplay, 3D,
-  volume in dB and the min/max distance.
+- **Audio source**: sound, mixer bus (Music, SFX, Voice or Ambient), loop,
+  autoplay, 3D, volume in dB and the min/max distance.
 - **Behaviours**: one card per behaviour with its fields, which come from
   the game's own schema.
 - **Point light**, **Blob shadow** and **Animator** (clip, speed, loop,
@@ -290,10 +290,35 @@ the scene's undo history. Play and Export use the saved values.
 | Window | **Window size** of the game in points, with presets (640 × 480 up to 1920 × 1080), and whether a new player starts **fullscreen** and with **vertical sync** |
 | Look | **Default look**: *As authored* (each scene's look), *PS1* or *PS2*, and whether **players can switch** between them in the game's settings screen. **Project look**: the console look (presets and every effect) of all scenes set to *Project look*; edits show in the viewport before you save. **Copy from the open scene** takes the open scene's look. **Scenes** lists the scenes that still have their own look, and **Make all use the project look…** switches them (after asking; their fog, background and lighting are kept). Save the project settings first |
 | Input | The keys each action starts with. Click a key to unbind it, **+ key** to add one (a key used by another action moves here, and the panel says so), add your own actions by name for game code to read, or **Reset to engine defaults**. Players can still remap keys in the game |
+| Audio | The project mixer's bus volumes, mutes and the master limiter in a table, and **Open the Audio mixer** for faders and meters (see [The Audio mixer](#the-audio-mixer)) |
 | Build | The **Export folder** (relative to the project or a full path; empty means `dist/<name>`), whether to **check the exported game starts**, and **Check with** an idle run or one of the project's test scripts |
 
 The game's low internal resolution belongs to each scene's style, so it is
 in [Scene settings](#scene-settings), not here.
+
+## The Audio mixer
+
+**Window > Audio mixer** (or **Open the Audio mixer** on the Audio page of
+Project settings) opens a strip per bus: **Master**, **Music**, **SFX**,
+**Voice** and **Ambient**. Every Audio source plays through the bus picked
+in its inspector, and every bus feeds Master.
+
+- The fader and the dB box set the bus volume (−60 to +12 dB). **M** mutes
+  the bus. Both are saved in `project.json` and used by Play and Export.
+- **S** solos a bus: previews then sound only on soloed buses. Solo is for
+  listening in the editor and is not saved.
+- The meter shows the peak level of sound previews, turning yellow above
+  −6 dB and red at 0 dB, with a line holding the recent peak. The light on
+  top turns red when a bus clipped; click the meter to clear it.
+- **Limiter** on Master pulls peaks down before they clip (a fast
+  compressor at −1 dBFS).
+
+The mixer edits the same draft as Project settings, so **Save** in either
+writes both, and the "unsaved changes" prompt covers it. A game started
+with Play reads the mixer when it starts; changes made while it runs apply
+the next time you press Play. Players' music and effects volume sliders
+multiply on top of the mixer (the effects slider also covers Voice and
+Ambient).
 
 ## The Assets panel
 
@@ -313,6 +338,12 @@ with the selected asset's path, any problem with it, and its actions.
 - **Add to scene** (models) creates an entity using the model in front of the
   camera. Double-clicking the tile does the same, and dragging the tile into
   the viewport places it where you drop it.
+- **Sounds** preview in the editor: double-click a sound tile to play it
+  (again to stop), or select it and use the strip's **play/pause**,
+  **stop**, position slider (drag to seek), time, preview **volume** and the
+  **bus** it plays through. A playing sound's tile shows a copper play mark.
+  Previews use the editor's own audio device and never reach a running
+  game.
 - **Reimport** (models and textures) reads the file again after you changed
   it. If the new import fails, the last good version stays on screen and
   the error appears in the console.

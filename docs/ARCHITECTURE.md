@@ -15,7 +15,10 @@ apps/copperframe_cli ──────┴─► assets   └─► scene   └�
 
 apps/copperframe_player ─┐
 game crates ─────────────┴─► game ─┬─► runtime (window, renderer, scene GPU data)
- (examples/room/game)              └─► assets, scene, core
+ (examples/room/game)              ├─► audio ─► assets, scene, core
+                                   └─► assets, scene, core
+
+crates/copperframe_editor ─► audio (sound preview and mixer panel)
 
 render: wgpu, glam          core / scene / assets: no GPU, no window
 game: hecs, rapier3d, kira  the editor and CLI never link game; they run a
@@ -30,6 +33,7 @@ game: hecs, rapier3d, kira  the editor and CLI never link game; they run a
 | `copperframe_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
 | `copperframe_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
 | `copperframe_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI in dockable panels, toolbar, move/rotate/scale gizmos with grid, vertex and model snapping, asset browser, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), Build menu jobs (validate, export, test script, benchmark), project hub (recent projects, new project from a template), `assets/`+`scenes/` folder watcher, `copperframe_editor` binary | |
+| `copperframe_audio` | The project mixer on kira (`Mixer`: master plus one sub-track per `AudioBus`, volumes, mute, solo, limiter, player gains), peak meters (`Meter`, `MeterEffect`), and `Preview` (the editor's sound player) | |
 | `copperframe_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `copperframe_game::main` launcher, `animation` (per-entity clip playback and crossfades) | |
 | `apps/copperframe_player` | Stock player: `copperframe_game::main` with only engine behaviours, for projects without a game crate | |
 | `apps/copperframe_cli` | `copperframe` binary: `new` (templates and game crate from `copperframe_assets::template`), `schema`, `validate`, `import`, `inspect`, `apply`, `test-scene`, `build` | |
@@ -498,8 +502,12 @@ supported yet.
 
 ### Audio
 
-kira with three buses: master, music and effects (user volumes, 0..1). A
-scene `audio` component plays a sound asset on the music or effects bus
+kira, through `copperframe_audio::Mixer`: a main track (Master, with the
+limiter and a meter) and one sub-track per bus (Music, SFX, Voice,
+Ambient), each with a meter. The project's `audio` settings set each
+track's volume and mute; the player's music and effects volumes (0..1)
+multiply on top (effects also scales Voice and Ambient). A
+scene `audio` component plays a sound asset on its bus
 (volume in dB, looping, autoplay, optionally spatial with min/max
 distance); behaviours can play, stop and fade sounds through `Ctx`. Spatial emitters follow their entity and the
 single listener follows the camera. When no output device exists the

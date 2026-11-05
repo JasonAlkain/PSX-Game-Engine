@@ -27,10 +27,11 @@ pub enum Pane {
     Assets,
     Console,
     ProjectSettings,
+    AudioMixer,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 7] = [
+    pub const ALL: [Pane; 8] = [
         Pane::Viewport,
         Pane::Hierarchy,
         Pane::Inspector,
@@ -38,11 +39,20 @@ impl Pane {
         Pane::Assets,
         Pane::Console,
         Pane::ProjectSettings,
+        Pane::AudioMixer,
     ];
 
     /// Panels that start closed in the standard layout.
     pub fn starts_closed(self) -> bool {
-        self == Pane::ProjectSettings
+        matches!(self, Pane::ProjectSettings | Pane::AudioMixer)
+    }
+
+    /// The panel whose group this one joins when an older layout lacks it.
+    fn neighbour(self) -> Pane {
+        match self {
+            Pane::AudioMixer => Pane::Assets,
+            _ => Pane::Inspector,
+        }
     }
 
     pub fn title(self) -> &'static str {
@@ -54,6 +64,7 @@ impl Pane {
             Pane::Assets => "Assets",
             Pane::Console => "Console",
             Pane::ProjectSettings => "Project settings",
+            Pane::AudioMixer => "Audio mixer",
         }
     }
 }
@@ -81,7 +92,7 @@ const TREE_ID: &str = "copperframe-dock";
 
 /// Hierarchy and viewport side by side over the assets and console, with the
 /// inspector and scene settings down the right. Project settings shares the
-/// right-hand group but starts closed (the toolbar's cog opens it).
+/// right-hand group and the audio mixer the bottom one; both start closed.
 fn default_tree() -> Tree<Pane> {
     let mut tiles = Tiles::default();
     let tabs = |tiles: &mut Tiles<Pane>, panes: &[Pane]| {
@@ -90,7 +101,7 @@ fn default_tree() -> Tree<Pane> {
     };
     let hierarchy = tabs(&mut tiles, &[Pane::Hierarchy]);
     let viewport = tabs(&mut tiles, &[Pane::Viewport]);
-    let bottom = tabs(&mut tiles, &[Pane::Assets, Pane::Console]);
+    let bottom = tabs(&mut tiles, &[Pane::Assets, Pane::Console, Pane::AudioMixer]);
     let right = tabs(
         &mut tiles,
         &[Pane::Inspector, Pane::SceneSettings, Pane::ProjectSettings],
@@ -115,7 +126,7 @@ fn default_tree() -> Tree<Pane> {
 }
 
 /// Adds panels a layout saved by an older editor does not have, closed, to
-/// the group holding the inspector (or beside the root).
+/// the group holding their neighbour (or beside the root).
 fn add_missing_panes(tree: &mut Tree<Pane>) {
     for pane in Pane::ALL {
         if tree.tiles.find_pane(&pane).is_some() {
@@ -125,8 +136,8 @@ fn add_missing_panes(tree: &mut Tree<Pane>) {
         tree.set_visible(id, false);
         let group = tree
             .tiles
-            .find_pane(&Pane::Inspector)
-            .and_then(|inspector| tree.tiles.parent_of(inspector));
+            .find_pane(&pane.neighbour())
+            .and_then(|n| tree.tiles.parent_of(n));
         let added = match group.and_then(|g| tree.tiles.get_mut(g)) {
             Some(Tile::Container(c)) => {
                 c.add_child(id);
