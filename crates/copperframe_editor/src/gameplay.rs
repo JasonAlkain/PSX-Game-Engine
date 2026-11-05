@@ -169,8 +169,7 @@ impl GameTools {
         }
         // Scripts may have changed while the editor was closed, and the
         // cached schema would not show it.
-        let scripts = session.project.file.scripting.lua
-            && !copperframe_assets::scripts::find_lua_scripts(&session.project.root).is_empty();
+        let scripts = crate::scripting::has_scripts(&session.project);
         if (tools.schema.is_none() || scripts) && tools.can_build(session, false) {
             tools.refresh_schema(session);
         }

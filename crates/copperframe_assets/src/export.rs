@@ -130,6 +130,23 @@ pub fn export(
     bytes += copy(&built, &exe)?;
     files += 1;
 
+    if project.file.scripting.csharp {
+        // The export carries the built assembly, so build it now: the last
+        // build may be older than the scripts.
+        match crate::csharp::ensure_built(&root, &mut |l| log(l)) {
+            crate::csharp::Build::Failed(problems) => {
+                return Err(format!(
+                    "the C# scripts do not build; fix them first:\n{}",
+                    problems
+                        .iter()
+                        .map(|p| format!("  {p}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ));
+            }
+            crate::csharp::Build::Nothing | crate::csharp::Build::Ready(_) => {}
+        }
+    }
     let data = out.join(DATA_DIR);
     for (rel, src) in data_files(&root)? {
         bytes += copy(&src, &data.join(&rel))?;
@@ -264,8 +281,9 @@ fn prepare_out(out: &Path, replace: bool) -> Result<(), String> {
 }
 
 /// Project files the game loads at run time: the project file, input
-/// bindings, scenes and assets (with their metadata). Editor state,
-/// backups, scripts and the game's source are left out.
+/// bindings, scenes, assets (with their metadata), Lua scripts and the
+/// built C# scripts (not their sources). Editor state, backups and the
+/// game's source are left out.
 pub fn data_files(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>, String> {
     let mut files = vec![(PathBuf::from(PROJECT_FILE), root.join(PROJECT_FILE))];
     let input = root.join("input.json");
@@ -282,6 +300,11 @@ pub fn data_files(root: &Path) -> Result<Vec<(PathBuf, PathBuf)>, String> {
             }
         })?;
     }
+    for rel in crate::scripts::find_lua_scripts(root) {
+        let rel = Path::new(crate::scripts::SCRIPTS_DIR).join(rel);
+        files.push((rel.clone(), root.join(rel)));
+    }
+    files.extend(crate::csharp::export_files(root));
     files.sort();
     Ok(files)
 }

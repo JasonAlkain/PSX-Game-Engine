@@ -683,7 +683,7 @@ impl Simulation {
     pub fn new(project: Project, game: Box<dyn Game>, audio: Audio<Entity>) -> Self {
         let mut registry = Registry::with_builtins();
         game.register(&mut registry);
-        let load_problems = crate::lua::register_project_scripts(&project, &mut registry);
+        let load_problems = crate::script_api::register_project_scripts(&project, &mut registry);
         for d in &load_problems {
             tracing::error!("{d}");
         }
@@ -777,6 +777,13 @@ impl Simulation {
     }
     pub fn find(&self, id: EntityId) -> Option<Entity> {
         self.core.ids.get(&id).copied()
+    }
+    /// The interaction prompt the behaviours on `e` offer now, if any.
+    pub fn interaction_prompt(&self, e: Entity) -> Option<String> {
+        self.slots
+            .iter()
+            .filter(|s| s.entity == e)
+            .find_map(|s| s.behavior.as_ref().and_then(|b| b.interaction_prompt()))
     }
     pub fn entity_count(&self) -> usize {
         self.core.world.len() as usize

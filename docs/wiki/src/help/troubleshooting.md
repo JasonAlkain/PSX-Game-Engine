@@ -81,11 +81,23 @@ it, or click **Open anyway** on the hub if it is hung.
 Reload behaviour kinds** (or press Play), which rebuilds the game and reads
 its schema. Build errors appear in the Console.
 
-**A Lua script is not in Add component, or its behaviour stopped working.**
+**A Lua or C# script is not in Add component, or its behaviour stopped working.**
 Open **Window > Problems**. A script that does not load (a syntax error, a
 bad field, a file name with capitals or dashes) is listed there with the
 line, and so is a script that raised an error during the last Play. Fix the
-file and save it; the editor reads the scripts again by itself.
+file and save it; the editor reads the scripts again by itself. A C#
+compiler error keeps every C# behaviour out until the scripts build again.
+
+**"C# scripts need the .NET SDK 10.0 or newer".** Install the .NET SDK
+from [dotnet.microsoft.com/download](https://dotnet.microsoft.com/download)
+and press **Check scripts** in the Problems panel. If it is installed
+somewhere unusual, set `DOTNET_ROOT` to its folder. A player who sees "need
+the .NET runtime" needs the .NET 10 runtime (the SDK is not needed to play).
+
+**A C# class is not a behaviour.** It has to be `public`, not abstract,
+derive from `Copperframe.Behaviour` and have a constructor without
+parameters. Its kind is the class name in snake_case (`DoorOpener` is
+`cs.door_opener`); two classes with the same kind are reported.
 
 **Changed an asset file but the editor shows the old one.** The editor
 reimports changed files that are in the scene within a second or two of

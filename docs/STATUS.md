@@ -1,6 +1,50 @@
 # Status
 
-Last updated: 2026-11-05 (scripts in the editor: Problems panel, Scripting settings, New Lua script; Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (C# gameplay scripting on .NET 10, one script API for Lua and C#; scripts in the editor: Problems panel, Scripting settings, New Lua script; Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## C# gameplay scripting (2026-11-05, v0.13.0)
+
+Behaviours can be written in C#. With `scripting.csharp` on
+(`project.json` v6; off by default, v5 files migrate), the game compiles
+`scripts/**/*.cs` with the .NET SDK (`dotnet build`, into `.psx/csharp/`,
+only when a script or the engine changed) and hosts the .NET 10 runtime in
+the game process (`netcorehost`; the child-process architecture is
+unchanged). Each public class deriving from `Copperframe.Behaviour` is a
+behaviour kind `cs.<snake_case>` with inspector fields from its public
+fields (number, bool, text, entity), `[Help]`, `[Hide]` and
+`[Behaviour(Description, Folder, Name)]`, and the usual callbacks plus
+`Prompt`. Lua and C# share one `ctx` API (`copperframe_game::script_api`,
+42 methods), so the two cannot drift apart; a test fails when a method has
+no C# binding. Compiler errors are diagnostics with file, line and code;
+an exception switches off that behaviour and is reported with the line in
+the script (from the PDB), the entity and the callback. Exports build the
+scripts first and carry the compiled assembly without sources.
+
+In the editor: a **C# scripts** switch and the `.cs` scripts with their
+kinds on the Scripting page; **New script…** offers Lua or C# (class name,
+folders become the Add component folder); saving a `.cs` file rebuilds and
+updates the inspector; C# cards show **Edit script**; the Problems panel
+shows compiler and runtime errors.
+
+Fixed: exports left out `scripts/`, so an exported game with Lua
+behaviours did not play.
+
+Verified on Linux with .NET SDK 10.0.114: 7 integration tests (schema,
+fields and folders, movement over 60 ticks, messages between classes, game
+state, events, prompts, exceptions with lines, compiler errors, the
+project switch, the template compiling, every ctx method bound) and unit
+tests for names, templates, the build stamp and compiler output parsing.
+By hand under Xvfb: a compiler error was listed at start with its line,
+deleting the file cleared it within 2 s, a C# class appeared in Add
+component under its folder and was attached with its fields, Play showed a
+C# exception at the right line in the game and in the Problems panel, and
+New script › C# `Puzzles/Lever` created and attached `cs.lever`. The first
+build of a project takes about 25 s, later ones 1 to 2 s. Not yet checked
+on Windows 11 (CI runs the tests on Windows with .NET 10).
+
+Limits: players need the .NET 10 runtime; C# is not sandboxed and an
+endless loop hangs the game; a running game keeps the scripts it started
+with (.NET cannot unload them).
 
 ## Scripts in the editor (2026-11-05, v0.12.0)
 
@@ -30,8 +74,8 @@ asked for its schema without `--project`. Fixed: the message for a script
 with an invalid name contained runs of spaces.
 
 Still to do: opening a script at the error line (the system handler opens
-the file; editors differ in how to pass a line), reloading scripts while
-the game runs, and C# (next: .NET hosted in the game process).
+the file; editors differ in how to pass a line), and reloading scripts while
+the game runs. (C# followed in 0.13.)
 
 Verified on Linux under Xvfb with a Lua-only project: the Problems panel
 opened at start with a syntax error (line 3 excerpt), Play added a runtime
@@ -619,6 +663,9 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
   Colliders of skinned models use the rest pose.
 - Style is per scene (and per view); there are no per-material style
   overrides beyond `allow_affine`.
+- C# scripts: players need the .NET 10 runtime; scripts are trusted code
+  (no sandbox, an endless loop hangs the game); a running game keeps the
+  scripts it started with.
 - The sandbox comparison scene is still hard-coded Rust data; the editor and
   example project use scene files. Sprites/billboards are not implemented.
 - Editor gizmos translate only; rotation and scale are edited numerically in

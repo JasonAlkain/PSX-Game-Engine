@@ -7,7 +7,7 @@ creates one behaviour instance per entity when the scene loads.
 
 Rust behaviours are compiled, so they are fast, type-checked and
 debuggable with normal Rust tools. Behaviours can also be written in Lua,
-with no install and no game crate: see [Lua scripting](lua.md). Both kinds
+with no install and no game crate: see [Lua scripting](lua.md), or in C# with the .NET SDK: see [C# scripting](csharp.md). Both kinds
 work together in one scene. The editor and the
 CLI never link your code. They build and run your game executable and ask
 it what it registers (`--schema`), so a broken game crate can never crash

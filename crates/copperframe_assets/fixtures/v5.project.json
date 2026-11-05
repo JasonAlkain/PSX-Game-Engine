@@ -1,0 +1,7 @@
+{
+  "format": "psx_project",
+  "version": 5,
+  "name": "Version five",
+  "startup_scene": "scenes/main.scene.json",
+  "scripting": { "lua": false }
+}

@@ -631,13 +631,16 @@ fn menu_bar(
             ui.separator();
             if ui
                 .add_enabled(
-                    session.project.file.scripting.lua,
-                    egui::Button::new("New Lua script…"),
+                    crate::scripting::scripting_on(&session.project),
+                    egui::Button::new("New script…"),
                 )
-                .on_disabled_hover_text("Lua is off: Project settings > Scripting")
+                .on_disabled_hover_text("Scripting is off: Project settings > Scripting")
                 .clicked()
             {
-                tools.new_script = Some(crate::scripting::NewScript::new(session.selection));
+                tools.new_script = Some(crate::scripting::NewScript::new(
+                    &session.project,
+                    session.selection,
+                ));
             }
             let n = tools.problems.len();
             let label = if n == 0 {

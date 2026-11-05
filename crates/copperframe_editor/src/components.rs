@@ -643,12 +643,12 @@ fn entries(
             });
         }
     }
-    if session.project.file.scripting.lua {
+    if crate::scripting::scripting_on(&session.project) {
         out.push(Entry {
-            help: "Creates a Lua script in scripts/ from a template and adds it here".into(),
+            help: "Creates a Lua or C# script in scripts/ from a template and adds it here".into(),
             ..Entry::new(
                 &["Behaviours", "Scripts"],
-                "New Lua script…",
+                "New script…",
                 Ok(AddAction::NewScript),
             )
         });
@@ -744,7 +744,7 @@ fn add_component_button(
         }
         Some(AddAction::LoadBehaviourKinds) => tools.refresh_schema(session),
         Some(AddAction::NewScript) => {
-            tools.new_script = Some(crate::scripting::NewScript::new(Some(id)));
+            tools.new_script = Some(crate::scripting::NewScript::new(&session.project, Some(id)));
         }
         None => {}
     }

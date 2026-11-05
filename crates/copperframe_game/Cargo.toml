@@ -31,6 +31,7 @@ thiserror.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 mlua.workspace = true
+netcorehost.workspace = true
 
 [lints]
 workspace = true

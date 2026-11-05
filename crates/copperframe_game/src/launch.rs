@@ -153,7 +153,7 @@ pub fn run(args: Args, create: fn() -> Box<dyn Game>, dev_project: &Path) -> Exi
             .clone()
             .unwrap_or_else(|| default_project(dev_project));
         if let Ok(project) = Project::open(&root) {
-            for d in crate::lua::register_project_scripts(&project, &mut registry) {
+            for d in crate::script_api::register_project_scripts(&project, &mut registry) {
                 registry.add_problem(serde_json::to_value(&d).unwrap_or_default());
             }
         }
