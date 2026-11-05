@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-11-05 (project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+Last updated: 2026-11-05 (project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
 
 ## Project settings (2026-11-05, v0.3.0)
 
@@ -308,6 +308,29 @@ its 16.7 ms budget; on this CPU rasteriser even the PS2 style at 720p stays
 under 16.7 ms at the 95th percentile. Hardware GPU numbers have not been
 measured.
 
+## Windows 11 run (2026-11-05)
+
+Machine: Windows 11 Pro 10.0.26200, NVIDIA GeForce RTX 5090 (driver 610.88,
+Vulkan backend) plus Intel UHD 770, two 1920 × 1080 monitors at 96 DPI.
+Commit b0de56c on `main`. Run through a remote session on the machine;
+windows were opened and closed by `--frames`, not played by hand.
+
+| Check | Result |
+| --- | --- |
+| `COPPERFRAME_REQUIRE_GPU=1 cargo test --workspace --locked` | 285 passed, 1 failed, 1 ignored. The failure is `color_reduction_and_dither` ("164 is not a 5-bit level") on the RTX 5090; see Not verified |
+| `cargo build --workspace --release --locked` | pass (53 s) |
+| `copperframe validate --project examples/room` | pass, 0 errors, 0 warnings |
+| `copperframe test-scene` with the walkthrough script | pass, 535 ticks, finished |
+| `copperframe bench --project examples/room` (release) | about 0.16 ms per frame in every style at 1280 × 720 and 1920 × 1080; tick about 0.027 ms; 27 draws, 3696 triangles |
+| `copperframe build` of `examples/room` (release) | pass; the exported game completed the walkthrough |
+| Sandbox and editor windowed (`--frames`, release) | pass, exit 0; the editor left the scene file unchanged |
+| `lever_room --play --frames`, as authored and PS2 | pass, exit 0, on the **debug** build: Windows Defender quarantined the release `lever_room.exe` (see Known limitations) |
+| Audio | no missing-device messages; not listened to |
+
+Seen on that machine but not caused by the engine: Vulkan layer errors from
+an installed Social Club overlay in debug runs. The sandbox window shows
+white for about 1.5 s before the first frame.
+
 ## Verification record
 
 Environment: Ubuntu 24.04 container, Rust 1.97.0, Vulkan backend on Mesa
@@ -351,13 +374,15 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 
 ## Not verified
 
-- **Windows 11 runtime** (primary target): not run for Milestones 1 to 6;
-  see the checklist in [PLATFORMS.md](PLATFORMS.md). CI
-  builds and tests on a Windows runner. Manual check:
-  `cargo run -p copperframe_sandbox --release`, then press `C` for the split view,
-  1–7 to toggle effects, F5 to save (`psx_style.json` appears in the working
-  directory), restart to confirm it reloads, plus the Milestone 1 window
-  checks (resize, minimize, monitors with different DPI, mouse capture).
+- **Windows 11 by hand** (primary target): the automated steps ran on
+  2026-11-05 (section above), but nobody has yet played the demo through,
+  rebound a key, resized or moved a window between monitors, used Alt+Tab
+  with the mouse captured, opened the project hub, or checked crash reports
+  there; see the checklist in [PLATFORMS.md](PLATFORMS.md).
+- **`color_reduction_and_dither` on the RTX 5090:** the test finds a channel
+  value (164) that is not a 5-bit level, so the colour reduction does not
+  give exact levels on that adapter. It passes on lavapipe. Not yet
+  investigated.
 - **Keyboard style controls in a real window:** synthetic key events are not
   delivered without a window manager here. The key mapping is unit tested
   (`style_controls`), and every effect is exercised through the renderer API.
@@ -401,6 +426,10 @@ Debug images from the tests are written to `target/tmp/*.ppm`.
 
 ## Known limitations
 
+- Windows Defender can flag the unsigned release build of the demo game
+  (`lever_room.exe`) as `Trojan:Win32/Bearfoos.A!ml`, a machine-learning
+  detection, and quarantine it (seen 2026-11-05). The debug build and the
+  editor were not flagged. The executables are not code-signed.
 - The OpenGL ES fallback backend is untested: it needs float render targets
   (`Rgba16Float`) and `noperspective` interpolation, which some GLES 3.0
   drivers lack. Vulkan, DX12 and Metal support both.
