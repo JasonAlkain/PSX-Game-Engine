@@ -60,46 +60,22 @@ impl Default for UserSettings {
     }
 }
 
-/// Player override for the scene's retro style.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GraphicsStyle {
-    /// The style the scene was authored with.
-    #[default]
-    Scene,
-    /// The PS1 preset (affine textures, snapping, nearest filtering).
-    Ps1,
-    /// The PS2 preset (filtered, mipmapped, per-pixel lit).
-    Ps2,
-}
+/// Player override for the scene's retro style (also the project's
+/// default look, in `project.json`).
+pub use copperframe_assets::project::GraphicsStyle;
 
-impl GraphicsStyle {
-    pub const ALL: [GraphicsStyle; 3] = [Self::Scene, Self::Ps1, Self::Ps2];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Scene => "As authored",
-            Self::Ps1 => "PS1",
-            Self::Ps2 => "PS2",
+impl UserSettings {
+    /// The settings a player starts with in this project: the engine
+    /// defaults with the project's display and style choices.
+    pub fn for_project(project: &copperframe_assets::project::ProjectFile) -> Self {
+        Self {
+            fullscreen: project.display.fullscreen,
+            vsync: project.display.vsync,
+            graphics_style: project.style.default,
+            ..Self::default()
         }
     }
 
-    /// The style to render a scene authored with `scene`: the preset's
-    /// look with the scene's own fog and atmosphere (which belong to the
-    /// level, not the console style).
-    pub fn apply(self, scene: &copperframe_core::RetroStyle) -> copperframe_core::RetroStyle {
-        let mut s = match self {
-            Self::Scene => return scene.clone(),
-            Self::Ps1 => copperframe_core::RetroStyle::ps1(),
-            Self::Ps2 => copperframe_core::RetroStyle::ps2(),
-        };
-        s.fog = scene.fog;
-        s.atmosphere = scene.atmosphere;
-        s
-    }
-}
-
-impl UserSettings {
     pub fn volumes(&self) -> Volumes {
         Volumes {
             master: self.master_volume.clamp(0.0, 1.0),
@@ -182,12 +158,22 @@ impl UserDirs {
     }
 
     pub fn load_settings(&self, warnings: &mut Vec<String>) -> UserSettings {
+        self.load_settings_or(&UserSettings::default(), warnings)
+    }
+
+    /// The saved settings, or `defaults` when there are none (first run) or
+    /// the file is damaged.
+    pub fn load_settings_or(
+        &self,
+        defaults: &UserSettings,
+        warnings: &mut Vec<String>,
+    ) -> UserSettings {
         match read_json::<UserSettings>(&self.settings_path(), SETTINGS_FORMAT) {
             Ok(Some(s)) => s.sanitized(),
-            Ok(None) => UserSettings::default(),
+            Ok(None) => defaults.clone(),
             Err(e) => {
                 warnings.push(e);
-                UserSettings::default()
+                defaults.clone()
             }
         }
     }
@@ -326,6 +312,34 @@ mod tests {
         assert_eq!(s.graphics_style, GraphicsStyle::Scene);
         assert_eq!(s.music_volume, 0.5);
         assert!(s.invert_y);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn first_run_uses_the_projects_display_and_style() {
+        let dir = std::env::temp_dir().join(format!("psx_settings_proj_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut file: copperframe_assets::project::ProjectFile = serde_json::from_str(
+            r#"{"format":"psx_project","version":2,"name":"T","startup_scene":"s.scene.json"}"#,
+        )
+        .unwrap();
+        file.display.fullscreen = true;
+        file.display.vsync = false;
+        file.style.default = GraphicsStyle::Ps2;
+        let defaults = UserSettings::for_project(&file);
+        let dirs = UserDirs::at(&dir);
+        let mut w = Vec::new();
+        let s = dirs.load_settings_or(&defaults, &mut w);
+        assert!(s.fullscreen && !s.vsync);
+        assert_eq!(s.graphics_style, GraphicsStyle::Ps2);
+        // Once the player saves their own choice, it wins.
+        let mine = UserSettings {
+            fullscreen: false,
+            ..s
+        };
+        dirs.save_settings(&mine).unwrap();
+        assert_eq!(dirs.load_settings_or(&defaults, &mut w), mine);
+        assert!(w.is_empty(), "{w:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

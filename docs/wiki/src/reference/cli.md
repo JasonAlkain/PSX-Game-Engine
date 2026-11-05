@@ -123,10 +123,11 @@ driven by a script or idle for `--ticks` (default 300). Prints a
 ## `build`
 
 ```sh
-copperframe build --out DIR [--project DIR] [--replace] [--script FILE] [--no-verify]
+copperframe build [--out DIR] [--project DIR] [--replace] [--script FILE] [--no-verify]
 ```
 
-Exports the game for this platform and checks the export starts. See
+Exports the game for this platform and checks the export starts. Without
+`--out`, `--script` and `--no-verify`, the project's build settings decide. See
 [Exporting a game](../guide/exporting.md).
 
 ## `bench`

@@ -7,6 +7,8 @@
 //! - [`project`]: project layout (`project.json`, `assets/`, `scenes/`),
 //!   the asset database, the editor lock, and project validation shared by
 //!   the editor and the CLI.
+//! - [`project_settings`]: the project-wide settings in `project.json`.
+//! - [`input`]: the project's default key bindings (`input.json`).
 //! - [`game`]: finding, building and running a project's game executable.
 //! - [`export`]: host-platform export of a game and its data.
 //! - [`template`]: new projects from templates, and their Rust game crate.
@@ -18,8 +20,10 @@ pub mod export;
 pub mod fixtures;
 pub mod game;
 pub mod import;
+pub mod input;
 pub mod meta;
 pub mod project;
+pub mod project_settings;
 pub mod template;
 
 pub use import::audio::{AudioFormat, ImportedAudio, import_audio};

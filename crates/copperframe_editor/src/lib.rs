@@ -8,6 +8,8 @@
 //! - [`viewport`]: screen ↔ world conversion for picking and gizmos, and the
 //!   editor camera.
 //! - [`ui`]: menus, inspector, scene settings and dialogs.
+//! - [`project_settings`]: the Project Settings panel (project.json and
+//!   input.json).
 //! - [`dock`]: the dockable panel layout and the Window menu.
 //! - [`toolbar`]: transform tools, snapping and view options.
 //! - [`gizmo`]: transform tool maths and snapping.
@@ -29,6 +31,7 @@ pub mod gameplay;
 pub mod gizmo;
 pub mod hub;
 pub mod icons;
+pub mod project_settings;
 pub mod reporting;
 pub mod session;
 pub mod snap_settings;

@@ -119,6 +119,8 @@ struct Running {
     skip_title: bool,
     dirs: Option<UserDirs>,
     settings: UserSettings,
+    /// The project's fixed look when players may not change it.
+    style_lock: Option<GraphicsStyle>,
     project_bindings: Bindings,
     bindings: Bindings,
     rebinding: Option<String>,
@@ -155,10 +157,14 @@ impl Running {
             }
             d
         });
+        let defaults = UserSettings::for_project(&options.project.file);
         let settings = dirs
             .as_ref()
-            .map(|d| d.load_settings(&mut warnings))
-            .unwrap_or_default();
+            .map(|d| d.load_settings_or(&defaults, &mut warnings))
+            .unwrap_or(defaults);
+        let window_size = options.project.file.display.clone();
+        let style_lock = (!options.project.file.style.player_can_change)
+            .then_some(options.project.file.style.default);
         let project_bindings = Bindings::load_project(&options.project.root).unwrap_or_else(|e| {
             warnings.push(format!("{e}; using default keys"));
             Bindings::default()
@@ -168,7 +174,7 @@ impl Running {
         let mut attributes = Window::default_attributes()
             .with_title(title.clone())
             .with_window_icon(copperframe_runtime::branding::window_icon())
-            .with_inner_size(LogicalSize::new(1280, 960))
+            .with_inner_size(LogicalSize::new(window_size.width, window_size.height))
             .with_min_inner_size(LogicalSize::new(320, 240));
         if settings.fullscreen {
             attributes = attributes.with_fullscreen(Some(Fullscreen::Borderless(None)));
@@ -245,6 +251,7 @@ impl Running {
             skip_title: options.skip_title,
             dirs,
             settings,
+            style_lock,
             project_bindings,
             bindings,
             rebinding: None,
@@ -517,6 +524,7 @@ impl Running {
                 has_save: !self.skip_title && self.dirs.as_ref().is_some_and(UserDirs::has_save),
                 in_editor: self.skip_title,
                 settings: &mut self.settings,
+                style_choice: self.style_lock.is_none(),
                 bindings: &self.bindings,
                 rebinding: self.rebinding.as_deref(),
                 hud: self.sim.hud(),
@@ -608,12 +616,13 @@ impl Running {
         } else {
             1.0
         };
+        let look = self.style_lock.unwrap_or(self.settings.graphics_style);
         let (style, lighting) = match self.sim.scene() {
             Some(s) => {
                 let lights = self.sim.lights(alpha);
                 let shadows = self.sim.shadows(alpha);
                 (
-                    self.settings.graphics_style.apply(&s.settings.style),
+                    look.apply(&s.settings.style),
                     scene_lighting(
                         &s.settings.lighting,
                         lights.iter().map(|(m, l)| (*m, l)),
@@ -622,9 +631,7 @@ impl Running {
                 )
             }
             None => (
-                self.settings
-                    .graphics_style
-                    .apply(&copperframe_core::RetroStyle::ps1()),
+                look.apply(&copperframe_core::RetroStyle::ps1()),
                 Lighting::default(),
             ),
         };
@@ -861,6 +868,8 @@ struct MenuUi<'a> {
     has_save: bool,
     in_editor: bool,
     settings: &'a mut UserSettings,
+    /// Offer the graphics style choice (the project allows it).
+    style_choice: bool,
     bindings: &'a Bindings,
     rebinding: Option<&'a str>,
     hud: &'a crate::sim::Hud,
@@ -1056,15 +1065,17 @@ impl MenuUi<'_> {
                 ui.label("Vertical sync");
                 changed |= ui.checkbox(&mut s.vsync, "").changed();
                 ui.end_row();
-                ui.label("Graphics style");
-                ui.horizontal(|ui| {
-                    for g in GraphicsStyle::ALL {
-                        changed |= ui
-                            .selectable_value(&mut s.graphics_style, g, g.label())
-                            .changed();
-                    }
-                });
-                ui.end_row();
+                if self.style_choice {
+                    ui.label("Graphics style");
+                    ui.horizontal(|ui| {
+                        for g in GraphicsStyle::ALL {
+                            changed |= ui
+                                .selectable_value(&mut s.graphics_style, g, g.label())
+                                .changed();
+                        }
+                    });
+                    ui.end_row();
+                }
             });
         if changed {
             out.push(UiAction::SettingsChanged);

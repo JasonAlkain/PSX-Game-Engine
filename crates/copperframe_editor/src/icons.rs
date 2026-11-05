@@ -22,6 +22,8 @@ pub enum Icon {
     Texture,
     Sound,
     Folder,
+    /// Project settings: a cog wheel.
+    Cog,
 }
 
 /// Paints `icon` to fill `rect`.
@@ -176,6 +178,20 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             ] {
                 line(&[(x, -h), (x, h)]);
             }
+        }
+        Icon::Cog => {
+            // Eight teeth around a ring with a hole.
+            let teeth = 8;
+            let outline: Vec<(f32, f32)> = (0..=teeth * 4)
+                .map(|i| {
+                    let a = i as f32 / (teeth * 4) as f32 * std::f32::consts::TAU;
+                    // Two points out on the tooth, two in at its root.
+                    let r = if i % 4 < 2 { 0.88 } else { 0.64 };
+                    (a.cos() * r, a.sin() * r)
+                })
+                .collect();
+            line(&outline);
+            painter.circle_stroke(c, s * 0.5 * 0.28, stroke);
         }
         Icon::Folder => {
             let body = [at(-0.9, -0.35), at(0.9, -0.35), at(0.9, 0.7), at(-0.9, 0.7)];

@@ -23,11 +23,12 @@ whose lock is held by a hung editor (see [Project lock](#project-lock)).
 | Area | What it does |
 | --- | --- |
 | Menu bar | **File**, **Edit**, **Create**, **Game**, **Build**, **Window** and **Help** |
-| Toolbar | The transform tools, snapping, view options and **Play**/**Stop** (see [The toolbar](#the-toolbar)) |
+| Toolbar | The transform tools, snapping, view options, **Play**/**Stop** and the cog for project settings (see [The toolbar](#the-toolbar)) |
 | Hierarchy | Every entity in the scene, children indented under parents. Click to select |
 | Viewport | The scene rendered with its own retro style, with the selection gizmo and optional collider wireframes |
 | Inspector | The selected entity's components |
 | Scene settings | The scene's style, lighting and start camera |
+| Project settings | Settings for the whole game (closed at first; the toolbar's cog opens it). See [Project settings](#project-settings) |
 | Assets | The [asset browser](#the-assets-panel) |
 | Console | The log, including a running game's output |
 | Status bar | Project and scene name, revision, unsaved state, frame rate, draw and triangle counts, and "idle" when the editor is not redrawing |
@@ -119,9 +120,12 @@ settings is unrelated: it is the PS1 wobble effect (see
     **Open Scene** lists every scene in `scenes/` (the startup scene is
     marked). **Set as Startup Scene** makes the open scene the one the
     game starts with.
+  - **Project Settings…** opens the [Project settings](#project-settings)
+    panel.
   - Save; Reload from disk (discard changes); Quit.
 
-  Anything that leaves the open scene asks first if it has unsaved changes.
+  Anything that leaves the open scene asks first if it has unsaved changes,
+  and anything that closes the project asks about unsaved project settings.
 - **Edit**: Undo and Redo (the menu names the step), Duplicate and Delete.
 - **Create**: Empty, Cube, Plane, Sphere, Quad. New entities appear a few
   metres in front of the editor camera and are selected.
@@ -185,6 +189,29 @@ The **Scene settings** panel holds what applies to the whole scene:
 - **Use current view as start camera**, which stores the editor view as
   the scene's start camera: where the editor view opens next time, and the
   game's camera until a player or camera zone takes over.
+
+## Project settings
+
+The **Project settings** panel (the cog at the right of the toolbar, or
+**File > Project Settings…**) holds what applies to the whole game rather
+than one scene. It is a panel like the others, so it can be docked anywhere;
+it starts as a closed tab next to Scene settings.
+
+Edits are a draft: **Save** checks them and writes `project.json` (and
+`input.json` when the keys changed), **Revert** drops them, and *unsaved*
+shows while there is something to save. Project settings are not part of
+the scene's undo history. Play and Export use the saved values.
+
+| Page | Settings |
+| --- | --- |
+| General | **Name** (hub, status bar, default export folder), **Start scene** (the scene the game opens with; the same as **File > Set as Startup Scene**), and the project folder with **Open** |
+| Window | **Window size** of the game in points, with presets (640 × 480 up to 1920 × 1080), and whether a new player starts **fullscreen** and with **vertical sync** |
+| Look | **Default look**: *As authored* (each scene's own style), *PS1* or *PS2*, and whether **players can switch** between them in the game's settings screen. A preset keeps each scene's fog and background colour |
+| Input | The keys each action starts with. Click a key to unbind it, **+ key** to add one (a key used by another action moves here, and the panel says so), add your own actions by name for game code to read, or **Reset to engine defaults**. Players can still remap keys in the game |
+| Build | The **Export folder** (relative to the project or a full path; empty means `dist/<name>`), whether to **check the exported game starts**, and **Check with** an idle run or one of the project's test scripts |
+
+The game's low internal resolution belongs to each scene's style, so it is
+in [Scene settings](#scene-settings), not here.
 
 ## The Assets panel
 

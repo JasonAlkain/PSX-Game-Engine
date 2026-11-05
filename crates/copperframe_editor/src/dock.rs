@@ -26,17 +26,24 @@ pub enum Pane {
     SceneSettings,
     Assets,
     Console,
+    ProjectSettings,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 6] = [
+    pub const ALL: [Pane; 7] = [
         Pane::Viewport,
         Pane::Hierarchy,
         Pane::Inspector,
         Pane::SceneSettings,
         Pane::Assets,
         Pane::Console,
+        Pane::ProjectSettings,
     ];
+
+    /// Panels that start closed in the standard layout.
+    pub fn starts_closed(self) -> bool {
+        self == Pane::ProjectSettings
+    }
 
     pub fn title(self) -> &'static str {
         match self {
@@ -46,6 +53,7 @@ impl Pane {
             Pane::SceneSettings => "Scene settings",
             Pane::Assets => "Assets",
             Pane::Console => "Console",
+            Pane::ProjectSettings => "Project settings",
         }
     }
 }
@@ -72,7 +80,8 @@ impl Default for Dock {
 const TREE_ID: &str = "copperframe-dock";
 
 /// Hierarchy and viewport side by side over the assets and console, with the
-/// inspector and scene settings down the right.
+/// inspector and scene settings down the right. Project settings shares the
+/// right-hand group but starts closed (the toolbar's cog opens it).
 fn default_tree() -> Tree<Pane> {
     let mut tiles = Tiles::default();
     let tabs = |tiles: &mut Tiles<Pane>, panes: &[Pane]| {
@@ -82,7 +91,10 @@ fn default_tree() -> Tree<Pane> {
     let hierarchy = tabs(&mut tiles, &[Pane::Hierarchy]);
     let viewport = tabs(&mut tiles, &[Pane::Viewport]);
     let bottom = tabs(&mut tiles, &[Pane::Assets, Pane::Console]);
-    let right = tabs(&mut tiles, &[Pane::Inspector, Pane::SceneSettings]);
+    let right = tabs(
+        &mut tiles,
+        &[Pane::Inspector, Pane::SceneSettings, Pane::ProjectSettings],
+    );
 
     let top = tiles.insert_horizontal_tile(vec![hierarchy, viewport]);
     set_share(&mut tiles, top, hierarchy, 1.0);
@@ -93,7 +105,45 @@ fn default_tree() -> Tree<Pane> {
     let root = tiles.insert_horizontal_tile(vec![left, right]);
     set_share(&mut tiles, root, left, 3.4);
     set_share(&mut tiles, root, right, 1.0);
-    Tree::new(egui::Id::unique(TREE_ID), root, tiles)
+    let mut tree = Tree::new(egui::Id::unique(TREE_ID), root, tiles);
+    for pane in Pane::ALL.into_iter().filter(|p| p.starts_closed()) {
+        if let Some(id) = tree.tiles.find_pane(&pane) {
+            tree.set_visible(id, false);
+        }
+    }
+    tree
+}
+
+/// Adds panels a layout saved by an older editor does not have, closed, to
+/// the group holding the inspector (or beside the root).
+fn add_missing_panes(tree: &mut Tree<Pane>) {
+    for pane in Pane::ALL {
+        if tree.tiles.find_pane(&pane).is_some() {
+            continue;
+        }
+        let id = tree.tiles.insert_pane(pane);
+        tree.set_visible(id, false);
+        let group = tree
+            .tiles
+            .find_pane(&Pane::Inspector)
+            .and_then(|inspector| tree.tiles.parent_of(inspector));
+        let added = match group.and_then(|g| tree.tiles.get_mut(g)) {
+            Some(Tile::Container(c)) => {
+                c.add_child(id);
+                true
+            }
+            _ => false,
+        };
+        if !added {
+            match tree.root.and_then(|r| tree.tiles.get_mut(r)) {
+                Some(Tile::Container(c)) => c.add_child(id),
+                _ => {
+                    let tabs = tree.tiles.insert_tab_tile(vec![id]);
+                    tree.root = Some(tabs);
+                }
+            }
+        }
+    }
 }
 
 fn set_share(tiles: &mut Tiles<Pane>, container: TileId, child: TileId, share: f32) {
@@ -296,8 +346,10 @@ pub fn load_layout<P: for<'de> Deserialize<'de>>(path: &Path) -> Option<(Dock, P
     if file.format != LAYOUT_FORMAT || file.version != LAYOUT_VERSION {
         return None;
     }
-    let dock = Dock { tree: file.tree };
-    // A layout that lost a panel could never show it again.
+    let mut dock = Dock { tree: file.tree };
+    // A layout without a panel (saved before it existed) could never show
+    // it again.
+    add_missing_panes(&mut dock.tree);
     Pane::ALL
         .iter()
         .all(|p| dock.tree.tiles.find_pane(p).is_some())
@@ -335,11 +387,31 @@ mod tests {
     }
 
     #[test]
-    fn default_layout_has_every_panel_open_once() {
-        let dock = Dock::default();
+    fn default_layout_has_every_panel_once() {
+        let mut dock = Dock::default();
         for pane in Pane::ALL {
-            assert!(dock.is_open(pane), "{pane:?}");
+            assert_eq!(dock.is_open(pane), !pane.starts_closed(), "{pane:?}");
         }
+        dock.set_open(Pane::ProjectSettings, true);
+        assert!(dock.is_open(Pane::ProjectSettings));
+        assert!(dock.is_open(Pane::Viewport));
+    }
+
+    #[test]
+    fn layouts_from_before_project_settings_get_it_closed() {
+        let path = temp("old");
+        let mut dock = Dock::default();
+        dock.set_open(Pane::Console, false);
+        let id = dock.tree.tiles.find_pane(&Pane::ProjectSettings).unwrap();
+        dock.tree.remove_recursively(id);
+        assert!(dock.tree.tiles.find_pane(&Pane::ProjectSettings).is_none());
+        save_layout(&dock, &ToolPrefs::default(), &path).unwrap();
+        let (mut loaded, _): (Dock, ToolPrefs) = load_layout(&path).expect("kept");
+        assert!(!loaded.is_open(Pane::Console), "the user's layout survives");
+        assert!(!loaded.is_open(Pane::ProjectSettings));
+        loaded.set_open(Pane::ProjectSettings, true);
+        assert!(loaded.is_open(Pane::ProjectSettings));
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
     #[test]

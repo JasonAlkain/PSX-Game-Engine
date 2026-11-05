@@ -53,7 +53,7 @@ editor and the player's title screen open with a short Copperframe splash
 
 | Format | Current | Older versions | What changed | What you do |
 | --- | --- | --- | --- | --- |
-| `psx_project` (`project.json`) | 1 | — | — | — |
+| `psx_project` (`project.json`) | 2 | 1 | v2 (Project settings): optional `display`, `style` and `build` sections | Nothing. A v1 file loads with the defaults (1280 × 960 window, vsync on, each scene's own look, export to `dist/<name>` with a start check). The editor writes v2 the next time project settings or the startup scene are saved, which older engine builds refuse to open |
 | `psx_asset_meta` (`*.meta.json`) | 1 | — | — | — |
 | `psx_scene` (`scenes/*.scene.json`) | 4 | 1, 2, 3 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, and primitives without `tile_size` keep one texture per face. To tile an existing primitive, tick **Tile texture** in the inspector. Saving writes v4, which older engine builds refuse to open |
 | `psx_style` (`psx_style.json`, scene style) | 2 | 1 | `textures {filter, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}` | Nothing; v1 gets PS1 values. Pick the PS2 preset in the editor or sandbox to opt in |
@@ -71,6 +71,7 @@ Fixtures that pin older versions, each loaded by a test:
 `crates/copperframe_scene/fixtures/v2_room.scene.json` (scene v2, Milestone 4),
 `crates/copperframe_scene/fixtures/v3_room.scene.json` (scene v3, Milestone 5),
 `crates/copperframe_core/fixtures/v1.style.json` (style v1),
+`crates/copperframe_assets/fixtures/v1.project.json` (project v1),
 `crates/copperframe_game/fixtures/m4_settings.json` (player settings without
 `graphics_style`).
 
@@ -85,6 +86,18 @@ cooked cache yet), so an importer change takes effect without any action.
 | 2 (M5) | glTF skins and animation clips. Before, skins and animations were ignored with a warning and the mesh was drawn in its node pose; now a skinned mesh is drawn from its bind pose through the skeleton (the rest pose), which for most exported files is the same shape |
 
 ## Game code (Rust API)
+
+### Project settings
+
+`ProjectFile` has new fields `display`, `style` and `build`: code that
+builds one needs `..` or the three defaults. `copperframe_game::settings::
+GraphicsStyle` now lives in `copperframe_assets::project` and is
+re-exported, so existing paths keep working. The game window opens at the
+project's window size; a first-run player starts with the project's
+fullscreen, vsync and look (`UserSettings::for_project`), and
+`UserDirs::load_settings_or` takes those defaults. The key list and default
+actions are also in `copperframe_assets::input` for the editor; a test keeps
+them equal to `copperframe_game::actions`.
 
 ### Texture tiling
 

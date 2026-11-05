@@ -498,4 +498,22 @@ mod tests {
         input.clear();
         assert!(!input.begin_tick(&b, 0.1, false).held(names::MOVE_FORWARD));
     }
+    #[test]
+    fn key_list_and_defaults_match_the_editors() {
+        // The editor writes input.json from copperframe_assets::input
+        // without linking this crate; both must accept the same names.
+        let mut names: Vec<String> = KEYS.iter().map(|k| Button::Key(*k).name()).collect();
+        names.extend(["MouseLeft", "MouseRight", "MouseMiddle"].map(String::from));
+        let editor: Vec<String> = copperframe_assets::input::BUTTON_NAMES
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        assert_eq!(names, editor);
+        let defaults = copperframe_assets::input::InputMap::default();
+        let ours = Bindings::default();
+        assert_eq!(
+            Bindings::parse(&defaults.to_json(), "editor defaults").unwrap(),
+            ours
+        );
+    }
 }

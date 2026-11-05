@@ -23,6 +23,7 @@ use crate::dock::{Dock, Pane, PaneContents};
 use crate::gameplay::{self, GameTools};
 use crate::gizmo::{Tool, ToolPrefs};
 use crate::hub::{self, RecentProject};
+use crate::project_settings::ProjectSettingsPanel;
 use crate::reporting::Reporting;
 use crate::session::{EditorSession, LogLevel, SaveOutcome};
 use crate::viewport::{EditorCamera, snap};
@@ -62,6 +63,12 @@ impl Action {
         )
     }
 
+    /// Whether the action closes the project (so unsaved project settings
+    /// would be lost).
+    fn leaves_project(&self) -> bool {
+        self.leaves_scene() && !matches!(self, Action::OpenScene(_))
+    }
+
     fn verb(&self) -> &'static str {
         match self {
             Action::Quit => "quit",
@@ -90,6 +97,7 @@ pub struct UiState {
     /// The panel layout.
     pub dock: Dock,
     pub assets: AssetsPanel,
+    pub project_settings: ProjectSettingsPanel,
     keep_world_on_reparent: bool,
     name_buffer: Option<(EntityId, String)>,
     pub(crate) drag: Option<GizmoDrag>,
@@ -115,6 +123,7 @@ impl Default for UiState {
             prefs: ToolPrefs::default(),
             dock: Dock::default(),
             assets: AssetsPanel::default(),
+            project_settings: ProjectSettingsPanel::default(),
             keep_world_on_reparent: true,
             name_buffer: None,
             drag: None,
@@ -141,7 +150,7 @@ impl UiState {
     /// Asks before closing when there are unsaved changes. Returns true if
     /// the app may quit now.
     pub fn request_close(&mut self, session: &EditorSession) -> bool {
-        if session.is_dirty() {
+        if self.loses_edits(session, &Action::Quit) {
             self.confirm = Some(Action::Quit);
             false
         } else {
@@ -149,9 +158,16 @@ impl UiState {
         }
     }
 
+    /// Whether `action` would throw away unsaved scene edits or project
+    /// settings.
+    fn loses_edits(&self, session: &EditorSession, action: &Action) -> bool {
+        (action.leaves_scene() && session.is_dirty())
+            || (action.leaves_project() && self.project_settings.is_dirty())
+    }
+
     /// Queues `action`, asking first if it would discard unsaved edits.
     pub fn request(&mut self, session: &EditorSession, action: Action, actions: &mut Vec<Action>) {
-        if action.leaves_scene() && session.is_dirty() {
+        if self.loses_edits(session, &action) {
             self.confirm = Some(action);
         } else {
             actions.push(action);
@@ -223,6 +239,11 @@ impl PaneContents for Panes<'_> {
                     .show(ui, self.session, self.camera, self.resources, self.actions);
             }
             Pane::Console => console(ui, self.session),
+            Pane::ProjectSettings => {
+                self.state
+                    .project_settings
+                    .show(ui, self.session, self.tools);
+            }
         }
     }
 }
@@ -530,6 +551,13 @@ fn file_menu(
             }
         });
     });
+    if ui
+        .button("Project Settings…")
+        .on_hover_text("Name, start scene, window, look, keys and export options")
+        .clicked()
+    {
+        state.dock.set_open(Pane::ProjectSettings, true);
+    }
     if ui
         .button("Close Project")
         .on_hover_text("Back to the project hub")
@@ -1445,17 +1473,31 @@ fn modals(
     actions: &mut Vec<Action>,
 ) {
     if let Some(pending) = state.confirm.clone() {
+        let scene = pending.leaves_scene() && session.is_dirty();
+        let settings = pending.leaves_project() && state.project_settings.is_dirty();
         egui::Modal::new(egui::Id::unique("copperframe-confirm-close")).show(ctx, |ui| {
             ui.heading("Unsaved changes");
+            let what = match (scene, settings) {
+                (true, true) => format!(
+                    "{} and the project settings have",
+                    session.project.relative(&session.scene_path)
+                ),
+                (false, true) => "The project settings have".to_owned(),
+                _ => format!("{} has", session.project.relative(&session.scene_path)),
+            };
             ui.label(format!(
-                "{} has unsaved changes. Save them before you {}?",
-                session.project.relative(&session.scene_path),
+                "{what} unsaved changes. Save them before you {}?",
                 pending.verb()
             ));
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {
-                    save(session, state, false);
-                    if !session.is_dirty() {
+                    if scene {
+                        save(session, state, false);
+                    }
+                    if settings {
+                        state.project_settings.save(session);
+                    }
+                    if !state.loses_edits(session, &pending) {
                         actions.push(pending.clone());
                     }
                     state.confirm = None;

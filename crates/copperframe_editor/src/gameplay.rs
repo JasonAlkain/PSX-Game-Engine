@@ -104,13 +104,7 @@ pub struct GameTools {
 impl GameTools {
     pub fn new(session: &mut EditorSession) -> Self {
         let (tx, rx) = channel();
-        let export_dir = session
-            .project
-            .root
-            .join("dist")
-            .join(file_slug(&session.project.file.name))
-            .display()
-            .to_string();
+        let export_dir = session.project.export_dir().display().to_string();
         let mut tools = Self {
             tx,
             rx,
@@ -452,6 +446,11 @@ impl GameTools {
         };
         let project = session.project.clone();
         let out = PathBuf::from(self.export_dir.trim());
+        let check = project
+            .file
+            .build
+            .check_after_export
+            .then(|| project.export_check_script());
         session.info(format!("exporting to {} …", out.display()));
         self.spawn_job(Job::Export, move |log| {
             let options = ExportOptions {
@@ -459,14 +458,21 @@ impl GameTools {
                 replace: true,
                 notices,
             };
-            let result = export(&project, &target, &options, log)
-                .and_then(|r| verify_export(&r.executable, None, 120).map(|_| r));
+            let result = export(&project, &target, &options, log).and_then(|r| match &check {
+                Some(script) => verify_export(&r.executable, script.as_deref(), 120).map(|_| r),
+                None => Ok(r),
+            });
+            let checked = if check.is_some() {
+                " and checked that it starts"
+            } else {
+                ""
+            };
             match result {
                 Ok(r) => JobResult {
                     job: Job::Export,
                     passed: true,
                     headline: format!(
-                        "exported to {} ({} files, {:.1} MiB) and checked that it starts",
+                        "exported to {} ({} files, {:.1} MiB){checked}",
                         r.out.display(),
                         r.files,
                         r.bytes as f64 / (1024.0 * 1024.0)
@@ -658,15 +664,6 @@ fn strip_ansi(s: &str) -> String {
         }
     }
     out
-}
-
-fn file_slug(name: &str) -> String {
-    let s: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    let s = s.trim_matches('_').to_owned();
-    if s.is_empty() { "game".into() } else { s }
 }
 
 // ---------------------------------------------------------------------------

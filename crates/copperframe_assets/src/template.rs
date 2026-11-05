@@ -199,7 +199,14 @@ fn copy_demo_data(demo: &Path, project: &mut Project) -> Result<(), String> {
             copy_dir(&from, &root.join(dir))?;
         }
     }
+    let input = demo.join(crate::input::INPUT_FILE);
+    if input.is_file() {
+        let to = root.join(crate::input::INPUT_FILE);
+        std::fs::copy(&input, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+    }
     project.file.startup_scene = source.file.startup_scene;
+    project.file.display = source.file.display;
+    project.file.style = source.file.style;
     project.save().map_err(|e| e.to_string())
 }
 

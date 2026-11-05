@@ -5,6 +5,7 @@ use egui::{Align, Color32, DragValue, Layout, RichText};
 
 use copperframe_runtime::scene_gpu::SceneResources;
 
+use crate::dock::Pane;
 use crate::gameplay::GameTools;
 use crate::gizmo::{Space, Tool, ViewLook};
 use crate::icons::{self, Icon};
@@ -168,6 +169,18 @@ pub fn show(
         .clicked()
         {
             tools.play(session);
+        }
+        ui.separator();
+        let open = state.dock.is_open(Pane::ProjectSettings);
+        if icons::button(
+            ui,
+            Icon::Cog,
+            open,
+            "Project settings: name, start scene, window, look, keys, export",
+        )
+        .clicked()
+        {
+            state.dock.set_open(Pane::ProjectSettings, !open);
         }
         if let Some(busy) = tools.busy_label() {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
