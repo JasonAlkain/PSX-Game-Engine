@@ -97,7 +97,19 @@ A sound played from the entity.
 A list of `{kind, params}` entries naming gameplay code, for example
 `{"kind": "psx.player"}` or `{"kind": "room.lever", "params": {"target":
 "<entity id>"}}`. The game executable registers the kinds and their
-parameters. See [Behaviours and game code](behaviours.md).
+parameters. See [Behaviours and game code](behaviours.md). Behaviours run
+in list order.
+
+### Component order
+
+`component_order` (scene version 5, optional) is the order the inspector
+lists the entity's components in, for example `["behavior:room.lever",
+"mesh", "collider"]`. Keys are `mesh`, `animator`, `light`, `shadow`,
+`collider`, `audio` and `behavior:<kind>`. Components it leaves out follow
+in the default order. It may only name components the entity has, each
+once; removing a component drops it from the list. The editor writes it
+when you reorder cards, and keeps `behaviors` sorted the same way. Batches
+set it with `set_component_order`.
 
 ### Point light
 

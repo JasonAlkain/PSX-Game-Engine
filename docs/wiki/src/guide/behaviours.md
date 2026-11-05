@@ -109,6 +109,26 @@ and adds a warning naming the entity. Warnings appear in the game's log
 After changing fields, use **Game > Reload behaviour kinds** in the editor
 (or just press Play) so the inspector picks them up.
 
+## Folders in the Add component menu
+
+Register a kind with `register_in` instead of `register` to file it in a
+folder under **Behaviours** in the editor's Add component menu. Separate
+nested folders with `/`:
+
+```rust
+r.register_in("Puzzles/Doors", BehaviorDescriptor {
+    kind: "mygame.sliding_door",
+    // ...
+});
+```
+
+Kinds registered with plain `register` are listed directly under
+Behaviours. The engine's own kinds are in **Engine** (`Engine/Player`,
+`Engine/Camera`, `Engine/Motion`), and the Lever Room files its kinds under
+**Lever Room**. The folder is only for the menu: scenes still name the kind,
+so you can move a kind between folders without touching any scene. The
+`--schema` output carries it as an optional `folder` on each behaviour.
+
 ## The `Behavior` trait
 
 Every method is optional.

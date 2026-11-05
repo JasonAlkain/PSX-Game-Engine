@@ -26,6 +26,7 @@
 
 pub mod app;
 pub mod assets_panel;
+pub mod components;
 pub mod dock;
 pub mod gameplay;
 pub mod gizmo;

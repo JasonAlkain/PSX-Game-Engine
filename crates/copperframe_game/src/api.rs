@@ -151,6 +151,8 @@ impl Params {
 #[derive(Default, Clone)]
 pub struct Registry {
     kinds: BTreeMap<&'static str, BehaviorDescriptor>,
+    /// Folder paths for the editor's Add component menu, by kind.
+    folders: BTreeMap<&'static str, &'static str>,
 }
 
 /// Version of the schema document [`Registry::schema`] emits.
@@ -170,7 +172,28 @@ impl Registry {
         if self.kinds.contains_key(descriptor.kind) {
             tracing::warn!("behaviour kind `{}` registered twice", descriptor.kind);
         }
+        self.folders.remove(descriptor.kind);
         self.kinds.insert(descriptor.kind, descriptor);
+    }
+
+    /// Like [`Registry::register`], filing the kind under `folder` in the
+    /// editor's Add component menu. Separate nested folders with `/`, e.g.
+    /// `"Puzzles/Doors"`. Kinds registered without a folder are listed
+    /// directly under Behaviours.
+    pub fn register_in(&mut self, folder: &'static str, descriptor: BehaviorDescriptor) {
+        let kind = descriptor.kind;
+        self.register(descriptor);
+        let folder = folder.trim_matches('/');
+        if folder.is_empty() {
+            self.folders.remove(kind);
+        } else {
+            self.folders.insert(kind, folder);
+        }
+    }
+
+    /// The folder `kind` was registered in, if any.
+    pub fn folder(&self, kind: &str) -> Option<&'static str> {
+        self.folders.get(kind).copied()
     }
 
     pub fn get(&self, kind: &str) -> Option<&BehaviorDescriptor> {
@@ -224,12 +247,24 @@ impl Registry {
 
     /// Versioned description of every behaviour kind, emitted by game
     /// executables with `--schema` and read by the editor and the CLI.
+    /// A kind registered with [`Registry::register_in`] has a `folder`.
     pub fn schema(&self, game: &str) -> Value {
+        let behaviors: Vec<Value> = self
+            .kinds
+            .values()
+            .map(|d| {
+                let mut v = serde_json::to_value(d).unwrap_or(Value::Null);
+                if let (Some(folder), Some(o)) = (self.folder(d.kind), v.as_object_mut()) {
+                    o.insert("folder".into(), Value::from(folder));
+                }
+                v
+            })
+            .collect();
         serde_json::json!({
             "format": "psx_game_schema",
             "version": SCHEMA_VERSION,
             "game": game,
-            "behaviors": self.kinds.values().collect::<Vec<_>>(),
+            "behaviors": behaviors,
         })
     }
 }
@@ -307,7 +342,23 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|b| b["kind"] == "psx.player")
+                .any(|b| b["kind"] == "psx.player" && b["folder"] == "Engine/Player")
+        );
+    }
+
+    #[test]
+    fn folders_follow_the_latest_registration() {
+        let mut r = Registry::with_builtins();
+        let spin = r.get("psx.spin").unwrap().clone();
+        r.register_in("/Fun/Motion/", spin.clone());
+        assert_eq!(r.folder("psx.spin"), Some("Fun/Motion"));
+        r.register(spin);
+        assert_eq!(r.folder("psx.spin"), None);
+        let schema = r.schema("t");
+        let b = schema["behaviors"].as_array().unwrap();
+        assert!(
+            b.iter()
+                .any(|b| b["kind"] == "psx.spin" && b.get("folder").is_none())
         );
     }
 }

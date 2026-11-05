@@ -21,8 +21,8 @@ use copperframe_assets::game::{
 };
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
-    AudioBus, AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
-    Command, Entity, MeshSource, PrimitiveShape,
+    AudioBus, BodyKind, ColliderComponent, ColliderShape, Command, Entity, MeshSource,
+    PrimitiveShape,
 };
 use egui::Color32;
 use glam::Vec3;
@@ -669,7 +669,7 @@ fn strip_ansi(s: &str) -> String {
 // ---------------------------------------------------------------------------
 // Inspectors
 
-/// A collider that fits the entity's mesh, for "+ Collider".
+/// A collider that fits the entity's mesh, for Add component > Collider.
 pub fn default_collider(entity: &Entity) -> ColliderComponent {
     let boxed = |size: Vec3| ColliderComponent::new(ColliderShape::Box { size }, BodyKind::Static);
     match entity.mesh.as_ref().map(|m| &m.source) {
@@ -712,14 +712,7 @@ fn vec3_row(ui: &mut egui::Ui, label: &str, v: Vec3, speed: f64) -> (Vec3, bool,
 
 pub fn collider_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &Entity) {
     let id = entity.id;
-    ui.label(egui::RichText::new("Collider").strong());
     let Some(original) = entity.collider else {
-        if ui.button("+ Collider").clicked() {
-            session.execute(Command::SetCollider {
-                id,
-                collider: Some(default_collider(entity)),
-            });
-        }
         return;
     };
     let mut c = original;
@@ -823,9 +816,6 @@ pub fn collider_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &
     if done {
         session.end_merge();
     }
-    if ui.button("Remove collider").clicked() {
-        session.execute(Command::SetCollider { id, collider: None });
-    }
 }
 
 pub fn audio_editor(
@@ -835,26 +825,7 @@ pub fn audio_editor(
     sounds: &[(AssetId, String)],
 ) {
     let id = entity.id;
-    ui.label(egui::RichText::new("Audio source").strong());
     let Some(original) = entity.audio else {
-        if sounds.is_empty() {
-            ui.label(
-                egui::RichText::new("add .wav or .ogg files to assets/ to use sounds").small(),
-            );
-            return;
-        }
-        egui::ComboBox::from_id_salt("add-audio")
-            .selected_text("+ Audio source…")
-            .show_ui(ui, |ui| {
-                for (asset, path) in sounds {
-                    if ui.selectable_label(false, path).clicked() {
-                        session.execute(Command::SetAudio {
-                            id,
-                            audio: Some(AudioSourceComponent::new(*asset)),
-                        });
-                    }
-                }
-            });
         return;
     };
     let mut a = original;
@@ -925,9 +896,6 @@ pub fn audio_editor(
     if done {
         session.end_merge();
     }
-    if ui.button("Remove audio source").clicked() {
-        session.execute(Command::SetAudio { id, audio: None });
-    }
 }
 
 fn descriptor<'a>(schema: Option<&'a Value>, kind: &str) -> Option<&'a Value> {
@@ -937,37 +905,39 @@ fn descriptor<'a>(schema: Option<&'a Value>, kind: &str) -> Option<&'a Value> {
         .find(|b| b["kind"] == kind)
 }
 
-pub fn behaviors_editor(
+/// The behaviour kinds the game registers, for the Add component menu:
+/// `(kind, folder, description)`.
+pub fn behavior_kinds(schema: &Value) -> Vec<(String, String, String)> {
+    schema["behaviors"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|b| {
+            Some((
+                b["kind"].as_str()?.to_owned(),
+                b["folder"].as_str().unwrap_or("").to_owned(),
+                b["description"].as_str().unwrap_or("").to_owned(),
+            ))
+        })
+        .collect()
+}
+
+/// The fields of the entity's behaviour of `kind`. `schema` is the game's
+/// behaviour schema when known.
+pub fn behavior_editor(
     ui: &mut egui::Ui,
     session: &mut EditorSession,
     tools: &mut GameTools,
     entity: &Entity,
+    kind: &str,
 ) {
     let id = entity.id;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Behaviours").strong());
-        if ui
-            .small_button("Reload")
-            .on_hover_text("Reload behaviour kinds from the game")
-            .clicked()
-        {
-            tools.refresh_schema(session);
-        }
-    });
+    let Some(i) = entity.behaviors.iter().position(|b| b.kind == kind) else {
+        return;
+    };
     let schema = tools.schema().cloned();
-    if schema.is_none() {
-        ui.label(
-            egui::RichText::new(if tools.busy_label().is_some() {
-                "reading the game's behaviour kinds…"
-            } else {
-                "behaviour kinds unknown: press Reload (builds the game)"
-            })
-            .small(),
-        );
-    }
     let original = entity.behaviors.clone();
     let mut list = original.clone();
-    let mut remove = None;
     let mut done = false;
     let names: Vec<(EntityId, String)> = session
         .scene
@@ -975,129 +945,106 @@ pub fn behaviors_editor(
         .iter()
         .map(|e| (e.id, e.name.clone()))
         .collect();
-    for (i, b) in list.iter_mut().enumerate() {
-        let d = descriptor(schema.as_ref(), &b.kind);
-        egui::Frame::group(ui.style()).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(&b.kind).monospace());
-                if ui.small_button("Remove").clicked() {
-                    remove = Some(i);
+    let b = &mut list[i];
+    let Some(d) = descriptor(schema.as_ref(), &b.kind) else {
+        if schema.is_some() {
+            ui.colored_label(
+                Color32::from_rgb(235, 90, 80),
+                "not registered by this game: the scene will not play",
+            );
+        } else if tools.busy_label().is_some() {
+            ui.label(egui::RichText::new("reading the game's behaviour kinds…").small());
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("fields unknown until the game is built.").small());
+                if ui
+                    .small_button("Load behaviour kinds")
+                    .on_hover_text("Builds the game and reads its behaviour kinds")
+                    .clicked()
+                {
+                    tools.refresh_schema(session);
                 }
             });
-            let Some(d) = d else {
-                if schema.is_some() {
-                    ui.colored_label(
-                        Color32::from_rgb(235, 90, 80),
-                        "not registered by this game: the scene will not play",
-                    );
-                }
-                for (k, v) in &b.params {
-                    ui.label(format!("{k} = {v}"));
-                }
-                return;
-            };
-            if let Some(text) = d["description"].as_str() {
-                ui.label(egui::RichText::new(text).small().weak());
-            }
-            for f in d["fields"].as_array().into_iter().flatten() {
-                let Some(name) = f["name"].as_str() else {
-                    continue;
-                };
-                let default = &f["default"];
-                let current = b
-                    .params
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| default.clone());
-                let help = f["help"].as_str().unwrap_or("");
-                let mut new = None;
-                ui.horizontal(|ui| {
-                    ui.label(name).on_hover_text(help);
-                    match f["kind"].as_str() {
-                        Some("number") => {
-                            let mut v = current.as_f64().unwrap_or(0.0);
-                            let r =
-                                ui.add(egui::DragValue::new(&mut v).speed(0.01).max_decimals(3));
-                            if r.changed() {
-                                new = Some(Value::from(v));
-                            }
-                            done |= r.drag_stopped() || r.lost_focus();
-                        }
-                        Some("bool") => {
-                            let mut v = current.as_bool().unwrap_or(false);
-                            if ui.checkbox(&mut v, "").changed() {
-                                new = Some(Value::from(v));
-                                done = true;
-                            }
-                        }
-                        Some("text") => {
-                            let mut v = current.as_str().unwrap_or("").to_owned();
-                            let r = ui.text_edit_singleline(&mut v);
-                            if r.changed() {
-                                new = Some(Value::from(v));
-                            }
-                            done |= r.lost_focus();
-                        }
-                        Some("entity") => {
-                            let cur: Option<EntityId> =
-                                current.as_str().and_then(|s| s.parse().ok());
-                            let label = cur
-                                .and_then(|c| names.iter().find(|(i, _)| *i == c))
-                                .map_or("(none)".to_owned(), |(_, n)| n.clone());
-                            egui::ComboBox::from_id_salt(("behaviour-entity", i, name))
-                                .selected_text(label)
-                                .show_ui(ui, |ui| {
-                                    if ui.selectable_label(cur.is_none(), "(none)").clicked() {
-                                        new = Some(Value::from(""));
-                                    }
-                                    for (eid, n) in &names {
-                                        if ui.selectable_label(cur == Some(*eid), n).clicked() {
-                                            new = Some(Value::from(eid.to_string()));
-                                        }
-                                    }
-                                });
-                            done |= new.is_some();
-                        }
-                        _ => {
-                            ui.label(current.to_string());
-                        }
+        }
+        for (k, v) in &b.params {
+            ui.label(format!("{k} = {v}"));
+        }
+        return;
+    };
+    if let Some(text) = d["description"].as_str() {
+        ui.label(egui::RichText::new(text).small().weak());
+    }
+    for f in d["fields"].as_array().into_iter().flatten() {
+        let Some(name) = f["name"].as_str() else {
+            continue;
+        };
+        let default = &f["default"];
+        let current = b
+            .params
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| default.clone());
+        let help = f["help"].as_str().unwrap_or("");
+        let mut new = None;
+        ui.horizontal(|ui| {
+            ui.label(name).on_hover_text(help);
+            match f["kind"].as_str() {
+                Some("number") => {
+                    let mut v = current.as_f64().unwrap_or(0.0);
+                    let r = ui.add(egui::DragValue::new(&mut v).speed(0.01).max_decimals(3));
+                    if r.changed() {
+                        new = Some(Value::from(v));
                     }
-                });
-                if let Some(v) = new {
-                    if &v == default {
-                        b.params.remove(name);
-                    } else {
-                        b.params.insert(name.to_owned(), v);
+                    done |= r.drag_stopped() || r.lost_focus();
+                }
+                Some("bool") => {
+                    let mut v = current.as_bool().unwrap_or(false);
+                    if ui.checkbox(&mut v, "").changed() {
+                        new = Some(Value::from(v));
+                        done = true;
                     }
+                }
+                Some("text") => {
+                    let mut v = current.as_str().unwrap_or("").to_owned();
+                    let r = ui.text_edit_singleline(&mut v);
+                    if r.changed() {
+                        new = Some(Value::from(v));
+                    }
+                    done |= r.lost_focus();
+                }
+                Some("entity") => {
+                    let cur: Option<EntityId> = current.as_str().and_then(|s| s.parse().ok());
+                    let label = cur
+                        .and_then(|c| names.iter().find(|(i, _)| *i == c))
+                        .map_or("(none)".to_owned(), |(_, n)| n.clone());
+                    egui::ComboBox::from_id_salt(("behaviour-entity", kind, name))
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(cur.is_none(), "(none)").clicked() {
+                                new = Some(Value::from(""));
+                            }
+                            for (eid, n) in &names {
+                                if ui.selectable_label(cur == Some(*eid), n).clicked() {
+                                    new = Some(Value::from(eid.to_string()));
+                                }
+                            }
+                        });
+                    done |= new.is_some();
+                }
+                _ => {
+                    ui.label(current.to_string());
                 }
             }
         });
-    }
-    if let Some(i) = remove {
-        list.remove(i);
-        done = true;
-    }
-    // Add a kind the entity does not have yet.
-    if let Some(kinds) = schema.as_ref().and_then(|s| s["behaviors"].as_array()) {
-        let available: Vec<&str> = kinds
-            .iter()
-            .filter_map(|k| k["kind"].as_str())
-            .filter(|k| !list.iter().any(|b| b.kind == *k))
-            .collect();
-        if !available.is_empty() {
-            egui::ComboBox::from_id_salt("add-behaviour")
-                .selected_text("+ Behaviour…")
-                .show_ui(ui, |ui| {
-                    for k in available {
-                        if ui.selectable_label(false, k).clicked() {
-                            list.push(BehaviorComponent::new(k));
-                            done = true;
-                        }
-                    }
-                });
+        if let Some(v) = new {
+            if &v == default {
+                b.params.remove(name);
+            } else {
+                b.params.insert(name.to_owned(), v);
+            }
         }
     }
-    let key = format!("behaviours:{id}");
+    let key = format!("behaviour:{id}:{kind}");
     if list != original {
         session.execute_merging(
             Command::SetBehaviors {

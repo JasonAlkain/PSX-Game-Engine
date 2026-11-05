@@ -129,6 +129,13 @@ pub enum Command {
         id: EntityId,
         shadow: Option<ShadowComponent>,
     },
+    /// Sets the order the editor lists the entity's components in (keys
+    /// from [`Entity::component_keys`]); behaviours are sorted to match.
+    /// Components left out follow in the default order.
+    SetComponentOrder {
+        id: EntityId,
+        order: Vec<String>,
+    },
     /// Replaces any of the scene settings.
     SetSettings {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -158,12 +165,13 @@ impl Command {
             Command::SetLight { .. } => "set_light",
             Command::SetAnimator { .. } => "set_animator",
             Command::SetShadow { .. } => "set_shadow",
+            Command::SetComponentOrder { .. } => "set_component_order",
             Command::SetSettings { .. } => "set_settings",
         }
     }
 
     /// Every op with a one-line description, for `copperframe schema`.
-    pub const OPS: [(&'static str, &'static str); 15] = [
+    pub const OPS: [(&'static str, &'static str); 16] = [
         (
             "create_entity",
             "{id?, name, parent?, transform?, mesh?} -> created id",
@@ -211,6 +219,10 @@ impl Command {
         (
             "set_shadow",
             "{id, shadow (null removes): {radius?, offset?}}",
+        ),
+        (
+            "set_component_order",
+            "{id, order: [\"mesh\" | \"collider\" | ... | \"behavior:<kind>\"]} inspector order; behaviours run in it",
         ),
     ];
 }
@@ -533,6 +545,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.mesh = mesh.clone();
+                    e.prune_component_order();
                 }
                 Ok(())
             })
@@ -554,6 +567,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.collider = *collider;
+                    e.prune_component_order();
                 }
                 Ok(())
             })
@@ -563,6 +577,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.audio = *audio;
+                    e.prune_component_order();
                 }
                 Ok(())
             })
@@ -572,6 +587,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.light = *light;
+                    e.prune_component_order();
                 }
                 Ok(())
             })
@@ -581,6 +597,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.animator = animator.clone();
+                    e.prune_component_order();
                 }
                 Ok(())
             })
@@ -590,6 +607,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.shadow = *shadow;
+                    e.prune_component_order();
                 }
                 Ok(())
             })
@@ -599,6 +617,22 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.behaviors = behaviors.clone();
+                    e.prune_component_order();
+                }
+                Ok(())
+            })
+        }
+        Command::SetComponentOrder { id, order } => {
+            require(scene, *id)?;
+            let entity = scene.get(*id).expect("checked");
+            if let Some(k) = order.iter().find(|k| !entity.has_component(k)) {
+                return Err(CommandError::Invalid(format!(
+                    "the entity has no component `{k}`"
+                )));
+            }
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.set_component_order(order.clone());
                 }
                 Ok(())
             })
@@ -700,7 +734,7 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(Command::OPS.len(), 15);
+        assert_eq!(Command::OPS.len(), 16);
     }
 
     #[test]
@@ -941,5 +975,97 @@ mod tests {
         apply(&mut scene, &Command::DeleteEntity { id: new_door }).unwrap();
         apply(&mut scene, &Command::DeleteEntity { id: other }).unwrap();
         assert!(scene.problems().is_empty());
+    }
+
+    #[test]
+    fn component_order_sorts_behaviours_and_forgets_removed_components() {
+        use crate::components::{BehaviorComponent, LightComponent, ShadowComponent};
+        let mut scene = Scene::new("t");
+        let mut e = Entity::new("e");
+        e.light = Some(LightComponent::default());
+        e.shadow = Some(ShadowComponent::default());
+        e.behaviors = vec![BehaviorComponent::new("a"), BehaviorComponent::new("b")];
+        let id = e.id;
+        scene.entities.push(e);
+        let keys = |s: &Scene| s.get(id).unwrap().component_keys();
+        assert_eq!(
+            keys(&scene),
+            ["light", "shadow", "behavior:a", "behavior:b"]
+        );
+
+        let order: Vec<String> = ["behavior:b", "shadow", "light", "behavior:a"]
+            .map(str::to_owned)
+            .into();
+        let change = apply(
+            &mut scene,
+            &Command::SetComponentOrder {
+                id,
+                order: order.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(keys(&scene), order);
+        let kinds: Vec<&str> = scene
+            .get(id)
+            .unwrap()
+            .behaviors
+            .iter()
+            .map(|b| b.kind.as_str())
+            .collect();
+        assert_eq!(kinds, ["b", "a"]);
+        assert!(scene.problems().is_empty());
+
+        // Undo restores the old order exactly.
+        change.revert(&mut scene);
+        assert_eq!(
+            keys(&scene),
+            ["light", "shadow", "behavior:a", "behavior:b"]
+        );
+        change.reapply(&mut scene);
+
+        // Removing and re-adding a component puts it at the end.
+        apply(&mut scene, &Command::SetShadow { id, shadow: None }).unwrap();
+        assert!(
+            !scene
+                .get(id)
+                .unwrap()
+                .component_order
+                .contains(&"shadow".to_owned())
+        );
+        apply(
+            &mut scene,
+            &Command::SetShadow {
+                id,
+                shadow: Some(ShadowComponent::default()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            keys(&scene),
+            ["behavior:b", "light", "behavior:a", "shadow"]
+        );
+
+        // Unknown or missing components are refused.
+        let bad = Command::SetComponentOrder {
+            id,
+            order: vec!["mesh".into()],
+        };
+        assert!(matches!(
+            apply(&mut scene, &bad),
+            Err(CommandError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn hand_written_component_order_is_checked() {
+        let mut e = Entity::new("e");
+        e.component_order = vec!["collider".into()];
+        assert!(e.local_problems().iter().any(|p| p.contains("collider")));
+        e.collider = Some(crate::components::ColliderComponent::new(
+            crate::components::ColliderShape::Sphere { radius: 0.5 },
+            crate::components::BodyKind::Static,
+        ));
+        e.component_order.push("collider".into());
+        assert!(e.local_problems().iter().any(|p| p.contains("twice")));
     }
 }

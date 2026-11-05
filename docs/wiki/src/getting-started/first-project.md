@@ -71,9 +71,10 @@ The first Play compiles the game crate, so it takes a while.
 moves an entity up and down. In the editor:
 
 1. Select the cube you created.
-2. In the inspector's **Behaviours** section, add `game.bob`. If the list
-   is empty, use **Game > Reload behaviour kinds** so the editor rebuilds
-   the game and reads which behaviours it registers.
+2. In the inspector, click **Add component** and pick **Behaviours >
+   Gameplay > Bob** (or type `bob` in the search field). If the Behaviours
+   folder only offers **Load behaviour kinds**, click it so the editor
+   builds the game and reads which behaviours it registers.
 3. Set `height` and `speed`, then **Play**.
 
 To write your own, add a `BehaviorDescriptor` in `register` and a type that

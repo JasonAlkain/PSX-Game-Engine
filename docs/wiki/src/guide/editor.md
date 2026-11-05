@@ -148,12 +148,53 @@ settings is unrelated: it is the PS1 wobble effect (see
 
 ## The inspector
 
-With an entity selected, the inspector shows, top to bottom:
+With an entity selected, the inspector shows **Name**, **Parent** and
+**Transform** at the top, then one card per component, then the **Add
+component** button.
 
 - **Name** and **Parent**. Changing the parent keeps the entity where it
   is in the world unless you untick *keep world position*.
 - **Transform**: position (metres), rotation (Euler degrees, applied as
   yaw Y, then pitch X, then roll Z) and scale.
+
+### Component cards
+
+Each component is a card. Its coloured left edge tells you which folder of
+the Add component menu it comes from (copper for Rendering, yellow for
+Lighting, green for Physics, blue for Audio, violet for Behaviours).
+
+| In the card header | What it does |
+| --- | --- |
+| Triangle | Folds the card away (remembered per entity) |
+| Dotted handle and title | Drag onto another card to move it there; a copper line shows where it will land |
+| Up and down arrows | Move the card one place |
+| Bin | Removes the component (undo brings it back) |
+| Right-click | Move to top, Move up, Move down, Move to bottom, Remove |
+
+The order is saved with the scene. Behaviours also **run** in this order
+each frame, so put the one that should act first higher up.
+
+### Add component
+
+**Add component** opens a menu of folders:
+
+| Folder | Contains |
+| --- | --- |
+| Rendering | **Mesh** (Cube, Sphere, Plane, Quad, or a Model from `assets/`), **Animator** (pick a clip; needs a skinned model) |
+| Lighting | **Point light**, **Blob shadow** |
+| Physics | **Collider** (sized to fit the mesh) |
+| Audio | **Audio source** (pick a sound from `assets/`) |
+| Behaviours | The game's behaviours, in the folders the game files them in (see [Behaviours and game code](behaviours.md#folders-in-the-add-component-menu)), plus **Reload behaviour kinds** |
+
+Type in the search field at the top to list every match instead, with its
+folder next to it; `Enter` adds the first match. Entries the entity cannot
+take are greyed out, and hovering one says why (it already has one, or
+there are no sounds in `assets/` yet). Before the game has been built the
+Behaviours folder offers **Load behaviour kinds**, which builds it and reads
+the kinds it registers.
+
+### What the cards edit
+
 - **Mesh**: a primitive shape with an optional texture, or an imported
   model. **Tile texture** repeats a primitive's texture by its size in the
   world, so scaling it does not stretch the texture; the value is the metres
@@ -166,15 +207,13 @@ With an entity selected, the inspector shows, top to bottom:
   friction.
 - **Audio source**: sound, bus (effects or music), loop, autoplay, 3D,
   volume in dB and the min/max distance.
-- **Behaviours**: the list of gameplay behaviours with their fields. The
-  fields come from the game's own schema; **Reload** rebuilds the game and
-  reads it again.
+- **Behaviours**: one card per behaviour with its fields, which come from
+  the game's own schema.
 - **Point light**, **Blob shadow** and **Animator** (clip, speed, loop,
-  autoplay; needs a skinned model). The viewport previews autoplaying clips.
+  autoplay). The viewport previews autoplaying clips.
 
-Each section has a **+** button to add it and a **Remove** button. Hints
-appear when something will not show, for example a light in a scene whose
-style has local lights turned off.
+Hints appear when something will not show, for example a light in a scene
+whose style has local lights turned off.
 
 See [Scenes, entities and components](scenes.md) for what every field means.
 

@@ -3,9 +3,7 @@
 //! value is dragged).
 
 use copperframe_runtime::scene_gpu::SceneResources;
-use copperframe_scene::{
-    AnimatorComponent, Command, Entity, LightComponent, MeshSource, ShadowComponent,
-};
+use copperframe_scene::{Command, Entity, MeshSource};
 use glam::Vec3;
 
 use crate::session::EditorSession;
@@ -16,14 +14,7 @@ fn finished(r: &egui::Response) -> bool {
 
 pub fn light_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &Entity) {
     let id = entity.id;
-    ui.label(egui::RichText::new("Point light").strong());
     let Some(original) = entity.light else {
-        if ui.button("+ Point light").clicked() {
-            session.execute(Command::SetLight {
-                id,
-                light: Some(LightComponent::default()),
-            });
-        }
         return;
     };
     let mut l = original;
@@ -66,21 +57,11 @@ pub fn light_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &Ent
     if done {
         session.end_merge();
     }
-    if ui.button("Remove light").clicked() {
-        session.execute(Command::SetLight { id, light: None });
-    }
 }
 
 pub fn shadow_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &Entity) {
     let id = entity.id;
-    ui.label(egui::RichText::new("Blob shadow").strong());
     let Some(original) = entity.shadow else {
-        if ui.button("+ Blob shadow").clicked() {
-            session.execute(Command::SetShadow {
-                id,
-                shadow: Some(ShadowComponent::default()),
-            });
-        }
         return;
     };
     let mut s = original;
@@ -123,13 +104,10 @@ pub fn shadow_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &En
     if done {
         session.end_merge();
     }
-    if ui.button("Remove shadow").clicked() {
-        session.execute(Command::SetShadow { id, shadow: None });
-    }
 }
 
 /// Clip names of the entity's model when it is loaded and skinned.
-fn clips_of(resources: &SceneResources, entity: &Entity) -> Option<Vec<String>> {
+pub fn clips_of(resources: &SceneResources, entity: &Entity) -> Option<Vec<String>> {
     let Some(MeshSource::Model { asset }) = entity.mesh.as_ref().map(|m| &m.source) else {
         return None;
     };
@@ -144,30 +122,8 @@ pub fn animator_editor(
     entity: &Entity,
 ) {
     let id = entity.id;
-    ui.label(egui::RichText::new("Animator").strong());
     let clips = clips_of(resources, entity);
     let Some(original) = entity.animator.clone() else {
-        match &clips {
-            Some(clips) if !clips.is_empty() => {
-                egui::ComboBox::from_id_salt("add-animator")
-                    .selected_text("+ Animator…")
-                    .show_ui(ui, |ui| {
-                        for c in clips {
-                            if ui.selectable_label(false, c).clicked() {
-                                session.execute(Command::SetAnimator {
-                                    id,
-                                    animator: Some(AnimatorComponent::new(c.clone())),
-                                });
-                            }
-                        }
-                    });
-            }
-            _ => {
-                ui.label(
-                    egui::RichText::new("needs a model with a skin and animation clips").small(),
-                );
-            }
-        }
         return;
     };
     let mut a = original.clone();
@@ -211,8 +167,5 @@ pub fn animator_editor(
     }
     if done {
         session.end_merge();
-    }
-    if ui.button("Remove animator").clicked() {
-        session.execute(Command::SetAnimator { id, animator: None });
     }
 }
