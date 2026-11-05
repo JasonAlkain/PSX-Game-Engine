@@ -9,7 +9,7 @@ Not verified) with the date, machine, GPU and driver.
 | Platform | Build | Automated tests | Windowed runtime | Evidence |
 | --- | --- | --- | --- | --- |
 | Linux x86-64 (Ubuntu 24.04, X11) | yes | all, GPU tests on Mesa lavapipe (CI and container) | editor, player and sandbox under Xvfb with lavapipe; no hardware GPU | STATUS Verification record; `copperframe bench` numbers below |
-| Windows 11 x86-64 (primary target) | CI (`windows-latest`): clippy, tests, release build | CI; GPU tests run only if the runner exposes an adapter (WARP), otherwise print `SKIPPED` | not run | — |
+| Windows 11 x86-64 (primary target) | CI (`windows-latest`): clippy, tests, release build; release build on an RTX 5090 machine | CI; on the RTX 5090 all but `color_reduction_and_dither` pass | sandbox, editor and player opened and closed by `--frames` (player in debug, see Defender in STATUS); hand checks not done | STATUS Windows 11 run (2026-11-05) |
 | macOS | not built | not run | not run | — |
 
 Software adapters (lavapipe, WARP) are correct but slow; performance
