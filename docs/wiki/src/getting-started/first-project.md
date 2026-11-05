@@ -60,8 +60,9 @@ See [The editor](../guide/editor.md) for everything else.
 
 Press **Play** (or `F5`). The editor builds your game crate and runs it in
 a separate window on a copy of the current scene, including unsaved edits.
-The game's log appears in the editor's **Console**. Press **Stop** (or `F5`)
-to end it. Play never changes your scene file.
+The game's log appears in the editor's **Console**. **Pause** (`F6`)
+freezes it and **Step** (`F7`) advances it one tick at a time. Press
+**Stop** (or `F5`) to end it. Play never changes your scene file.
 
 The first Play compiles the game crate, so it takes a while.
 

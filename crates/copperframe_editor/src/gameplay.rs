@@ -5,20 +5,24 @@
 //!
 //! Play never touches the authored scene: the current in-memory scene,
 //! including unsaved edits, is written to `.psx/play/` and the game is
-//! started with `--play --scene <that copy>`. Its output streams into the
-//! console. Stopping kills the process.
+//! started with `--play --scene <that copy> --control stdin`. Its output
+//! streams into the console. Pause, Resume and Step are commands on the
+//! game's stdin (`copperframe_assets::play_control`); Stop asks the game to
+//! close and kills it if it has not exited after [`STOP_GRACE`].
 
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::time::{Duration, Instant};
 
 use copperframe_assets::AssetKind;
 use copperframe_assets::export::{ExportOptions, Notices, export, verify_export};
 use copperframe_assets::game::{
     GameTarget, HeadlessRun, bench_summary, cached_schema, test_summary, write_schema_cache,
 };
+use copperframe_assets::play_control::{ControlCommand, PlayStatus, RunState};
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
     AudioBus, BodyKind, ColliderComponent, ColliderShape, Command, Entity, MeshSource,
@@ -33,8 +37,39 @@ use crate::session::{EditorSession, LogLevel};
 /// Folder (inside the project's `.psx/`) for play-mode scene copies.
 pub const PLAY_DIR: &str = ".psx/play";
 
+/// How long Stop waits for the game to close by itself (so scene unload
+/// and `Game::shutdown` run) before killing it.
+pub const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// A running Play session.
+struct PlaySession {
+    child: Child,
+    /// Commands to the game; `None` once Stop closed it.
+    stdin: Option<ChildStdin>,
+    /// The game's last report; `None` while it is still building or loading.
+    status: Option<PlayStatus>,
+    /// Set by Stop: kill the game if it is still running at this time.
+    kill_at: Option<Instant>,
+    /// Stop was pressed, so the exit (even a kill) is not a failure.
+    stopping: bool,
+}
+
+/// What the toolbar shows about the running game.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayState {
+    /// Building or loading; Pause and Step are not available yet.
+    Starting,
+    Running,
+    Paused {
+        tick: u64,
+    },
+    Stepping,
+    Stopping,
+}
+
 enum Msg {
     Log(LogLevel, String),
+    Status(PlayStatus),
     Schema(Result<Value, String>),
     JobDone(JobResult),
 }
@@ -85,7 +120,7 @@ pub struct JobResult {
 pub struct GameTools {
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
-    play: Option<Child>,
+    play: Option<PlaySession>,
     schema: Option<Value>,
     schema_busy: bool,
     job: Option<Job>,
@@ -164,6 +199,61 @@ impl GameTools {
         self.play.is_some()
     }
 
+    /// The running game's state, if a game is running.
+    pub fn play_state(&self) -> Option<PlayState> {
+        let p = self.play.as_ref()?;
+        if p.stopping {
+            return Some(PlayState::Stopping);
+        }
+        Some(match p.status.as_ref().map(|s| (s.state, s.tick)) {
+            None => PlayState::Starting,
+            Some((RunState::Running, _)) => PlayState::Running,
+            Some((RunState::Paused, tick)) => PlayState::Paused { tick },
+            Some((RunState::Stepping, _)) => PlayState::Stepping,
+            Some((RunState::Quitting, _)) => PlayState::Stopping,
+        })
+    }
+
+    /// Pauses a running game or resumes a paused one.
+    pub fn toggle_pause(&mut self, session: &mut EditorSession) {
+        let command = match self.play_state() {
+            Some(PlayState::Running) => ControlCommand::Pause,
+            Some(PlayState::Paused { .. } | PlayState::Stepping) => ControlCommand::Resume,
+            _ => return,
+        };
+        self.send(session, command);
+    }
+
+    /// Advances the game by one tick (pausing it first if it runs).
+    pub fn step(&mut self, session: &mut EditorSession) {
+        if matches!(
+            self.play_state(),
+            Some(PlayState::Running | PlayState::Paused { .. } | PlayState::Stepping)
+        ) {
+            self.send(session, ControlCommand::Step(1));
+        }
+    }
+
+    fn send(&mut self, session: &mut EditorSession, command: ControlCommand) {
+        let Some(p) = self.play.as_mut() else {
+            return;
+        };
+        let Some(stdin) = p.stdin.as_mut() else {
+            return;
+        };
+        let line = format!("{}\n", command.to_line());
+        if let Err(e) = stdin
+            .write_all(line.as_bytes())
+            .and_then(|()| stdin.flush())
+        {
+            session.warn(format!(
+                "could not send `{}` to the game: {e}",
+                command.to_line()
+            ));
+            p.stdin = None;
+        }
+    }
+
     pub fn busy_label(&self) -> Option<&'static str> {
         if let Some(job) = self.job {
             Some(job.busy())
@@ -184,6 +274,14 @@ impl GameTools {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
                 Msg::Log(level, text) => session.push_log(level, text),
+                Msg::Status(status) => {
+                    if let Some(e) = &status.error {
+                        session.warn(format!("game control: {e}"));
+                    }
+                    if let Some(p) = self.play.as_mut() {
+                        p.status = Some(status);
+                    }
+                }
                 Msg::Schema(result) => {
                     self.schema_busy = false;
                     match result {
@@ -210,16 +308,25 @@ impl GameTools {
                 }
             }
         }
-        if let Some(child) = &mut self.play {
-            match child.try_wait() {
+        if let Some(p) = &mut self.play {
+            if p.kill_at.is_some_and(|t| Instant::now() >= t) {
+                p.kill_at = None;
+                let _ = p.child.kill();
+                session.warn("the game did not close in time and was ended");
+            }
+            match p.child.try_wait() {
                 Ok(Some(status)) => {
-                    let level = if status.success() {
-                        LogLevel::Info
+                    if p.stopping {
+                        session.info("stopped the game");
                     } else {
-                        LogLevel::Error
-                    };
-                    session.push_log(level, format!("game exited ({status})"));
-                    self.game_failed |= !status.success();
+                        let level = if status.success() {
+                            LogLevel::Info
+                        } else {
+                            LogLevel::Error
+                        };
+                        session.push_log(level, format!("game exited ({status})"));
+                        self.game_failed |= !status.success();
+                    }
                     self.play = None;
                 }
                 Ok(None) => {}
@@ -274,13 +381,15 @@ impl GameTools {
             "--scene".into(),
             copy.into(),
             "--play".into(),
+            "--control".into(),
+            "stdin".into(),
         ];
         let mut cmd = target.command(&args);
         // The game's crash reports go where the editor looks for its own.
         if let Some(dir) = copperframe_core::report::data_dir() {
             cmd.env(copperframe_core::report::CRASH_DIR_ENV, dir);
         }
-        cmd.stdin(Stdio::null())
+        cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         match cmd.spawn() {
@@ -309,18 +418,28 @@ impl GameTools {
                         let tx = self.tx.clone();
                         std::thread::spawn(move || {
                             for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-                                let level = classify(&line).unwrap_or(level);
-                                if tx
-                                    .send(Msg::Log(level, format!("[game] {}", strip_ansi(&line))))
-                                    .is_err()
-                                {
+                                let msg = match PlayStatus::parse_line(&line) {
+                                    Some(status) => Msg::Status(status),
+                                    None => Msg::Log(
+                                        classify(&line).unwrap_or(level),
+                                        format!("[game] {}", strip_ansi(&line)),
+                                    ),
+                                };
+                                if tx.send(msg).is_err() {
                                     break;
                                 }
                             }
                         });
                     }
                 }
-                self.play = Some(child);
+                let stdin = child.stdin.take();
+                self.play = Some(PlaySession {
+                    child,
+                    stdin,
+                    status: None,
+                    kill_at: None,
+                    stopping: false,
+                });
                 if self.schema.is_none() {
                     self.refresh_schema(session);
                 }
@@ -334,12 +453,29 @@ impl GameTools {
         std::mem::take(&mut self.game_failed)
     }
 
+    /// Asks the game to close; it is killed if it is still building or
+    /// loading, or has not exited after [`STOP_GRACE`]. [`GameTools::poll`]
+    /// reports the exit.
     pub fn stop(&mut self, session: &mut EditorSession) {
-        if let Some(mut child) = self.play.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-            session.info("stopped the game");
+        let Some(p) = self.play.as_mut() else {
+            return;
+        };
+        if p.stopping {
+            return;
         }
+        p.stopping = true;
+        if p.status.is_none() {
+            // Not listening yet (cargo may still be compiling).
+            let _ = p.child.kill();
+        } else {
+            self.send(session, ControlCommand::Quit);
+        }
+        if let Some(p) = self.play.as_mut() {
+            // Closing stdin also tells the game to quit.
+            p.stdin = None;
+            p.kill_at = Some(Instant::now() + STOP_GRACE);
+        }
+        session.info("stopping the game");
     }
 
     /// Asks the game for its behaviour kinds (in the background; a game
@@ -627,9 +763,16 @@ fn headless_run(session: &mut EditorSession, script: Option<PathBuf>) -> Option<
 
 impl Drop for GameTools {
     fn drop(&mut self) {
-        if let Some(mut child) = self.play.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some(mut p) = self.play.take() {
+            if let Some(mut stdin) = p.stdin.take() {
+                let _ = stdin.write_all(b"quit\n");
+            }
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while Instant::now() < deadline && matches!(p.child.try_wait(), Ok(None)) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ = p.child.kill();
+            let _ = p.child.wait();
         }
     }
 }

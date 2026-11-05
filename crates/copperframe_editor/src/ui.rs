@@ -23,7 +23,7 @@ use crate::assets_panel::PanelRequest;
 use crate::audio_tools::EditorAudio;
 use crate::components;
 use crate::dock::{Dock, Pane, PaneContents};
-use crate::gameplay::GameTools;
+use crate::gameplay::{GameTools, PlayState};
 use crate::gizmo::{Tool, ToolPrefs};
 use crate::hierarchy::HierarchyPanel;
 use crate::hub::{self, RecentProject};
@@ -447,6 +447,12 @@ fn shortcuts(
             tools.play(session);
         }
     }
+    if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F6)) {
+        tools.toggle_pause(session);
+    }
+    if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F7)) {
+        tools.step(session);
+    }
     let cmd = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
     let cmd_shift = |key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key);
     // Shift first: Ctrl+S would also match Ctrl+Shift+S.
@@ -594,9 +600,18 @@ fn menu_bar(
             }
         });
         ui.menu_button("Game", |ui| {
-            if tools.is_playing() {
+            if let Some(state) = tools.play_state() {
                 if ui.button("Stop   F5").clicked() {
                     tools.stop(session);
+                }
+                let live = !matches!(state, PlayState::Starting | PlayState::Stopping);
+                let paused = matches!(state, PlayState::Paused { .. } | PlayState::Stepping);
+                let label = if paused { "Resume   F6" } else { "Pause   F6" };
+                if ui.add_enabled(live, egui::Button::new(label)).clicked() {
+                    tools.toggle_pause(session);
+                }
+                if ui.add_enabled(live, egui::Button::new("Step one tick   F7")).clicked() {
+                    tools.step(session);
                 }
             } else if ui.button("Play   F5").clicked() {
                 tools.play(session);
@@ -615,7 +630,8 @@ fn menu_bar(
                  the wheel moves forward/back.\n\
                  Panels: drag a tab to move it, drag a border to resize, Window reopens a closed one.\n\
                  Ctrl+S save, Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo, Ctrl+D duplicate, Del delete.\n\
-                 F5 plays the scene in a separate game window (unsaved edits included) and stops it.\n\
+                 F5 plays the scene in a separate game window (unsaved edits included) and stops it;\n\
+                 F6 pauses and resumes it, F7 advances it by one tick.\n\
                  New and changed files in assets/ are imported automatically.",
             );
             ui.separator();

@@ -1,12 +1,12 @@
 //! The bar under the menus: transform tools, snapping, view options and
-//! Play/Stop. The Q, W and E keys select the same tools.
+//! Play/Stop, Pause/Resume and Step. The Q, W and E keys select the same tools.
 
 use egui::{Align, Color32, DragValue, Layout, RichText};
 
 use copperframe_runtime::scene_gpu::SceneResources;
 
 use crate::dock::Pane;
-use crate::gameplay::GameTools;
+use crate::gameplay::{GameTools, PlayState};
 use crate::gizmo::{Space, Tool, ViewLook};
 use crate::icons::{self, Icon};
 use crate::session::EditorSession;
@@ -155,11 +155,43 @@ pub fn show(
             .on_hover_text("Collider wireframes");
         ui.separator();
 
-        if tools.is_playing() {
+        if let Some(state) = tools.play_state() {
             if icons::button(ui, Icon::Stop, false, "Stop the game (F5)").clicked() {
                 tools.stop(session);
             }
-            ui.label(RichText::new("Playing").color(Color32::from_rgb(120, 210, 120)));
+            let live = !matches!(state, PlayState::Starting | PlayState::Stopping);
+            let paused = matches!(state, PlayState::Paused { .. } | PlayState::Stepping);
+            ui.add_enabled_ui(live, |ui| {
+                let (icon, tip) = if paused {
+                    (Icon::Play, "Resume the game (F6)")
+                } else {
+                    (Icon::Pause, "Pause the game (F6)")
+                };
+                if icons::button(ui, icon, paused, tip).clicked() {
+                    tools.toggle_pause(session);
+                }
+                if icons::button(
+                    ui,
+                    Icon::Step,
+                    false,
+                    "Advance the game by one tick, 1/60 s (F7); pauses it first",
+                )
+                .clicked()
+                {
+                    tools.step(session);
+                }
+            });
+            let (text, color) = match state {
+                PlayState::Starting => ("Starting…".to_owned(), Color32::from_rgb(200, 200, 120)),
+                PlayState::Running => ("Playing".to_owned(), Color32::from_rgb(120, 210, 120)),
+                PlayState::Paused { tick } => (
+                    format!("Paused · tick {tick}"),
+                    Color32::from_rgb(230, 180, 90),
+                ),
+                PlayState::Stepping => ("Stepping…".to_owned(), Color32::from_rgb(230, 180, 90)),
+                PlayState::Stopping => ("Stopping…".to_owned(), Color32::GRAY),
+            };
+            ui.label(RichText::new(text).color(color));
         } else if icons::button(
             ui,
             Icon::Play,

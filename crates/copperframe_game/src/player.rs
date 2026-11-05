@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+use copperframe_assets::play_control::ControlCommand;
 use copperframe_assets::project::Project;
 use copperframe_core::FixedStep;
 use copperframe_render::{
@@ -33,6 +34,7 @@ use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 use crate::actions::{ActionInput, Bindings, Button, MouseKey, names};
 use crate::api::Game;
 use crate::audio::Audio;
+use crate::control::{self, ControlInput, Incoming, Pacing};
 use crate::settings::{GraphicsStyle, SaveData, UserDirs, UserSettings};
 use crate::sim::{Outcome, Simulation, TICK_HZ};
 
@@ -46,6 +48,8 @@ pub struct PlayerOptions {
     pub exit_after_frames: Option<u64>,
     /// Settings/save location; `None` = the user's per-game directories.
     pub dirs: Option<UserDirs>,
+    /// Editor commands (pause, resume, step, quit), with `--control stdin`.
+    pub control: Option<ControlInput>,
 }
 
 /// Opens the game window and runs until the player quits.
@@ -137,6 +141,9 @@ struct Running {
     frames: u64,
     quit: bool,
     splash: Splash,
+    /// Editor control channel and the pause/step state it sets.
+    control: Option<ControlInput>,
+    pacing: Pacing,
 }
 
 const NOTICE_SECS: f32 = 6.0;
@@ -267,6 +274,8 @@ impl Running {
             exit_after_frames: options.exit_after_frames,
             frames: 0,
             quit: false,
+            control: options.control,
+            pacing: Pacing::default(),
             // The engine splash shows before the title screen, not when the
             // editor's Play skips the title.
             splash: if options.skip_title {
@@ -276,6 +285,10 @@ impl Running {
             },
         };
         running.set_screen(screen);
+        if running.control.is_some() {
+            // Tells the editor the game is up and listening.
+            control::report(&running.pacing.status(running.sim.tick_count()));
+        }
         Ok(running)
     }
 
@@ -293,12 +306,75 @@ impl Running {
         self.screen = screen;
         self.input.clear();
         if playing != was_playing {
-            self.sim.audio_mut().set_paused(!playing);
+            let paused = !playing || self.pacing.is_paused();
+            self.sim.audio_mut().set_paused(paused);
             // Time spent in menus is not simulated.
             self.stepper = FixedStep::from_hz(TICK_HZ);
             self.last_frame = Instant::now();
         }
-        self.set_cursor_capture(playing && self.focused);
+        self.set_cursor_capture(playing && self.focused && !self.pacing.is_paused());
+    }
+
+    /// Applies the editor's commands. Returns true when the game should
+    /// close (a `quit` command, or the editor went away).
+    fn poll_control(&mut self) -> bool {
+        let Some(input) = self.control.as_mut() else {
+            return false;
+        };
+        let mut quit = false;
+        for item in input.drain() {
+            match item {
+                Incoming::Command(ControlCommand::Quit) => {
+                    tracing::info!("the editor asked the game to close");
+                    quit = true;
+                }
+                Incoming::Closed => {
+                    if !quit {
+                        tracing::info!("editor control closed; closing the game");
+                    }
+                    quit = true;
+                }
+                Incoming::Command(c) => {
+                    let was_paused = self.pacing.is_paused();
+                    self.pacing.apply(c);
+                    if self.pacing.is_paused() != was_paused {
+                        self.editor_pause_changed();
+                    }
+                    if self.pacing.is_paused() && self.screen == Screen::Paused {
+                        // The editor's pause replaces the in-game menu, so
+                        // steps run (the menu opens when the window loses
+                        // focus to the editor).
+                        self.set_screen(Screen::Playing);
+                    }
+                    if !matches!(self.screen, Screen::Playing) {
+                        self.pacing.cancel_steps();
+                    }
+                    tracing::info!(command = %c.to_line(), tick = self.sim.tick_count(), "editor control");
+                    control::report(&self.pacing.status(self.sim.tick_count()));
+                }
+                Incoming::Invalid(e) => {
+                    tracing::warn!("editor control: {e}");
+                    control::report(&self.pacing.status(self.sim.tick_count()).with_error(e));
+                }
+            }
+        }
+        if quit {
+            let mut status = self.pacing.status(self.sim.tick_count());
+            status.state = copperframe_assets::play_control::RunState::Quitting;
+            control::report(&status);
+        }
+        quit
+    }
+
+    fn editor_pause_changed(&mut self) {
+        let paused = self.pacing.is_paused();
+        let playing = self.screen == Screen::Playing;
+        self.sim.audio_mut().set_paused(paused || !playing);
+        self.input.clear();
+        // Time spent paused is not simulated.
+        self.stepper = FixedStep::from_hz(TICK_HZ);
+        self.last_frame = Instant::now();
+        self.set_cursor_capture(playing && self.focused && !paused);
     }
 
     fn set_cursor_capture(&mut self, capture: bool) {
@@ -472,35 +548,62 @@ impl Running {
         if self.screen != Screen::Playing {
             return;
         }
+        if self.pacing.is_paused() {
+            // Paused by the editor: only step ticks run, and the frame
+            // shows the newest tick as it is.
+            let had_steps = self.pacing.pending_steps() > 0;
+            let n = self.pacing.take_step_ticks();
+            for _ in 0..n {
+                if self.tick_once() {
+                    self.pacing.cancel_steps();
+                    break;
+                }
+            }
+            self.stepper = FixedStep::from_hz(TICK_HZ);
+            self.alpha = 1.0;
+            if had_steps && self.pacing.pending_steps() == 0 {
+                control::report(&self.pacing.status(self.sim.tick_count()));
+            }
+            return;
+        }
         let plan = self.stepper.advance(frame_time);
         for _ in 0..plan.ticks {
-            let input = self.input.begin_tick(
-                &self.bindings,
-                self.settings.mouse_sensitivity,
-                self.settings.invert_y,
-            );
-            self.sim.tick(&input);
-            // The simulation already logs its events.
-            self.sim.take_events();
-            for w in self.sim.take_warnings() {
-                self.notice(w);
-            }
-            if let Some(outcome) = self.sim.outcome().cloned() {
-                match outcome {
-                    Outcome::Finished { message } => {
-                        if let Some(d) = &self.dirs
-                            && !self.skip_title
-                        {
-                            let _ = std::fs::remove_file(d.save_path());
-                        }
-                        self.set_screen(Screen::Finished(message));
-                    }
-                    Outcome::Quit => self.quit = true,
-                }
+            if self.tick_once() {
                 break;
             }
         }
         self.alpha = plan.alpha;
+    }
+
+    /// Runs one fixed tick with the input gathered since the last one.
+    /// Returns true when the game finished or quit.
+    fn tick_once(&mut self) -> bool {
+        let input = self.input.begin_tick(
+            &self.bindings,
+            self.settings.mouse_sensitivity,
+            self.settings.invert_y,
+        );
+        self.sim.tick(&input);
+        // The simulation already logs its events.
+        self.sim.take_events();
+        for w in self.sim.take_warnings() {
+            self.notice(w);
+        }
+        let Some(outcome) = self.sim.outcome().cloned() else {
+            return false;
+        };
+        match outcome {
+            Outcome::Finished { message } => {
+                if let Some(d) = &self.dirs
+                    && !self.skip_title
+                {
+                    let _ = std::fs::remove_file(d.save_path());
+                }
+                self.set_screen(Screen::Finished(message));
+            }
+            Outcome::Quit => self.quit = true,
+        }
+        true
     }
 
     fn redraw(&mut self, event_loop: &ActiveEventLoop) -> bool {
@@ -530,6 +633,10 @@ impl Running {
                 rebinding: self.rebinding.as_deref(),
                 hud: self.sim.hud(),
                 notices: &self.notices,
+                editor_paused: self
+                    .pacing
+                    .is_paused()
+                    .then(|| format!("Paused by the editor · tick {}", self.sim.tick_count())),
             };
             let mut ui = ui;
             self.egui_ctx.run_ui(raw, |ctx| {
@@ -785,7 +892,7 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(focused) => {
                 app.focused = focused;
                 app.input.clear();
-                if !focused && app.screen == Screen::Playing {
+                if !focused && app.screen == Screen::Playing && !app.pacing.is_paused() {
                     // Losing focus pauses, so the game never runs unseen.
                     app.set_screen(Screen::Paused);
                 }
@@ -839,8 +946,17 @@ impl ApplicationHandler for App {
         let Some(app) = self.running.as_mut() else {
             return;
         };
+        if app.poll_control() {
+            app.quit(event_loop);
+            return;
+        }
         if app.minimized {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            // Keep reading editor commands while minimised.
+            event_loop.set_control_flow(if app.control.is_some() {
+                ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(100))
+            } else {
+                ControlFlow::Wait
+            });
         } else {
             event_loop.set_control_flow(ControlFlow::Poll);
             app.window.request_redraw();
@@ -875,6 +991,8 @@ struct MenuUi<'a> {
     rebinding: Option<&'a str>,
     hud: &'a crate::sim::Hud,
     notices: &'a [(String, Instant)],
+    /// "Paused by the editor" banner text, while paused from the editor.
+    editor_paused: Option<String>,
 }
 
 const MENU_ACTIONS: [(&str, &str); 8] = [
@@ -892,7 +1010,10 @@ impl MenuUi<'_> {
     fn draw(&mut self, ui: &mut egui::Ui, out: &mut Vec<UiAction>) {
         let ctx = ui.ctx().clone();
         match self.screen {
-            Screen::Playing => self.hud(&ctx),
+            Screen::Playing => {
+                self.hud(&ctx);
+                self.editor_banner(&ctx);
+            }
             Screen::Title => self.panel(
                 &ctx,
                 &self.title.clone(),
@@ -1155,6 +1276,20 @@ impl MenuUi<'_> {
                 24.0,
             );
         }
+    }
+
+    fn editor_banner(&self, ctx: &egui::Context) {
+        let Some(text) = &self.editor_paused else {
+            return;
+        };
+        egui::Area::new(egui::Id::unique("editor-paused"))
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 8.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.add(egui::Label::new(egui::RichText::new(text).strong()).extend());
+                });
+            });
     }
 
     fn notices(&self, ctx: &egui::Context) {

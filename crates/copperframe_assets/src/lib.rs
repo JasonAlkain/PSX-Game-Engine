@@ -11,6 +11,8 @@
 //! - [`input`]: the project's default key bindings (`input.json`).
 //! - [`game`]: finding, building and running a project's game executable.
 //! - [`export`]: host-platform export of a game and its data.
+//! - [`play_control`]: the editor's Pause/Resume/Step line protocol with a
+//!   running game.
 //! - [`template`]: new projects from templates, and their Rust game crate.
 //!
 //! No window or GPU dependencies.
@@ -22,6 +24,7 @@ pub mod game;
 pub mod import;
 pub mod input;
 pub mod meta;
+pub mod play_control;
 pub mod project;
 pub mod project_settings;
 pub mod template;

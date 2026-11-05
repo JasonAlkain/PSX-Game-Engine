@@ -522,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_assets"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "base64 0.23.1",
  "copperframe_core",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_audio"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "copperframe_assets",
  "copperframe_core",
@@ -550,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_cli"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "directories",
  "serde",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_editor"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "copperframe_assets",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_game"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -633,14 +633,14 @@ dependencies = [
 
 [[package]]
 name = "copperframe_player"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "copperframe_game",
 ]
 
 [[package]]
 name = "copperframe_render"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "bytemuck",
  "copperframe_core",
@@ -654,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_runtime"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "copperframe_assets",
@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_sandbox"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "copperframe_core",
@@ -683,7 +683,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_scene"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "copperframe_core",
  "glam 0.34.2",
@@ -1812,7 +1812,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lever_room"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "copperframe_assets",
  "copperframe_core",

@@ -19,6 +19,8 @@ pub enum Icon {
     Play,
     /// Two bars.
     Pause,
+    /// Advance one tick: a triangle against a bar.
+    Step,
     Stop,
     Model,
     Texture,
@@ -140,6 +142,18 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                     color,
                 );
             }
+        }
+        Icon::Step => {
+            painter.add(Shape::convex_polygon(
+                vec![at(-0.7, -0.7), at(0.35, 0.0), at(-0.7, 0.7)],
+                color,
+                Stroke::NONE,
+            ));
+            painter.rect_filled(
+                Rect::from_center_size(at(0.6, 0.0), vec2(s * 0.2, s * 0.72)),
+                1.0,
+                color,
+            );
         }
         Icon::Stop => {
             painter.rect_filled(Rect::from_center_size(c, vec2(s, s) * 0.68), 1.0, color);

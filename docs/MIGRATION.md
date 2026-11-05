@@ -65,6 +65,7 @@ editor and the player's title screen open with a short Copperframe splash
 | `psx_save` | 1 | — | — | — |
 | `psx_export` (`export.json`) | 1 | — | — | — |
 | `psx_bench` (`--bench` report) | 1 | — | New in M6 | — |
+| `copperframe_play_status` (`--control stdin` replies) | 1 | — | New in 0.10 | — |
 
 Fixtures that pin older versions, each loaded by a test:
 `crates/copperframe_scene/fixtures/v1_room.scene.json` (scene v1, Milestone 3),
@@ -89,6 +90,13 @@ cooked cache yet), so an importer change takes effect without any action.
 | 2 (M5) | glTF skins and animation clips. Before, skins and animations were ignored with a warning and the mesh was drawn in its node pose; now a skinned mesh is drawn from its bind pose through the skeleton (the rest pose), which for most exported files is the same shape |
 
 ## Game code (Rust API)
+
+### Play control (0.10)
+
+`PlayerOptions` has a new `control: Option<ControlInput>` field (pass
+`None` to keep the old behaviour; `copperframe_game::main` fills it from
+`--control stdin`). Game crates that only call `copperframe_game::main`
+need no change.
 
 ### Audio mixer (0.9)
 
