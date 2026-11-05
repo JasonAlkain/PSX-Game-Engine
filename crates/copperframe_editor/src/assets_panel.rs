@@ -21,6 +21,8 @@ const ROOT: &str = copperframe_assets::project::ASSETS_DIR;
 const THUMBNAIL: u32 = 128;
 /// Files above this size show the plain icon instead of a thumbnail.
 const THUMBNAIL_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// Images with a longer side than this show the plain icon too.
+const THUMBNAIL_MAX_SIDE: u32 = 8192;
 
 /// Which kinds of asset the grid lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +145,17 @@ fn load_thumbnail(ctx: &egui::Context, entry: &AssetEntry) -> Option<TextureHand
     if std::fs::metadata(&entry.source).ok()?.len() > THUMBNAIL_MAX_BYTES {
         return None;
     }
-    let image = image::open(&entry.source).ok()?;
+    let mut reader = image::ImageReader::open(&entry.source)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
+    // A small file can still claim to be enormous once decoded.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(THUMBNAIL_MAX_SIDE);
+    limits.max_image_height = Some(THUMBNAIL_MAX_SIDE);
+    limits.max_alloc = Some(THUMBNAIL_MAX_BYTES * 16);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
     let image = if image.width() > THUMBNAIL || image.height() > THUMBNAIL {
         image.thumbnail(THUMBNAIL, THUMBNAIL)
     } else {
