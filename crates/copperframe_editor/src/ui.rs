@@ -23,6 +23,7 @@ use crate::components;
 use crate::dock::{Dock, Pane, PaneContents};
 use crate::gameplay::GameTools;
 use crate::gizmo::{Tool, ToolPrefs};
+use crate::hierarchy::HierarchyPanel;
 use crate::hub::{self, RecentProject};
 use crate::project_settings::ProjectSettingsPanel;
 use crate::reporting::Reporting;
@@ -98,6 +99,7 @@ pub struct UiState {
     pub dock: Dock,
     pub assets: AssetsPanel,
     pub project_settings: ProjectSettingsPanel,
+    pub hierarchy: HierarchyPanel,
     keep_world_on_reparent: bool,
     name_buffer: Option<(EntityId, String)>,
     pub(crate) drag: Option<GizmoDrag>,
@@ -124,6 +126,7 @@ impl Default for UiState {
             dock: Dock::default(),
             assets: AssetsPanel::default(),
             project_settings: ProjectSettingsPanel::default(),
+            hierarchy: HierarchyPanel::default(),
             keep_world_on_reparent: true,
             name_buffer: None,
             drag: None,
@@ -220,7 +223,12 @@ impl PaneContents for Panes<'_> {
                     self.dt,
                 );
             }
-            Pane::Hierarchy => hierarchy(ui, self.session),
+            Pane::Hierarchy => {
+                let keep_world = self.state.keep_world_on_reparent;
+                self.state
+                    .hierarchy
+                    .show(ui, self.session, self.camera, keep_world);
+            }
             Pane::Inspector => {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -816,50 +824,6 @@ pub(crate) fn level_color(level: LogLevel) -> Color32 {
         LogLevel::Warning => Color32::from_rgb(230, 190, 60),
         LogLevel::Error => Color32::from_rgb(240, 90, 80),
     }
-}
-
-fn hierarchy(ui: &mut egui::Ui, session: &mut EditorSession) {
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            fn rows(
-                ui: &mut egui::Ui,
-                session: &mut EditorSession,
-                parent: Option<EntityId>,
-                depth: usize,
-            ) {
-                let kids: Vec<(EntityId, String, bool)> = session
-                    .scene
-                    .children(parent)
-                    .map(|e| (e.id, e.name.clone(), e.mesh.is_some()))
-                    .collect();
-                for (id, name, has_mesh) in kids {
-                    ui.horizontal(|ui| {
-                        ui.add_space(depth as f32 * 14.0);
-                        let label = if name.is_empty() {
-                            "(unnamed)".to_owned()
-                        } else {
-                            name
-                        };
-                        // Entities without a mesh (groups) are shown in italics.
-                        let mut text = egui::RichText::new(label);
-                        if !has_mesh {
-                            text = text.italics();
-                        }
-                        if ui
-                            .selectable_label(session.selection == Some(id), text)
-                            .clicked()
-                        {
-                            session.selection = Some(id);
-                        }
-                    });
-                    if depth < copperframe_scene::scene::MAX_DEPTH {
-                        rows(ui, session, Some(id), depth + 1);
-                    }
-                }
-            }
-            rows(ui, session, None, 0);
-        });
 }
 
 fn inspector(

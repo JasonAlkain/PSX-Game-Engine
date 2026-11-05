@@ -30,6 +30,7 @@ pub mod components;
 pub mod dock;
 pub mod gameplay;
 pub mod gizmo;
+pub mod hierarchy;
 pub mod hub;
 pub mod icons;
 pub mod project_settings;

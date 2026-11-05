@@ -303,6 +303,7 @@ Every edit, from the editor or the CLI, is a `copperframe_scene::Command`
 (JSON-tagged by `"op"`): `create_entity`, `delete_entity` (with
 descendants), `duplicate_entity` (subtree, fresh IDs), `rename`,
 `set_transform`, `set_parent` (`keep_world_transform`, default true),
+`move_entity` (reorder among siblings and reparent; moves only that entity in the list),
 `set_mesh`, `set_material`, `set_settings`. `copperframe schema` lists their fields.
 
 `apply(scene, command)` validates first and changes nothing on failure. On
