@@ -64,6 +64,7 @@ generate_level | copperframe apply --project my_game -    # from stdin
 | `set_light` | `id`, `light` (`null` removes): `{color?, intensity?, range?}` | |
 | `set_animator` | `id`, `animator` (`null` removes): `{clip, speed?, looping?, autoplay?}` | |
 | `set_shadow` | `id`, `shadow` (`null` removes): `{radius?, offset?}` | |
+| `set_component_order` | `id`, `order`: component keys such as `"mesh"` or `"behavior:room.lever"` | Inspector order; behaviours are sorted to match and run in it. Only components the entity has |
 
 Field meanings and ranges are in
 [Scenes, entities and components](../guide/scenes.md).

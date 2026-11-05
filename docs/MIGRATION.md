@@ -55,11 +55,11 @@ editor and the player's title screen open with a short Copperframe splash
 | --- | --- | --- | --- | --- |
 | `psx_project` (`project.json`) | 2 | 1 | v2 (Project settings): optional `display`, `style` and `build` sections | Nothing. A v1 file loads with the defaults (1280 × 960 window, vsync on, each scene's own look, export to `dist/<name>` with a start check). The editor writes v2 the next time project settings or the startup scene are saved, which older engine builds refuse to open |
 | `psx_asset_meta` (`*.meta.json`) | 1 | — | — | — |
-| `psx_scene` (`scenes/*.scene.json`) | 4 | 1, 2, 3 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, and primitives without `tile_size` keep one texture per face. To tile an existing primitive, tick **Tile texture** in the inspector. Saving writes v4, which older engine builds refuse to open |
+| `psx_scene` (`scenes/*.scene.json`) | 5 | 1, 2, 3, 4 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources. v5: optional `component_order` on entities (inspector order) | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, primitives without `tile_size` keep one texture per face, and components without `component_order` are listed in the default order. To tile an existing primitive, tick **Tile texture** in the inspector. Saving writes v5, which older engine builds refuse to open |
 | `psx_style` (`psx_style.json`, scene style) | 2 | 1 | `textures {filter, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}` | Nothing; v1 gets PS1 values. Pick the PS2 preset in the editor or sandbox to opt in |
-| `psx_command_batch` | 1 | — | M5 added the ops `set_light`, `set_animator`, `set_shadow` | Batches written for M3/M4 still apply |
+| `psx_command_batch` | 1 | — | M5 added the ops `set_light`, `set_animator`, `set_shadow`; 0.4 added `set_component_order` | Batches written for M3/M4 still apply |
 | `psx_input` (`input.json`) | 1 | — | — | — |
-| `psx_game_schema` (`--schema`) | 1 | — | — | — |
+| `psx_game_schema` (`--schema`) | 1 | — | 0.4: optional `folder` on each behaviour | Nothing; readers ignore it if they do not know it |
 | `psx_script`, `psx_run_report` | 1 | — | M5 events may include `animation_finished` | Script expectations match by subset, so existing scripts pass |
 | `psx_player_settings` | 1 | — | M5 added `graphics_style` (`scene`, `ps1`, `ps2`), defaulted to `scene` | Nothing |
 | `psx_save` | 1 | — | — | — |
@@ -70,6 +70,7 @@ Fixtures that pin older versions, each loaded by a test:
 `crates/copperframe_scene/fixtures/v1_room.scene.json` (scene v1, Milestone 3),
 `crates/copperframe_scene/fixtures/v2_room.scene.json` (scene v2, Milestone 4),
 `crates/copperframe_scene/fixtures/v3_room.scene.json` (scene v3, Milestone 5),
+`crates/copperframe_scene/fixtures/v4_room.scene.json` (scene v4, release 0.1),
 `crates/copperframe_core/fixtures/v1.style.json` (style v1),
 `crates/copperframe_assets/fixtures/v1.project.json` (project v1),
 `crates/copperframe_game/fixtures/m4_settings.json` (player settings without
@@ -98,6 +99,16 @@ fullscreen, vsync and look (`UserSettings::for_project`), and
 `UserDirs::load_settings_or` takes those defaults. The key list and default
 actions are also in `copperframe_assets::input` for the editor; a test keeps
 them equal to `copperframe_game::actions`.
+
+### Component order and behaviour folders (0.4)
+
+`copperframe_scene::Entity` has a new `component_order: Vec<String>` field:
+add `component_order: Vec::new()` where you build an `Entity` with a struct
+literal (`Entity::new` needs no change). `Command` has a new
+`SetComponentOrder` variant, so an exhaustive `match` on `Command` needs an
+arm for it. `Registry::register_in(folder, descriptor)` is new and
+optional: `register` keeps working and lists the kind directly under
+Behaviours.
 
 ### Texture tiling
 

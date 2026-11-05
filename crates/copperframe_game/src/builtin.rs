@@ -11,7 +11,9 @@ pub const CAMERA_ZONE: &str = "psx.camera_zone";
 pub const SPIN: &str = "psx.spin";
 
 pub fn register(r: &mut Registry) {
-    r.register(BehaviorDescriptor {
+    r.register_in(
+        "Engine/Player",
+        BehaviorDescriptor {
         kind: PLAYER,
         description: "First-person player: walks with a character capsule (move/run/jump actions), \
                       looks with the mouse, owns the camera and aims interactions. The entity's \
@@ -32,7 +34,9 @@ pub fn register(r: &mut Registry) {
         ],
         create: Player::create,
     });
-    r.register(BehaviorDescriptor {
+    r.register_in(
+        "Engine/Camera",
+        BehaviorDescriptor {
         kind: CAMERA_ZONE,
         description: "Fixed camera: while the player is inside this entity's sensor collider, the \
                       view comes from the `camera` entity (looking along its -Z).",
@@ -42,20 +46,23 @@ pub fn register(r: &mut Registry) {
         )],
         create: CameraZone::create,
     });
-    r.register(BehaviorDescriptor {
-        kind: SPIN,
-        description: "Rotates the entity about its local Y axis.",
-        fields: vec![FieldDescriptor::number(
-            "degrees_per_second",
-            45.0,
-            "rotation speed",
-        )],
-        create: |p| {
-            Ok(Box::new(Spin {
-                rate: p.number("degrees_per_second").to_radians(),
-            }))
+    r.register_in(
+        "Engine/Motion",
+        BehaviorDescriptor {
+            kind: SPIN,
+            description: "Rotates the entity about its local Y axis.",
+            fields: vec![FieldDescriptor::number(
+                "degrees_per_second",
+                45.0,
+                "rotation speed",
+            )],
+            create: |p| {
+                Ok(Box::new(Spin {
+                    rate: p.number("degrees_per_second").to_radians(),
+                }))
+            },
         },
-    });
+    );
 }
 
 /// Marker component on the player entity.

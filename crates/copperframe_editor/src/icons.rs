@@ -24,6 +24,12 @@ pub enum Icon {
     Folder,
     /// Project settings: a cog wheel.
     Cog,
+    /// Drag handle: two columns of dots.
+    Grip,
+    ArrowUp,
+    ArrowDown,
+    Trash,
+    Plus,
 }
 
 /// Paints `icon` to fill `rect`.
@@ -210,7 +216,65 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (-0.9, 0.7),
             ]);
         }
+        Icon::Grip => {
+            for x in [-0.3, 0.3] {
+                for y in [-0.6, 0.0, 0.6] {
+                    painter.circle_filled(at(x, y), (s * 0.1).max(1.2), color);
+                }
+            }
+        }
+        Icon::ArrowUp => {
+            line(&[(0.0, 0.8), (0.0, -0.75)]);
+            line(&[(-0.55, -0.2), (0.0, -0.75), (0.55, -0.2)]);
+        }
+        Icon::ArrowDown => {
+            line(&[(0.0, -0.8), (0.0, 0.75)]);
+            line(&[(-0.55, 0.2), (0.0, 0.75), (0.55, 0.2)]);
+        }
+        Icon::Trash => {
+            line(&[(-0.8, -0.55), (0.8, -0.55)]);
+            line(&[(-0.25, -0.55), (-0.2, -0.82), (0.2, -0.82), (0.25, -0.55)]);
+            line(&[(-0.58, -0.55), (-0.45, 0.85), (0.45, 0.85), (0.58, -0.55)]);
+            line(&[(-0.15, -0.2), (-0.12, 0.55)]);
+            line(&[(0.15, -0.2), (0.12, 0.55)]);
+        }
+        Icon::Plus => {
+            painter.circle_stroke(c, s * 0.42, stroke);
+            line(&[(-0.42, 0.0), (0.42, 0.0)]);
+            line(&[(0.0, -0.42), (0.0, 0.42)]);
+        }
     }
+}
+
+/// A small borderless icon button for rows and card headers.
+pub fn small_button(ui: &mut Ui, icon: Icon, enabled: bool, tip: &str) -> Response {
+    let size = vec2(20.0, 20.0);
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(size, sense);
+    if ui.is_rect_visible(rect) {
+        if enabled && response.hovered() {
+            ui.painter()
+                .rect_filled(rect, 3.0, ui.visuals().widgets.hovered.bg_fill);
+        }
+        let color = if !enabled {
+            theme::TEXT_DIM.gamma_multiply(0.4)
+        } else if response.hovered() {
+            theme::TEXT
+        } else {
+            theme::TEXT_DIM
+        };
+        paint(
+            ui.painter(),
+            Rect::from_center_size(rect.center(), vec2(13.0, 13.0)),
+            icon,
+            color,
+        );
+    }
+    response.on_hover_text(tip)
 }
 
 /// A square toolbar button holding an icon. `on` lights it in the accent.

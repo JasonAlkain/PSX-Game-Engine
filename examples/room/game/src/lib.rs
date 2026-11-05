@@ -33,18 +33,21 @@ impl Game for LeverRoom {
     }
 
     fn register(&self, r: &mut Registry) {
-        r.register(BehaviorDescriptor {
-            kind: DOOR,
-            description: "Slides open when it receives an `open` message and plays its sound.",
-            fields: vec![
-                FieldDescriptor::number("slide_x", 2.0, "opening offset X (m)"),
-                FieldDescriptor::number("slide_y", 0.0, "opening offset Y (m)"),
-                FieldDescriptor::number("slide_z", 0.0, "opening offset Z (m)"),
-                FieldDescriptor::number("speed", 1.5, "opening speed (m/s)"),
-            ],
-            create: Door::create,
-        });
-        r.register(BehaviorDescriptor {
+        r.register_in(
+            "Lever Room/Puzzle",
+            BehaviorDescriptor {
+                kind: DOOR,
+                description: "Slides open when it receives an `open` message and plays its sound.",
+                fields: vec![
+                    FieldDescriptor::number("slide_x", 2.0, "opening offset X (m)"),
+                    FieldDescriptor::number("slide_y", 0.0, "opening offset Y (m)"),
+                    FieldDescriptor::number("slide_z", 0.0, "opening offset Z (m)"),
+                    FieldDescriptor::number("speed", 1.5, "opening speed (m/s)"),
+                ],
+                create: Door::create,
+            },
+        );
+        r.register_in("Lever Room/Puzzle", BehaviorDescriptor {
             kind: LEVER,
             description: "Interactive lever: sends `open` to its target once and plays its sound.",
             fields: vec![
@@ -59,37 +62,43 @@ impl Game for LeverRoom {
                 }))
             },
         });
-        r.register(BehaviorDescriptor {
-            kind: INSPECT,
-            description: "Interactive object that shows a line of text.",
-            fields: vec![
-                FieldDescriptor::text("prompt", "Inspect", "interaction prompt"),
-                FieldDescriptor::text("text", "", "text shown when inspected"),
-                FieldDescriptor::number("seconds", 5.0, "how long the text stays"),
-            ],
-            create: |p| {
-                Ok(Box::new(Inspect {
-                    prompt: p.text("prompt").to_owned(),
-                    text: p.text("text").to_owned(),
-                    seconds: p.number("seconds").clamp(0.5, 60.0),
-                }))
+        r.register_in(
+            "Lever Room/Interaction",
+            BehaviorDescriptor {
+                kind: INSPECT,
+                description: "Interactive object that shows a line of text.",
+                fields: vec![
+                    FieldDescriptor::text("prompt", "Inspect", "interaction prompt"),
+                    FieldDescriptor::text("text", "", "text shown when inspected"),
+                    FieldDescriptor::number("seconds", 5.0, "how long the text stays"),
+                ],
+                create: |p| {
+                    Ok(Box::new(Inspect {
+                        prompt: p.text("prompt").to_owned(),
+                        text: p.text("text").to_owned(),
+                        seconds: p.number("seconds").clamp(0.5, 60.0),
+                    }))
+                },
             },
-        });
-        r.register(BehaviorDescriptor {
-            kind: EXIT,
-            description: "Sensor: the player entering it wins the game.",
-            fields: vec![FieldDescriptor::text(
-                "message",
-                "You escaped!",
-                "shown on the end screen",
-            )],
-            create: |p| {
-                Ok(Box::new(Exit {
-                    message: p.text("message").to_owned(),
-                }))
+        );
+        r.register_in(
+            "Lever Room/Level",
+            BehaviorDescriptor {
+                kind: EXIT,
+                description: "Sensor: the player entering it wins the game.",
+                fields: vec![FieldDescriptor::text(
+                    "message",
+                    "You escaped!",
+                    "shown on the end screen",
+                )],
+                create: |p| {
+                    Ok(Box::new(Exit {
+                        message: p.text("message").to_owned(),
+                    }))
+                },
             },
-        });
-        r.register(BehaviorDescriptor {
+        );
+        r.register_in("Lever Room/Characters", BehaviorDescriptor {
             kind: CARETAKER,
             description: "Animated character: waves (crossfading from idle) and talks when used.",
             fields: vec![

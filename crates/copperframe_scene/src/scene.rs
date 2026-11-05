@@ -137,6 +137,12 @@ pub struct Entity {
     /// Since scene version 3.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shadow: Option<ShadowComponent>,
+    /// Since scene version 5. The order the editor lists the components in,
+    /// as [component keys](Entity::component_keys). Components not listed
+    /// follow in the default order. Behaviours run in the order of
+    /// [`Entity::behaviors`], which the editor keeps in step with this.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub component_order: Vec<String>,
 }
 
 impl Entity {
@@ -153,7 +159,80 @@ impl Entity {
             light: None,
             animator: None,
             shadow: None,
+            component_order: Vec::new(),
         }
+    }
+
+    /// Whether the entity has the component named by `key` (see
+    /// [`Entity::component_keys`]).
+    pub fn has_component(&self, key: &str) -> bool {
+        match key {
+            component_key::MESH => self.mesh.is_some(),
+            component_key::ANIMATOR => self.animator.is_some(),
+            component_key::LIGHT => self.light.is_some(),
+            component_key::SHADOW => self.shadow.is_some(),
+            component_key::COLLIDER => self.collider.is_some(),
+            component_key::AUDIO => self.audio.is_some(),
+            _ => component_key::behavior_kind(key).is_some_and(|k| self.behavior(k).is_some()),
+        }
+    }
+
+    /// Keys of the components the entity has, in the order the editor lists
+    /// them: those named in `component_order` first, in that order, then the
+    /// rest in the default order (built-in components, then behaviours).
+    /// Keys are `mesh`, `animator`, `light`, `shadow`, `collider`, `audio`
+    /// and `behavior:<kind>`.
+    pub fn component_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = component_key::BUILT_IN
+            .iter()
+            .filter(|k| self.has_component(k))
+            .map(|k| (*k).to_owned())
+            .chain(
+                self.behaviors
+                    .iter()
+                    .map(|b| component_key::behavior(&b.kind)),
+            )
+            .collect();
+        let rank = |k: &String| {
+            self.component_order
+                .iter()
+                .position(|o| o == k)
+                .unwrap_or(usize::MAX)
+        };
+        // Stable: unlisted components keep the default order at the end.
+        keys.sort_by_key(rank);
+        keys
+    }
+
+    /// Sets the listing order to `order` (keys of components the entity
+    /// has) and sorts the behaviours to match it.
+    pub fn set_component_order(&mut self, order: Vec<String>) {
+        self.component_order = order;
+        self.prune_component_order();
+        let rank = |kind: &str| {
+            let key = component_key::behavior(kind);
+            self.component_order
+                .iter()
+                .position(|o| *o == key)
+                .unwrap_or(usize::MAX)
+        };
+        let mut behaviors = std::mem::take(&mut self.behaviors);
+        behaviors.sort_by_key(|b| rank(&b.kind));
+        self.behaviors = behaviors;
+    }
+
+    /// Drops order entries for components the entity no longer has, and
+    /// repeated entries, so a removed component that is added again goes to
+    /// the end of the list.
+    pub fn prune_component_order(&mut self) {
+        let mut seen: Vec<String> = Vec::new();
+        let order = std::mem::take(&mut self.component_order);
+        for k in order {
+            if self.has_component(&k) && !seen.contains(&k) {
+                seen.push(k);
+            }
+        }
+        self.component_order = seen;
     }
 
     pub fn behavior(&self, kind: &str) -> Option<&BehaviorComponent> {
@@ -225,6 +304,15 @@ impl Entity {
         if let Some(p) = self.shadow.as_ref().and_then(ShadowComponent::problem) {
             out.push(format!("shadow: {p}"));
         }
+        for (i, k) in self.component_order.iter().enumerate() {
+            if !self.has_component(k) {
+                out.push(format!(
+                    "component_order lists `{k}`, which the entity does not have"
+                ));
+            } else if self.component_order[..i].contains(k) {
+                out.push(format!("component_order lists `{k}` twice"));
+            }
+        }
         for (i, b) in self.behaviors.iter().enumerate() {
             if let Some(p) = b.problem() {
                 out.push(format!("behaviour: {p}"));
@@ -234,6 +322,29 @@ impl Entity {
             }
         }
         out
+    }
+}
+
+/// Names of an entity's components in [`Entity::component_order`].
+pub mod component_key {
+    pub const MESH: &str = "mesh";
+    pub const ANIMATOR: &str = "animator";
+    pub const LIGHT: &str = "light";
+    pub const SHADOW: &str = "shadow";
+    pub const COLLIDER: &str = "collider";
+    pub const AUDIO: &str = "audio";
+    /// The built-in components in their default order.
+    pub const BUILT_IN: [&str; 6] = [MESH, ANIMATOR, LIGHT, SHADOW, COLLIDER, AUDIO];
+    const BEHAVIOR_PREFIX: &str = "behavior:";
+
+    /// The key of the behaviour of `kind`.
+    pub fn behavior(kind: &str) -> String {
+        format!("{BEHAVIOR_PREFIX}{kind}")
+    }
+
+    /// The behaviour kind a key names, if it names one.
+    pub fn behavior_kind(key: &str) -> Option<&str> {
+        key.strip_prefix(BEHAVIOR_PREFIX)
     }
 }
 

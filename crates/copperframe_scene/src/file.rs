@@ -30,7 +30,9 @@ pub const SCENE_FORMAT: &str = "psx_scene";
 ///   unchanged.
 /// - 4: adds the optional `tile_size` on primitive mesh sources. Older files
 ///   load unchanged and keep their textures covering each face once.
-pub const SCENE_VERSION: u32 = 4;
+/// - 5: adds the optional `component_order` entity field (the inspector's
+///   component order). Older files load unchanged.
+pub const SCENE_VERSION: u32 = 5;
 /// Conventional file extension.
 pub const SCENE_EXTENSION: &str = "scene.json";
 
@@ -115,7 +117,7 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
             source: serde::de::Error::custom(format!("unknown top-level field `{extra}`")),
         });
     }
-    // Migrations from older versions go here. 1 -> 2 -> 3 -> 4 only added
+    // Migrations from older versions go here. 1 -> 2 -> 3 -> 4 -> 5 only added
     // optional fields (with defaults), so older documents deserialise
     // unchanged.
     let scene_value = value
@@ -183,6 +185,11 @@ pub fn save_scene(scene: &Scene, path: &Path) -> Result<(), SceneFileError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The version header a current save writes.
+    fn current_version() -> String {
+        format!("\"version\": {SCENE_VERSION}")
+    }
     use crate::scene::*;
     use crate::transform::euler_deg_to_quat;
     use copperframe_core::AssetId;
@@ -236,12 +243,12 @@ mod tests {
     fn rejects_future_versions_wrong_format_and_unknown_fields() {
         let p = Path::new("x");
         let text = scene_to_json(&sample(), p).unwrap();
-        let future = text.replace("\"version\": 4", "\"version\": 99");
+        let future = text.replace(&current_version(), "\"version\": 99");
         assert!(matches!(
             parse_scene(&future, p),
             Err(SceneFileError::UnsupportedVersion { found: 99, .. })
         ));
-        let zero = text.replace("\"version\": 4", "\"version\": 0");
+        let zero = text.replace(&current_version(), "\"version\": 0");
         assert!(matches!(
             parse_scene(&zero, p),
             Err(SceneFileError::UnsupportedVersion { found: 0, .. })
@@ -276,7 +283,7 @@ mod tests {
         assert!(scene.entities[0].collider.is_none());
         assert!(scene.entities[0].behaviors.is_empty());
         let text = scene_to_json(&scene, p).unwrap();
-        assert!(text.contains("\"version\": 4"));
+        assert!(text.contains(&current_version()));
     }
 
     #[test]
@@ -293,7 +300,7 @@ mod tests {
         assert!(scene.entities.iter().any(|e| !e.behaviors.is_empty()));
         assert!(scene.entities.iter().all(|e| e.light.is_none()));
         let text = scene_to_json(&scene, p).unwrap();
-        assert!(text.contains("\"version\": 4"));
+        assert!(text.contains(&current_version()));
         assert_eq!(parse_scene(&text, p).unwrap(), scene);
     }
 
@@ -308,7 +315,23 @@ mod tests {
             Err(err) => panic!("version 3 fixture no longer loads: {err}"),
         };
         let text = scene_to_json(&scene, p).unwrap();
-        assert!(text.contains("\"version\": 4") && !text.contains("tile_size"));
+        assert!(text.contains(&current_version()) && !text.contains("tile_size"));
+        assert_eq!(parse_scene(&text, p).unwrap(), scene);
+    }
+
+    #[test]
+    fn version_4_files_load_in_the_default_component_order() {
+        let p = Path::new("v4.scene.json");
+        // The Lever Room as released in 0.1.0 (scene version 4).
+        let v4 = include_str!("../fixtures/v4_room.scene.json");
+        assert!(v4.contains("\"version\": 4") && !v4.contains("component_order"));
+        let scene = match parse_scene(v4, p) {
+            Ok(scene) => scene,
+            Err(err) => panic!("version 4 fixture no longer loads: {err}"),
+        };
+        assert!(scene.entities.iter().all(|e| e.component_order.is_empty()));
+        let text = scene_to_json(&scene, p).unwrap();
+        assert!(text.contains(&current_version()) && !text.contains("component_order"));
         assert_eq!(parse_scene(&text, p).unwrap(), scene);
     }
 

@@ -31,6 +31,6 @@ pub use history::History;
 pub use scene::{
     AlphaSetting, CameraStart, DEFAULT_TILE_SIZE, Entity, MAX_TILE_SIZE, MIN_TILE_SIZE,
     MaterialOverride, MeshComponent, MeshSource, PrimitiveShape, Scene, SceneLighting,
-    SceneProblem, SceneSettings,
+    SceneProblem, SceneSettings, component_key,
 };
 pub use transform::{Transform, euler_deg_to_quat, quat_to_euler_deg};

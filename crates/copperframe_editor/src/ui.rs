@@ -19,8 +19,9 @@ use glam::Vec3;
 use std::path::PathBuf;
 
 use crate::assets_panel::AssetsPanel;
+use crate::components;
 use crate::dock::{Dock, Pane, PaneContents};
-use crate::gameplay::{self, GameTools};
+use crate::gameplay::GameTools;
 use crate::gizmo::{Tool, ToolPrefs};
 use crate::hub::{self, RecentProject};
 use crate::project_settings::ProjectSettingsPanel;
@@ -28,7 +29,6 @@ use crate::reporting::Reporting;
 use crate::session::{EditorSession, LogLevel, SaveOutcome};
 use crate::viewport::{EditorCamera, snap};
 use crate::viewport_panel::{self, GizmoDrag};
-use crate::visuals;
 use crate::{theme, toolbar};
 
 /// Requests the app must carry out (they need the GPU, the event loop or
@@ -941,24 +941,7 @@ fn inspector(
     ui.separator();
     transform_editor(ui, session, state, id);
     ui.separator();
-    mesh_editor(ui, session, resources, id, entity.mesh.as_ref());
-    // Gameplay components (the mesh editor may have changed the entity).
-    let Some(entity) = session.scene.get(id).cloned() else {
-        return;
-    };
-    ui.separator();
-    visuals::animator_editor(ui, session, resources, &entity);
-    ui.separator();
-    visuals::light_editor(ui, session, &entity);
-    ui.separator();
-    visuals::shadow_editor(ui, session, &entity);
-    ui.separator();
-    gameplay::collider_editor(ui, session, &entity);
-    ui.separator();
-    let sounds = gameplay::sounds(session);
-    gameplay::audio_editor(ui, session, &entity, &sounds);
-    ui.separator();
-    gameplay::behaviors_editor(ui, session, tools, &entity);
+    components::components(ui, session, resources, tools, id);
 }
 
 fn transform_editor(ui: &mut egui::Ui, session: &mut EditorSession, state: &UiState, id: EntityId) {
@@ -1062,7 +1045,7 @@ fn transform_editor(ui: &mut egui::Ui, session: &mut EditorSession, state: &UiSt
     });
 }
 
-fn assets_of(session: &EditorSession, kind: AssetKind) -> Vec<(AssetId, String)> {
+pub(crate) fn assets_of(session: &EditorSession, kind: AssetKind) -> Vec<(AssetId, String)> {
     session
         .db
         .entries
@@ -1079,50 +1062,14 @@ fn asset_label(session: &EditorSession, id: AssetId) -> String {
         .map_or_else(|| format!("MISSING {id}"), |e| e.relative.clone())
 }
 
-fn mesh_editor(
+pub(crate) fn mesh_editor(
     ui: &mut egui::Ui,
     session: &mut EditorSession,
     resources: &SceneResources,
     id: EntityId,
     mesh: Option<&MeshComponent>,
 ) {
-    ui.label(egui::RichText::new("Mesh").strong());
     let Some(mesh) = mesh else {
-        ui.horizontal_wrapped(|ui| {
-            for shape in PrimitiveShape::ALL {
-                if ui.button(format!("+ {}", shape.label())).clicked() {
-                    session.execute(Command::SetMesh {
-                        id,
-                        mesh: Some(MeshComponent {
-                            source: MeshSource::Primitive {
-                                shape,
-                                texture: None,
-                                tile_size: Some(copperframe_scene::DEFAULT_TILE_SIZE),
-                            },
-                            material: Default::default(),
-                        }),
-                    });
-                }
-            }
-        });
-        let models = assets_of(session, AssetKind::Gltf);
-        if !models.is_empty() {
-            egui::ComboBox::from_id_salt("add-model")
-                .selected_text("+ Model…")
-                .show_ui(ui, |ui| {
-                    for (asset, path) in models {
-                        if ui.selectable_label(false, path).clicked() {
-                            session.execute(Command::SetMesh {
-                                id,
-                                mesh: Some(MeshComponent {
-                                    source: MeshSource::Model { asset },
-                                    material: Default::default(),
-                                }),
-                            });
-                        }
-                    }
-                });
-        }
         return;
     };
     let mut source = mesh.source.clone();
@@ -1283,9 +1230,6 @@ fn mesh_editor(
     }
     if finished {
         session.end_merge();
-    }
-    if ui.button("Remove mesh").clicked() {
-        session.execute(Command::SetMesh { id, mesh: None });
     }
 }
 

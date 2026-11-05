@@ -312,7 +312,8 @@ impl Game for MyGame {{
     }}
 
     fn register(&self, r: &mut Registry) {{
-        r.register(BehaviorDescriptor {{
+        // The folder files the kind in the editor's Add component menu.
+        r.register_in("Gameplay", BehaviorDescriptor {{
             kind: "game.bob",
             description: "Bobs the entity up and down.",
             fields: vec![
