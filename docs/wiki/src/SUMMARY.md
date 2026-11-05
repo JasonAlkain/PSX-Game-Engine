@@ -15,6 +15,7 @@
 - [Scenes, entities and components](guide/scenes.md)
 - [PS1 and PS2 style settings](guide/style.md)
 - [Asset pipeline](guide/assets.md)
+- [Physics](guide/physics.md)
 - [Behaviours and game code](guide/behaviours.md)
 - [Input, audio and the player app](guide/player.md)
 - [Testing gameplay headless](guide/testing.md)

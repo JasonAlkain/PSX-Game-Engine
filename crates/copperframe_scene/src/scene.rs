@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::components::{
     AnimatorComponent, AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent,
-    ColliderShape, LightComponent, ShadowComponent,
+    ColliderShape, LightComponent, RigidbodyComponent, ShadowComponent,
 };
 use crate::transform::Transform;
 
@@ -122,6 +122,9 @@ pub struct Entity {
     /// Since scene version 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collider: Option<ColliderComponent>,
+    /// Since scene version 5 (moving bodies; none = static).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rigidbody: Option<RigidbodyComponent>,
     /// Since scene version 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioSourceComponent>,
@@ -154,6 +157,7 @@ impl Entity {
             transform: Transform::IDENTITY,
             mesh: None,
             collider: None,
+            rigidbody: None,
             audio: None,
             behaviors: Vec::new(),
             light: None,
@@ -172,6 +176,7 @@ impl Entity {
             component_key::LIGHT => self.light.is_some(),
             component_key::SHADOW => self.shadow.is_some(),
             component_key::COLLIDER => self.collider.is_some(),
+            component_key::RIGIDBODY => self.rigidbody.is_some(),
             component_key::AUDIO => self.audio.is_some(),
             _ => component_key::behavior_kind(key).is_some_and(|k| self.behavior(k).is_some()),
         }
@@ -180,7 +185,7 @@ impl Entity {
     /// Keys of the components the entity has, in the order the editor lists
     /// them: those named in `component_order` first, in that order, then the
     /// rest in the default order (built-in components, then behaviours).
-    /// Keys are `mesh`, `animator`, `light`, `shadow`, `collider`, `audio`
+    /// Keys are `mesh`, `animator`, `light`, `shadow`, `collider`, `rigidbody`, `audio`
     /// and `behavior:<kind>`.
     pub fn component_keys(&self) -> Vec<String> {
         let mut keys: Vec<String> = component_key::BUILT_IN
@@ -235,6 +240,11 @@ impl Entity {
         self.component_order = seen;
     }
 
+    /// How physics treats this entity's body (static without a rigidbody).
+    pub fn body_kind(&self) -> BodyKind {
+        BodyKind::of(self.rigidbody.as_ref())
+    }
+
     pub fn behavior(&self, kind: &str) -> Option<&BehaviorComponent> {
         self.behaviors.iter().find(|b| b.kind == kind)
     }
@@ -272,14 +282,26 @@ impl Entity {
             if let Some(p) = c.problem() {
                 out.push(format!("collider: {p}"));
             }
-            if c.body != BodyKind::Static && self.parent.is_some() {
-                out.push(format!(
-                    "collider: {} bodies must be root entities (no parent)",
-                    c.body.label().to_lowercase()
-                ));
-            }
             if c.shape == ColliderShape::Mesh && self.mesh.is_none() {
                 out.push("collider: a mesh collider needs a mesh component".into());
+            }
+            if c.shape == ColliderShape::Mesh && self.rigidbody.is_some() {
+                out.push(
+                    "collider: mesh colliders are static only; remove the rigidbody or use a \
+                     box, sphere or capsule"
+                        .into(),
+                );
+            }
+        }
+        if let Some(rb) = &self.rigidbody {
+            if let Some(p) = rb.problem() {
+                out.push(format!("rigidbody: {p}"));
+            }
+            if self.parent.is_some() {
+                out.push(format!(
+                    "rigidbody: {} bodies must be root entities (no parent)",
+                    rb.kind().label().to_lowercase()
+                ));
             }
         }
         if let Some(a) = &self.audio
@@ -332,9 +354,10 @@ pub mod component_key {
     pub const LIGHT: &str = "light";
     pub const SHADOW: &str = "shadow";
     pub const COLLIDER: &str = "collider";
+    pub const RIGIDBODY: &str = "rigidbody";
     pub const AUDIO: &str = "audio";
     /// The built-in components in their default order.
-    pub const BUILT_IN: [&str; 6] = [MESH, ANIMATOR, LIGHT, SHADOW, COLLIDER, AUDIO];
+    pub const BUILT_IN: [&str; 7] = [MESH, ANIMATOR, LIGHT, SHADOW, COLLIDER, RIGIDBODY, AUDIO];
     const BEHAVIOR_PREFIX: &str = "behavior:";
 
     /// The key of the behaviour of `kind`.

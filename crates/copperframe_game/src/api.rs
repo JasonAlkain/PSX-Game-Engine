@@ -22,7 +22,8 @@ pub type Entity = hecs::Entity;
 ///
 /// Calls happen on the simulation thread in this order each tick: `start`
 /// (once, the tick after the entity appears), `fixed_update`, then after
-/// physics `on_trigger`, and `on_interact`/`on_message` when delivered.
+/// physics `on_trigger` and `on_collision`, and `on_interact`/`on_message`
+/// when delivered.
 /// Changes requested through [`Ctx`] that create or remove entities are
 /// deferred to the end of the current phase.
 pub trait Behavior: 'static {
@@ -30,6 +31,9 @@ pub trait Behavior: 'static {
     fn fixed_update(&mut self, _ctx: &mut Ctx, _me: Entity) {}
     /// A sensor on `me` started (`entered`) or stopped overlapping `other`.
     fn on_trigger(&mut self, _ctx: &mut Ctx, _me: Entity, _other: Entity, _entered: bool) {}
+    /// A solid collider on `me` started (`started`) or stopped touching
+    /// `other`. Reported for contacts that involve a dynamic rigidbody.
+    fn on_collision(&mut self, _ctx: &mut Ctx, _me: Entity, _other: Entity, _started: bool) {}
     /// The player used the interact action while aiming at `me` (or a
     /// child of `me`) and [`Behavior::interaction_prompt`] returned a prompt.
     fn on_interact(&mut self, _ctx: &mut Ctx, _me: Entity, _by: Entity) {}

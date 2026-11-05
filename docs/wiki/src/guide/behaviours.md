@@ -150,6 +150,7 @@ pub trait Behavior: 'static {
 | `start` | Once, on the first tick after the entity appears |
 | `fixed_update` | Every simulation tick (60 per second; `ctx.dt()` is 1/60 s) |
 | `on_trigger` | A **sensor** collider on `me` started (`entered = true`) or stopped overlapping `other` |
+| `on_collision` | A solid collider on `me` started (`started = true`) or stopped touching `other`. Reported when a dynamic rigidbody is involved |
 | `interaction_prompt` | While the player aims at `me` (or a child of `me`). Return the prompt text ("Open door") to make it interactive, or `None` |
 | `on_interact` | The player pressed the interact action while a prompt was shown |
 | `on_message` | Another behaviour called `ctx.send(me, …)` |
@@ -259,7 +260,9 @@ lists every method; in short:
 - **Entities:** find by ID or name, read and set local transforms, world
   position, parent, hide, spawn, copy an authored entity (`instantiate`),
   despawn.
-- **Physics:** ray casts; a character capsule for custom controllers.
+- **Physics:** ray casts and overlap queries; velocities, impulses and
+  forces on rigidbodies; gravity; a character capsule for custom
+  controllers.
 - **Camera and HUD:** read and set the camera, override it with an entity,
   show a message.
 - **Audio and animation:** play, stop and fade the entity's sound; play and

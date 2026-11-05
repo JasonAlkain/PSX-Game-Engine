@@ -85,7 +85,11 @@ fn project_round_trip_through_the_cli() {
 
     let (_, after) = copperframe(&["inspect", "--project", &r]);
     let entities = after["scene"]["entities"].as_array().unwrap();
-    assert_eq!(entities.len(), 5, "starter floor, cube and player plus two");
+    assert_eq!(
+        entities.len(),
+        6,
+        "starter floor, cube, crate and player plus two"
+    );
     let c = entities
         .iter()
         .find(|e| e["id"] == crate_id.as_str())

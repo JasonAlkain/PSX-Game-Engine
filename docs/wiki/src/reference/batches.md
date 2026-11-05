@@ -57,7 +57,8 @@ generate_level | copperframe apply --project my_game -    # from stdin
 | `set_parent` | `id`, `parent` (`null` = root), `keep_world_transform` (default `true`) | Reparents |
 | `set_mesh` | `id`, `mesh` (`null` removes) | |
 | `set_material` | `id`, `material` | Material overrides |
-| `set_collider` | `id`, `collider` (`null` removes): `{shape, offset?, body?, sensor?, layer?, mask?, mass?, friction?}` | |
+| `set_collider` | `id`, `collider` (`null` removes): `{shape, offset?, sensor?, layer?, mask?, friction?, restitution?}` | |
+| `set_rigidbody` | `id`, `rigidbody` (`null` = static): `{kinematic?, mass?, gravity_scale?, linear_damping?, angular_damping?, lock_rotation?}` | Root entities only |
 | `set_audio` | `id`, `audio` (`null` removes): `{sound, bus?, volume_db?, looping?, autoplay?, spatial?, min_distance?, max_distance?}` | |
 | `set_behaviors` | `id`, `behaviors`: `[{kind, params?}]` | Replaces the whole list |
 | `set_settings` | `style?`, `lighting?`, `camera?` | Scene settings |
@@ -82,7 +83,9 @@ Field meanings and ranges are in
           "material": { "tint": [1, 0.8, 0.6, 1], "lit": true } }
 "mesh": { "source": { "kind": "model", "asset": "<model asset id>" } }
 
-"collider": { "shape": { "kind": "box", "size": [1, 2, 0.2] }, "body": "kinematic" }
+"collider": { "shape": { "kind": "box", "size": [1, 2, 0.2] }, "restitution": 0.3 }
+"rigidbody": { "kinematic": true }
+"rigidbody": { "mass": 20, "lock_rotation": true }
 "collider": { "shape": { "kind": "capsule", "radius": 0.3, "height": 1.8 }, "sensor": true }
 
 "audio": { "sound": "<sound asset id>", "bus": "effects", "looping": true, "autoplay": true }

@@ -15,7 +15,7 @@
     {
       "op": "set_collider",
       "id": "00000000-0000-4000-8000-000000000080",
-      "collider": {"shape": {"kind": "box", "size": [0.6, 1.85, 0.5]}, "offset": [0, 0.925, 0], "body": "static"}
+      "collider": {"shape": {"kind": "box", "size": [0.6, 1.85, 0.5]}, "offset": [0, 0.925, 0]}
     },
     {
       "op": "set_behaviors",

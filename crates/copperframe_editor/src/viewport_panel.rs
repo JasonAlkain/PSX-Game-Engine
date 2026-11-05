@@ -899,7 +899,10 @@ fn draw_colliders(
         } else {
             1.0
         };
-        let stroke = Stroke::new(width, gameplay::collider_color(c).gamma_multiply(0.8));
+        let stroke = Stroke::new(
+            width,
+            gameplay::collider_color(c, e.body_kind()).gamma_multiply(0.8),
+        );
         for (a, b) in gameplay::collider_lines(c, m, bounds) {
             if let (Some(pa), Some(pb)) = (
                 geometry.project(view_proj, a),

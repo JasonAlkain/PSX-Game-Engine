@@ -18,7 +18,7 @@ use thiserror::Error;
 
 use crate::components::{
     AnimatorComponent, AudioSourceComponent, BehaviorComponent, ColliderComponent, LightComponent,
-    ShadowComponent,
+    RigidbodyComponent, ShadowComponent,
 };
 use crate::scene::{
     CameraStart, Entity, MAX_DEPTH, MaterialOverride, MeshComponent, Scene, SceneLighting,
@@ -99,10 +99,16 @@ pub enum Command {
         id: EntityId,
         material: MaterialOverride,
     },
-    /// Adds, replaces or (with `null`) removes the collider/body.
+    /// Adds, replaces or (with `null`) removes the collider.
     SetCollider {
         id: EntityId,
         collider: Option<ColliderComponent>,
+    },
+    /// Adds, replaces or (with `null`) removes the rigidbody (null makes
+    /// the entity's collider static).
+    SetRigidbody {
+        id: EntityId,
+        rigidbody: Option<RigidbodyComponent>,
     },
     /// Adds, replaces or (with `null`) removes the audio source.
     SetAudio {
@@ -160,6 +166,7 @@ impl Command {
             Command::SetMesh { .. } => "set_mesh",
             Command::SetMaterial { .. } => "set_material",
             Command::SetCollider { .. } => "set_collider",
+            Command::SetRigidbody { .. } => "set_rigidbody",
             Command::SetAudio { .. } => "set_audio",
             Command::SetBehaviors { .. } => "set_behaviors",
             Command::SetLight { .. } => "set_light",
@@ -171,7 +178,7 @@ impl Command {
     }
 
     /// Every op with a one-line description, for `copperframe schema`.
-    pub const OPS: [(&'static str, &'static str); 16] = [
+    pub const OPS: [(&'static str, &'static str); 17] = [
         (
             "create_entity",
             "{id?, name, parent?, transform?, mesh?} -> created id",
@@ -197,7 +204,11 @@ impl Command {
         ("set_material", "{id, material}"),
         (
             "set_collider",
-            "{id, collider (null removes): {shape, offset?, body?, sensor?, layer?, mask?, mass?, friction?}}",
+            "{id, collider (null removes): {shape, offset?, sensor?, layer?, mask?, friction?, restitution?}}",
+        ),
+        (
+            "set_rigidbody",
+            "{id, rigidbody (null = static): {kinematic?, mass?, gravity_scale?, linear_damping?, angular_damping?, lock_rotation?}}",
         ),
         (
             "set_audio",
@@ -572,6 +583,16 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
                 Ok(())
             })
         }
+        Command::SetRigidbody { id, rigidbody } => {
+            require(scene, *id)?;
+            tracked(scene, &[*id], |s| {
+                if let Some(e) = s.get_mut(*id) {
+                    e.rigidbody = *rigidbody;
+                    e.prune_component_order();
+                }
+                Ok(())
+            })
+        }
         Command::SetAudio { id, audio } => {
             require(scene, *id)?;
             tracked(scene, &[*id], |s| {
@@ -734,7 +755,7 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(Command::OPS.len(), 16);
+        assert_eq!(Command::OPS.len(), 17);
     }
 
     #[test]
@@ -911,14 +932,12 @@ mod tests {
         let lever = create(&mut scene, "lever", Some(door), 1.0);
 
         // A moving body must be a root.
-        let dynamic =
-            ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }, BodyKind::Dynamic);
         let before = scene.clone();
         let err = apply(
             &mut scene,
-            &Command::SetCollider {
+            &Command::SetRigidbody {
                 id: lever,
-                collider: Some(dynamic),
+                rigidbody: Some(RigidbodyComponent::dynamic()),
             },
         )
         .unwrap_err();
@@ -928,13 +947,30 @@ mod tests {
             &mut scene,
             &Command::SetCollider {
                 id: door,
-                collider: Some(ColliderComponent::new(
-                    ColliderShape::Box { size: Vec3::ONE },
-                    BodyKind::Kinematic,
-                )),
+                collider: Some(ColliderComponent::new(ColliderShape::Box {
+                    size: Vec3::ONE,
+                })),
             },
         )
         .unwrap();
+        apply(
+            &mut scene,
+            &Command::SetRigidbody {
+                id: door,
+                rigidbody: Some(RigidbodyComponent::kinematic()),
+            },
+        )
+        .unwrap();
+        // Mesh colliders stay static.
+        let err = apply(
+            &mut scene,
+            &Command::SetCollider {
+                id: door,
+                collider: Some(ColliderComponent::new(ColliderShape::Mesh)),
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("static"), "{err}");
         // ...and cannot be reparented under something.
         let other = create(&mut scene, "other", None, 5.0);
         assert!(
@@ -1063,7 +1099,6 @@ mod tests {
         assert!(e.local_problems().iter().any(|p| p.contains("collider")));
         e.collider = Some(crate::components::ColliderComponent::new(
             crate::components::ColliderShape::Sphere { radius: 0.5 },
-            crate::components::BodyKind::Static,
         ));
         e.component_order.push("collider".into());
         assert!(e.local_problems().iter().any(|p| p.contains("twice")));

@@ -49,8 +49,20 @@ until despawned. `EntityId` is the persistent UUID stored in the scene.
 | `add_character(e, feet: Vec3, radius, height)` | Give `e` a character capsule (for custom controllers; `psx.player` does this itself) |
 | `move_character(e, desired: Vec3) -> Option<(Vec3, bool)>` | Move the capsule by `desired` metres with collision and sliding. Returns the new feet position and whether it is on the ground |
 | `aim(by, origin, direction, max_distance)` | Ask the engine to resolve interaction along this ray this tick (custom player controllers) |
+| `overlap_sphere(center, radius, include_sensors, ignore) -> Vec<Entity>` | Entities whose colliders overlap a sphere |
+| `overlap_box(center, half_extents, rotation, include_sensors, ignore) -> Vec<Entity>` | Entities whose colliders overlap a box |
+| `overlap(shape: QueryShape, center, rotation, include_sensors, ignore)` | Same with a `QueryShape` (`Sphere`, `Box`, `Capsule`) |
+| `velocity(e) -> Vec3`, `set_velocity(e, v)` | Linear velocity of a rigidbody (m/s) |
+| `angular_velocity(e)`, `set_angular_velocity(e, v)` | Spin in radians per second about each world axis |
+| `apply_impulse(e, impulse)` | Kick a dynamic rigidbody: its velocity changes by `impulse / mass` at once (N·s) |
+| `apply_torque_impulse(e, impulse)` | Spin a dynamic rigidbody at once |
+| `add_force(e, force)` | Push a dynamic rigidbody (newtons) for this tick only; call it every tick for a steady push |
+| `mass(e) -> f32`, `is_sleeping(e) -> bool` | Mass of a dynamic rigidbody; whether it has come to rest |
+| `gravity()`, `set_gravity(g)` | World gravity; starts at the project setting |
+| `set_character_push_mass(kg)` | How hard the player pushes dynamic bodies (default 80 kg; 0 stops pushing) |
 
-Sensor overlaps arrive as `Behavior::on_trigger`.
+Sensor overlaps arrive as `Behavior::on_trigger`, solid contacts of
+dynamic bodies as `Behavior::on_collision`.
 
 ## Camera and HUD
 

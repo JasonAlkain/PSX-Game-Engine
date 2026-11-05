@@ -10,7 +10,9 @@
 use std::path::{Path, PathBuf};
 
 use copperframe_assets::input::{self, BUTTON_NAMES, InputMap};
-use copperframe_assets::project::{DisplaySettings, GraphicsStyle, ProjectFile};
+use copperframe_assets::project::{
+    DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings, ProjectFile,
+};
 use egui::{Color32, RichText};
 
 use crate::gameplay::GameTools;
@@ -27,15 +29,17 @@ pub enum Page {
     Display,
     Look,
     Input,
+    Physics,
     Build,
 }
 
 impl Page {
-    pub const ALL: [Page; 5] = [
+    pub const ALL: [Page; 6] = [
         Page::General,
         Page::Display,
         Page::Look,
         Page::Input,
+        Page::Physics,
         Page::Build,
     ];
 
@@ -45,6 +49,7 @@ impl Page {
             Page::Display => "Window",
             Page::Look => "Look",
             Page::Input => "Input",
+            Page::Physics => "Physics",
             Page::Build => "Build",
         }
     }
@@ -248,6 +253,7 @@ impl ProjectSettingsPanel {
                 Page::Display => display(ui, &mut draft.file.display),
                 Page::Look => look(ui, draft),
                 Page::Input => self.input(ui, draft),
+                Page::Physics => physics(ui, &mut draft.file.physics),
                 Page::Build => build(ui, session, draft),
             });
     }
@@ -470,6 +476,60 @@ fn display(ui: &mut egui::Ui, d: &mut DisplaySettings) {
         "The size of the game window, in points (it scales with the desktop). Fullscreen and \
          vsync are where a new player starts; they can change them in the game's settings. \
          The low internal resolution is part of each scene's style (Scene settings).",
+    );
+}
+
+/// Gravity presets (m/s²).
+const GRAVITY_PRESETS: &[(&str, f32)] = &[
+    ("Earth", -9.81),
+    ("Moon", -1.62),
+    ("Mars", -3.71),
+    ("Floaty", -4.0),
+    ("Heavy", -20.0),
+    ("None", 0.0),
+];
+
+fn physics(ui: &mut egui::Ui, p: &mut PhysicsSettings) {
+    egui::Grid::new("project-physics")
+        .num_columns(2)
+        .spacing([12.0, 8.0])
+        .show(ui, |ui| {
+            ui.label("Gravity (m/s²)");
+            ui.horizontal(|ui| {
+                for (v, axis) in [
+                    (&mut p.gravity.x, "x"),
+                    (&mut p.gravity.y, "y"),
+                    (&mut p.gravity.z, "z"),
+                ] {
+                    ui.add(
+                        egui::DragValue::new(v)
+                            .speed(0.05)
+                            .range(-MAX_GRAVITY..=MAX_GRAVITY)
+                            .prefix(format!("{axis} "))
+                            .max_decimals(3),
+                    );
+                }
+                egui::ComboBox::from_id_salt("project-gravity")
+                    .selected_text("Presets")
+                    .show_ui(ui, |ui| {
+                        for &(name, y) in GRAVITY_PRESETS {
+                            let g = glam::Vec3::new(0.0, y, 0.0);
+                            if ui
+                                .selectable_label(p.gravity == g, format!("{name} ({y})"))
+                                .clicked()
+                            {
+                                p.gravity = g;
+                            }
+                        }
+                    });
+            });
+            ui.end_row();
+        });
+    ui.add_space(6.0);
+    hint(
+        ui,
+        "Pulls every dynamic rigidbody each tick; a rigidbody's gravity scale multiplies it. \
+         Earth is (0, -9.81, 0). Game code can change it while playing.",
     );
 }
 
