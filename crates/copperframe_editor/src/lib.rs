@@ -11,6 +11,7 @@
 //! - [`dock`]: the dockable panel layout and the Window menu.
 //! - [`toolbar`]: transform tools, snapping and view options.
 //! - [`gizmo`]: transform tool maths and snapping.
+//! - [`snap_settings`]: the Grid and snapping window.
 //! - [`viewport_panel`]: the 3D panel: picking, camera, gizmos.
 //! - [`assets_panel`]: the asset browser.
 //! - [`theme`], [`icons`]: the editor's colours and drawn icons.
@@ -30,6 +31,7 @@ pub mod hub;
 pub mod icons;
 pub mod reporting;
 pub mod session;
+pub mod snap_settings;
 pub mod theme;
 pub mod toolbar;
 pub mod ui;

@@ -105,6 +105,8 @@ pub struct UiState {
     pub stats: Stats,
     /// Crash prompt and bug report dialog.
     pub reporting: Reporting,
+    /// The Grid and snapping window is open.
+    pub snap_settings_open: bool,
 }
 
 impl Default for UiState {
@@ -123,6 +125,7 @@ impl Default for UiState {
             new_scene: None,
             stats: Stats::default(),
             reporting: Reporting::default(),
+            snap_settings_open: false,
         }
     }
 }
@@ -294,6 +297,7 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
 
     modals(ui.ctx(), session, state, &mut actions);
     build_dialogs(ui.ctx(), session, tools);
+    crate::snap_settings::show(ui.ctx(), session, state);
     state.reporting.show(ui.ctx(), session);
     UiOutput { viewport, actions }
 }
@@ -348,6 +352,12 @@ fn shortcuts(
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F)) {
             viewport_panel::frame_selection(session, resources, camera);
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::OpenBracket)) {
+            state.prefs.step_move(true);
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::CloseBracket)) {
+            state.prefs.step_move(false);
         }
     }
 }
@@ -1303,7 +1313,22 @@ fn scene_settings(ui: &mut egui::Ui, session: &mut EditorSession, camera: &Edito
                 ui.add(egui::Slider::new(&mut style.vertex_snap.grid, 0.25..=8.0).text("grid px"));
             finished |= r.drag_stopped();
         });
-        ui.checkbox(&mut style.affine_uv.enabled, "Affine UVs");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut style.affine_uv.enabled, "Affine UVs")
+                .on_hover_text("PS1 texture swim on large polygons");
+            let r = ui
+                .add_enabled(
+                    style.affine_uv.enabled,
+                    egui::Slider::new(&mut style.affine_uv.correction_distance, 0.0..=10.0)
+                        .text("close-up fix m"),
+                )
+                .on_hover_text(
+                    "Textures within this distance of the camera stay steady, so walking up \
+                     to a model no longer warps it. Farther polygons keep the PS1 swim. \
+                     0 warps everywhere",
+                );
+            finished |= r.drag_stopped();
+        });
         ui.horizontal(|ui| {
             ui.checkbox(&mut style.color_reduction.enabled, "Colour reduction");
             let r = ui.add(egui::Slider::new(&mut style.color_reduction.bits, 1..=8).text("bits"));

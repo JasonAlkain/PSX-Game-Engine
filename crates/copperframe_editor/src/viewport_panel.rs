@@ -128,7 +128,7 @@ pub fn show(
             egui::vec2(image.width as f32 / ppp, image.height as f32 / ppp),
         );
         let on_image = painter.with_clip_rect(clip.intersect(rect));
-        draw_grid(&on_image, &geometry, view_proj, camera, ppp);
+        draw_grid(&on_image, &geometry, view_proj, camera, &state.prefs, ppp);
     }
     if state.prefs.show_colliders {
         draw_colliders(
@@ -257,9 +257,20 @@ pub fn show(
         let at = response
             .hover_pos()
             .or_else(|| ui.input(|i| i.pointer.latest_pos()))
-            .and_then(|p| drop_point(session, resources, &geometry, view_proj, &world, to_px(p)))
+            .and_then(|p| {
+                let height = state.prefs.grid.height;
+                drop_point(
+                    session,
+                    resources,
+                    &geometry,
+                    view_proj,
+                    &world,
+                    to_px(p),
+                    height,
+                )
+            })
             .unwrap_or_else(|| camera.spawn_point(4.0));
-        session.add_model(*asset, at);
+        session.add_model(*asset, state.prefs.place(at));
     }
 
     if state.camera_active {
@@ -269,7 +280,7 @@ pub fn show(
 }
 
 /// Where a dropped model lands: on what is under the pointer, else on the
-/// ground plane.
+/// grid plane.
 fn drop_point(
     session: &EditorSession,
     resources: &SceneResources,
@@ -277,11 +288,12 @@ fn drop_point(
     view_proj: Mat4,
     world: &HashMap<EntityId, Mat4>,
     pointer: Vec2,
+    grid_height: f32,
 ) -> Option<Vec3> {
     let (o, d) = geometry.ray(view_proj, pointer)?;
     match resources.pick(&session.scene, world, o, d) {
         Some((_, distance)) => Some(o + d * distance),
-        None => ray_plane(o, d, Vec3::ZERO, Vec3::Y),
+        None => ray_plane(o, d, Vec3::Y * grid_height, Vec3::Y),
     }
 }
 
@@ -805,22 +817,36 @@ fn draw_vertex_marker(painter: &egui::Painter, at: Pos2, color: Color32) {
     );
 }
 
-/// Faint lines on the ground plane, one per metre, around the camera.
+/// Faint lines on the grid plane around the camera, at the grid spacing,
+/// with every Nth line brighter.
 fn draw_grid(
     painter: &egui::Painter,
     geometry: &ViewportGeometry,
     view_proj: Mat4,
     camera: &EditorCamera,
+    prefs: &crate::gizmo::ToolPrefs,
     ppp: f32,
 ) {
-    const REACH: i32 = 20;
+    let spacing = prefs.grid_spacing();
+    let reach = (prefs.grid.reach.clamp(1.0, 500.0) / spacing).ceil() as i64;
+    let major_every = prefs.grid.major_every.max(1) as i64;
+    let y = if prefs.grid.height.is_finite() {
+        prefs.grid.height
+    } else {
+        0.0
+    };
     let (cx, cz) = (
-        camera.camera.position.x.round() as i32,
-        camera.camera.position.z.round() as i32,
+        (camera.camera.position.x / spacing).round() as i64,
+        (camera.camera.position.z / spacing).round() as i64,
     );
     let to_pos = |v: Vec2| Pos2::new(v.x / ppp, v.y / ppp);
-    let stroke =
-        |major: bool| Stroke::new(1.0, Color32::from_white_alpha(if major { 56 } else { 24 }));
+    let stroke = |major: bool| {
+        Stroke::new(
+            1.0,
+            Color32::from_white_alpha(if major && major_every > 1 { 56 } else { 24 }),
+        )
+    };
+    let at = |i: i64| i as f32 * spacing;
     let segment = |a: Vec3, b: Vec3, major: bool| {
         if let (Some(a), Some(b)) = (
             geometry.project(view_proj, a),
@@ -829,19 +855,21 @@ fn draw_grid(
             painter.line_segment([to_pos(a), to_pos(b)], stroke(major));
         }
     };
-    for line in -REACH..=REACH {
-        for step in -REACH..REACH {
-            let (x, z) = ((cx + line) as f32, (cz + step) as f32);
+    // Each line is split into one-cell segments so lines that pass behind
+    // the camera still draw the part in front of it.
+    for line in -reach..=reach {
+        for step in -reach..reach {
+            let (x, z) = (at(cx + line), at(cz + step));
             segment(
-                Vec3::new(x, 0.0, z),
-                Vec3::new(x, 0.0, z + 1.0),
-                (cx + line) % 5 == 0,
+                Vec3::new(x, y, z),
+                Vec3::new(x, y, z + spacing),
+                (cx + line).rem_euclid(major_every) == 0,
             );
-            let (x, z) = ((cx + step) as f32, (cz + line) as f32);
+            let (x, z) = (at(cx + step), at(cz + line));
             segment(
-                Vec3::new(x, 0.0, z),
-                Vec3::new(x + 1.0, 0.0, z),
-                (cz + line) % 5 == 0,
+                Vec3::new(x, y, z),
+                Vec3::new(x + spacing, y, z),
+                (cz + line).rem_euclid(major_every) == 0,
             );
         }
     }

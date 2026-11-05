@@ -67,6 +67,102 @@ pub struct ToolPrefs {
     pub look: ViewLook,
     pub show_grid: bool,
     pub show_colliders: bool,
+    /// The viewport grid: spacing, height, size and major lines.
+    pub grid: GridSettings,
+}
+
+/// How the viewport grid is drawn, and how placing models uses it.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GridSettings {
+    /// Draw the grid at the move step, so the lines show where moves land.
+    pub follow_move_step: bool,
+    /// Line spacing in metres when not following the move step.
+    pub spacing: f32,
+    /// Every Nth line is brighter. 0 or 1 makes every line the same.
+    pub major_every: u32,
+    /// Height of the grid plane (Y), in metres. Models dropped on empty
+    /// space land on it.
+    pub height: f32,
+    /// How far the grid reaches from the camera, in metres.
+    pub reach: f32,
+    /// With grid snap on, models dropped into the viewport land on a grid
+    /// point (X and Z).
+    pub snap_placed: bool,
+}
+
+impl Default for GridSettings {
+    fn default() -> Self {
+        Self {
+            follow_move_step: false,
+            spacing: 1.0,
+            major_every: 5,
+            height: 0.0,
+            reach: 20.0,
+            snap_placed: true,
+        }
+    }
+}
+
+/// Most lines drawn along each direction, so a fine spacing over a large
+/// reach stays cheap.
+pub const MAX_GRID_LINES: u32 = 81;
+
+/// Smallest and largest move step the toolbar and settings accept.
+pub const MOVE_STEP_RANGE: std::ops::RangeInclusive<f32> = 0.01..=10.0;
+
+impl ToolPrefs {
+    /// Grid line spacing in metres, widened as needed so at most
+    /// [`MAX_GRID_LINES`] lines are drawn each way.
+    pub fn grid_spacing(&self) -> f32 {
+        let base = if self.grid.follow_move_step {
+            self.snap_translate
+        } else {
+            self.grid.spacing
+        };
+        let base = if base.is_finite() && base > 0.0 {
+            base
+        } else {
+            1.0
+        };
+        let reach = self.grid.reach.clamp(1.0, 500.0);
+        let mut spacing = base;
+        while 2.0 * reach / spacing > MAX_GRID_LINES as f32 {
+            spacing *= 2.0;
+        }
+        spacing
+    }
+
+    /// Halves (`finer`) or doubles the move step, within [`MOVE_STEP_RANGE`].
+    pub fn step_move(&mut self, finer: bool) {
+        let v = if finer {
+            self.snap_translate * 0.5
+        } else {
+            self.snap_translate * 2.0
+        };
+        self.snap_translate = v.clamp(*MOVE_STEP_RANGE.start(), *MOVE_STEP_RANGE.end());
+    }
+
+    /// Where a model dropped at `at` lands: with grid snap and "snap placed
+    /// models" on, X and Z move to the nearest grid point. Y is kept, so a
+    /// model dropped on a surface stays on it.
+    pub fn place(&self, at: Vec3) -> Vec3 {
+        if self.grid_snap && self.grid.snap_placed {
+            Vec3::new(
+                crate::viewport::snap(at.x, self.snap_translate),
+                at.y,
+                crate::viewport::snap(at.z, self.snap_translate),
+            )
+        } else {
+            at
+        }
+    }
+}
+
+/// `p` moved to the nearest point of a `step` grid on every axis.
+pub fn snap_point(p: Vec3, step: f32) -> Vec3 {
+    use crate::viewport::snap;
+    Vec3::new(snap(p.x, step), snap(p.y, step), snap(p.z, step))
 }
 
 impl Default for ToolPrefs {
@@ -84,6 +180,7 @@ impl Default for ToolPrefs {
             look: ViewLook::Styled,
             show_grid: false,
             show_colliders: true,
+            grid: GridSettings::default(),
         }
     }
 }
@@ -297,6 +394,59 @@ mod tests {
         assert_eq!(uniform_scale_factor(Vec2::new(100.0, 0.0), 1.0), 2.0);
         assert_eq!(uniform_scale_factor(Vec2::new(0.0, -200.0), 2.0), 2.0);
         assert_eq!(uniform_scale_factor(Vec2::new(0.0, 50.0), 1.0), 0.5);
+    }
+
+    #[test]
+    fn grid_spacing_follows_the_move_step_and_stays_bounded() {
+        let mut prefs = ToolPrefs::default();
+        assert_eq!(prefs.grid_spacing(), 1.0);
+        prefs.grid.follow_move_step = true;
+        prefs.snap_translate = 0.5;
+        assert_eq!(prefs.grid_spacing(), 0.5);
+        // 0.01 m over 20 m would be 4000 lines; it widens by doubling.
+        prefs.snap_translate = 0.01;
+        let s = prefs.grid_spacing();
+        assert!(2.0 * prefs.grid.reach / s <= MAX_GRID_LINES as f32);
+        assert!(2.0 * prefs.grid.reach / (s * 0.5) > MAX_GRID_LINES as f32);
+        prefs.grid.follow_move_step = false;
+        prefs.grid.spacing = 0.0;
+        assert_eq!(prefs.grid_spacing(), 1.0);
+    }
+
+    #[test]
+    fn move_step_halves_and_doubles_within_range() {
+        let mut prefs = ToolPrefs::default();
+        prefs.step_move(true);
+        assert_eq!(prefs.snap_translate, 0.125);
+        prefs.step_move(false);
+        prefs.step_move(false);
+        assert_eq!(prefs.snap_translate, 0.5);
+        prefs.snap_translate = 8.0;
+        prefs.step_move(false);
+        assert_eq!(prefs.snap_translate, 10.0);
+        prefs.snap_translate = 0.015;
+        prefs.step_move(true);
+        assert_eq!(prefs.snap_translate, 0.01);
+    }
+
+    #[test]
+    fn placed_models_snap_only_with_grid_snap_on() {
+        let mut prefs = ToolPrefs::default();
+        let at = Vec3::new(1.13, 0.37, -2.9);
+        assert_eq!(prefs.place(at), at);
+        prefs.grid_snap = true;
+        assert_eq!(prefs.place(at), Vec3::new(1.25, 0.37, -3.0));
+        prefs.grid.snap_placed = false;
+        assert_eq!(prefs.place(at), at);
+        assert_eq!(snap_point(at, 0.5), Vec3::new(1.0, 0.5, -3.0));
+    }
+
+    #[test]
+    fn older_prefs_without_grid_settings_load() {
+        let json = r#"{"tool":"Move","grid_snap":true,"snap_translate":0.5}"#;
+        let prefs: ToolPrefs = serde_json::from_str(json).unwrap();
+        assert!(prefs.grid_snap);
+        assert_eq!(prefs.grid, GridSettings::default());
     }
 
     #[test]

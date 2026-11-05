@@ -13,6 +13,8 @@ pub enum Icon {
     GridSnap,
     VertexSnap,
     ModelSnap,
+    /// Three sliders: settings for the tool beside it.
+    Tune,
     FrameSelected,
     Play,
     Stop,
@@ -97,6 +99,12 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 (0.15, 0.5),
                 (0.15, -0.5),
             ]);
+        }
+        Icon::Tune => {
+            for (y, knob) in [(-0.6, 0.35), (0.0, -0.4), (0.6, 0.1)] {
+                line(&[(-0.85, y), (0.85, y)]);
+                painter.circle_filled(at(knob, y), w * 2.0, color);
+            }
         }
         Icon::FrameSelected => {
             for (x, y) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {

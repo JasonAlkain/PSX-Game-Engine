@@ -70,10 +70,10 @@ pub fn show(
         ui.add(
             DragValue::new(&mut prefs.snap_translate)
                 .speed(0.01)
-                .range(0.01..=10.0)
+                .range(crate::gizmo::MOVE_STEP_RANGE)
                 .suffix(" m"),
         )
-        .on_hover_text("Move step");
+        .on_hover_text("Move step ([ halves it, ] doubles it)");
         ui.add(
             DragValue::new(&mut prefs.snap_rotate)
                 .speed(0.5)
@@ -88,6 +88,17 @@ pub fn show(
                 .prefix("×"),
         )
         .on_hover_text("Scale step");
+        if icons::button(
+            ui,
+            Icon::Tune,
+            state.snap_settings_open,
+            "Grid and snap settings",
+        )
+        .clicked()
+        {
+            state.snap_settings_open = !state.snap_settings_open;
+        }
+        let prefs = &mut state.prefs;
         if icons::button(
             ui,
             Icon::VertexSnap,
@@ -138,7 +149,7 @@ pub fn show(
                     );
             });
         ui.toggle_value(&mut prefs.show_grid, "Grid")
-            .on_hover_text("Metre lines on the ground plane");
+            .on_hover_text("Lines on the grid plane (spacing and height in grid settings)");
         ui.toggle_value(&mut prefs.show_colliders, "Colliders")
             .on_hover_text("Collider wireframes");
         ui.separator();
