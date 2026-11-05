@@ -125,7 +125,9 @@ settings is unrelated: it is the PS1 wobble effect (see
 | `Q` / `W` / `E` | Move / Rotate / Scale tool (while the right mouse button is not held) |
 | `F` | Frame the selection |
 | Hold `V` | Vertex snap |
-| `Ctrl+S` | Save |
+| `Ctrl+S` | Save the scene |
+| `Ctrl+Shift+S` | Save the scene under a new name (Save Scene As) |
+| `Ctrl+N` | New scene |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` or `Ctrl+Shift+Z` | Redo |
 | `Ctrl+D` | Duplicate the selection (with its children) |
@@ -138,14 +140,22 @@ settings is unrelated: it is the PS1 wobble effect (see
   - **New Project…**, **Open Project…**, **Recent Projects** and **Close
     Project** (back to the hub). See [Projects and the project
     hub](projects.md#switching-projects).
-  - **New Scene…** creates `scenes/<name>.scene.json`, an empty scene with
-    the current scene's style, lighting and camera, and opens it.
-    **Open Scene** lists every scene in `scenes/` (the startup scene is
-    marked). **Set as Startup Scene** makes the open scene the one the
-    game starts with.
+  - **New Scene…** (`Ctrl+N`) asks for a name, a folder under `scenes/`
+    and a template (**Empty**, or **Basic**: a floor with a collider and a
+    player), creates `<folder>/<name>.scene.json` with the open scene's
+    look and lighting, and opens it. An existing file is never
+    overwritten: the dialog says so and lets you pick another name.
+  - **Open Scene** lists every scene in `scenes/` (the start scene is
+    marked), and **Browse…** picks a scene file with the system dialog.
+    **Recent Scenes** lists the last ten scenes opened in this project.
+    **Set as Start Scene** makes the open scene the one the game starts
+    with.
+  - **Save Scene** (`Ctrl+S`) and **Save Scene As…** (`Ctrl+Shift+S`). Save
+    As writes the scene, unsaved edits included, to a new file and keeps
+    editing that one; the original stays as it was last saved.
   - **Project Settings…** opens the [Project settings](#project-settings)
     panel.
-  - Save; Reload from disk (discard changes); Quit.
+  - Reload from disk (discard changes); Quit.
 
   Anything that leaves the open scene asks first if it has unsaved changes,
   and anything that closes the project asks about unsaved project settings.
@@ -299,6 +309,29 @@ with the selected asset's path, any problem with it, and its actions.
 - **Reimport** (models and textures) reads the file again after you changed
   it. If the new import fails, the last good version stays on screen and
   the error appears in the console.
+
+### Scenes in the Assets panel
+
+Scene files have their own **scenes** folder in the tree (and the
+**Scenes** filter lists every scene in the project, searching all of them by
+name). The open scene's tile is copper; the start scene is marked
+**start**. The Hierarchy's header shows the open scene's name and
+**\* unsaved** while it has unsaved changes.
+
+- **Double-click** a scene to open it (you are asked about unsaved
+  changes first).
+- **Right-click** a scene for Open, Rename…, Delete…, Set as Start Scene and
+  Show in folder, and right-click a scenes folder or empty space for
+  **Create Scene…** and **Create Folder…** (also on the panel's **Create**
+  button).
+- **Drag** a scene onto a scenes folder (in the tree or the grid) to move it.
+- Renaming and moving keep references working: the project's start scene,
+  the recent list, and behaviour parameters that hold the old path (in every
+  scene; in the open scene that change is an undoable edit, saved with the
+  scene).
+- **Delete** moves the file to `.psx/deleted/` in the project folder, so it
+  can be recovered by hand. The open scene and the start scene cannot be
+  deleted.
 
 ### Automatic import
 

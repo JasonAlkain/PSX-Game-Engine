@@ -22,6 +22,8 @@ pub enum Icon {
     Texture,
     Sound,
     Folder,
+    /// A scene file: a framed landscape.
+    Scene,
     /// Project settings: a cog wheel.
     Cog,
     /// Drag handle: two columns of dots.
@@ -198,6 +200,23 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 .collect();
             line(&outline);
             painter.circle_stroke(c, s * 0.5 * 0.28, stroke);
+        }
+        Icon::Scene => {
+            line(&[
+                (-0.9, -0.7),
+                (0.9, -0.7),
+                (0.9, 0.7),
+                (-0.9, 0.7),
+                (-0.9, -0.7),
+            ]);
+            line(&[
+                (-0.9, 0.55),
+                (-0.35, -0.1),
+                (0.05, 0.3),
+                (0.35, 0.0),
+                (0.9, 0.55),
+            ]);
+            painter.circle_filled(at(0.45, -0.35), s * 0.09, color);
         }
         Icon::Folder => {
             let body = [at(-0.9, -0.35), at(0.9, -0.35), at(0.9, 0.7), at(-0.9, 0.7)];

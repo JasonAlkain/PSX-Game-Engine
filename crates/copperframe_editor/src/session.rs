@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 use copperframe_assets::project::{AssetDatabase, EditorLock, Project, ProjectError, SCENES_DIR};
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
-    Command, History, MeshComponent, MeshSource, PrimitiveShape, Scene, SceneFileError, Transform,
-    load_scene, save_scene,
+    BehaviorComponent, ColliderComponent, ColliderShape, Command, Entity, History, MeshComponent,
+    MeshSource, PrimitiveShape, Scene, SceneFileError, SceneSettings, Transform, load_scene,
+    save_scene,
 };
 use glam::Vec3;
 
@@ -49,6 +50,9 @@ pub struct EditorSession {
     pub history: History,
     pub selection: Option<EntityId>,
     pub log: Vec<LogLine>,
+    /// Recently opened scenes, relative to the project, newest first
+    /// (kept in `.psx/recent_scenes.json`).
+    pub recent_scenes: Vec<String>,
     /// Revision of the file on disk when it was loaded or last saved.
     disk_revision: u64,
     _lock: Option<EditorLock>,
@@ -56,6 +60,101 @@ pub struct EditorSession {
 
 /// Most log lines kept.
 const LOG_LIMIT: usize = 500;
+/// Scene files end in this.
+pub const SCENE_SUFFIX: &str = ".scene.json";
+/// Recently opened scenes of the project.
+const RECENT_FILE: &str = ".psx/recent_scenes.json";
+/// Deleted scene files are moved here.
+pub const DELETED_DIR: &str = ".psx/deleted";
+const RECENT_SCENES: usize = 10;
+
+/// What a new scene starts with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SceneTemplate {
+    /// No entities.
+    #[default]
+    Empty,
+    /// A floor with a collider and a player.
+    Basic,
+}
+
+impl SceneTemplate {
+    pub const ALL: [SceneTemplate; 2] = [SceneTemplate::Empty, SceneTemplate::Basic];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SceneTemplate::Empty => "Empty",
+            SceneTemplate::Basic => "Basic: floor and player",
+        }
+    }
+
+    /// A new scene called `name` with the look and lighting of `settings`
+    /// and the default start camera.
+    pub fn build(self, name: &str, settings: &SceneSettings) -> Scene {
+        let mut scene = Scene::new(name);
+        scene.settings = SceneSettings {
+            camera: Default::default(),
+            ..settings.clone()
+        };
+        if self == SceneTemplate::Basic {
+            let mut floor = Entity::new("Floor");
+            floor.transform.scale = Vec3::new(8.0, 1.0, 8.0);
+            floor.mesh = Some(MeshComponent {
+                source: MeshSource::Primitive {
+                    shape: PrimitiveShape::Plane,
+                    texture: None,
+                    tile_size: Some(2.0),
+                },
+                material: Default::default(),
+            });
+            floor.collider = Some(ColliderComponent {
+                offset: Vec3::new(0.0, -0.1, 0.0),
+                ..ColliderComponent::new(ColliderShape::Box {
+                    size: Vec3::new(1.0, 0.2, 1.0),
+                })
+            });
+            let mut player = Entity::new("Player");
+            player.transform.translation = Vec3::new(0.0, 0.0, 2.5);
+            player.behaviors = vec![BehaviorComponent::new("psx.player")];
+            scene.entities.extend([floor, player]);
+        }
+        scene
+    }
+}
+
+/// A file name stem for a scene name: letters, digits, `-` and `_`, the
+/// rest replaced by `_`, lower case.
+pub fn scene_stem(name: &str) -> String {
+    name.trim()
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Replaces string behaviour parameters equal to `old` with `new`;
+/// returns how many changed.
+fn replace_param(
+    behaviors: &mut [copperframe_scene::BehaviorComponent],
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> usize {
+    let mut n = 0;
+    for b in behaviors {
+        for v in b.params.values_mut() {
+            if v == old {
+                *v = new.clone();
+                n += 1;
+            }
+        }
+    }
+    n
+}
 
 impl EditorSession {
     /// Opens a project and its startup scene (or `scene`). With `lock`, the
@@ -67,6 +166,7 @@ impl EditorSession {
         steal_lock: bool,
     ) -> Result<Self, OpenError> {
         let project = Project::open(root)?;
+        let lock_taken = lock;
         let lock = if lock {
             Some(EditorLock::acquire(&project, steal_lock)?)
         } else {
@@ -86,8 +186,16 @@ impl EditorSession {
             history: History::default(),
             selection: None,
             log: Vec::new(),
+            recent_scenes: Vec::new(),
             _lock: lock,
         };
+        session.recent_scenes = std::fs::read_to_string(session.project.root.join(RECENT_FILE))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        if lock_taken {
+            session.remember_scene();
+        }
         session.info(format!(
             "opened {} (revision {}, {} entities)",
             session.project.relative(&session.scene_path),
@@ -249,7 +357,7 @@ impl EditorSession {
                 let p = e.path();
                 if p.is_dir() {
                     walk(&p, out);
-                } else if p.to_string_lossy().ends_with(".scene.json") {
+                } else if p.to_string_lossy().ends_with(SCENE_SUFFIX) {
                     out.push(p);
                 }
             }
@@ -269,6 +377,7 @@ impl EditorSession {
         self.scene_path = path.to_path_buf();
         self.history.clear();
         self.selection = None;
+        self.remember_scene();
         self.info(format!(
             "opened {} (revision {}, {} entities)",
             self.project.relative(&self.scene_path),
@@ -278,35 +387,287 @@ impl EditorSession {
         Ok(())
     }
 
-    /// Creates `scenes/<name>.scene.json` with the current scene's style,
-    /// lighting and camera and no entities, and opens it.
-    pub fn new_scene(&mut self, name: &str) -> Result<PathBuf, String> {
+    /// The file a new scene called `name` gets in `folder` (relative to the
+    /// project, under `scenes/`). Fails on a blank name, a folder outside
+    /// `scenes/`, or an existing file (scenes are never overwritten).
+    pub fn scene_path_for(&self, folder: &str, name: &str) -> Result<PathBuf, String> {
         let name = name.trim();
         if name.is_empty() {
             return Err("the scene needs a name".into());
         }
-        let stem: String = name
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '-' || c == '_' {
-                    c.to_ascii_lowercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect();
+        let folder = folder.trim_matches('/');
+        if !(folder == SCENES_DIR || folder.starts_with(&format!("{SCENES_DIR}/")))
+            || folder.split('/').any(|p| p == ".." || p.is_empty())
+        {
+            return Err(format!("scenes go in the {SCENES_DIR} folder"));
+        }
         let path = self
             .project
-            .resolve(SCENES_DIR)
-            .join(format!("{stem}.scene.json"));
+            .resolve(folder)
+            .join(format!("{}{SCENE_SUFFIX}", scene_stem(name)));
         if path.exists() {
             return Err(format!("{} already exists", self.project.relative(&path)));
         }
-        let mut scene = Scene::new(name);
-        scene.settings = self.scene.settings.clone();
-        save_scene(&scene, &path).map_err(|e| e.to_string())?;
-        self.open_scene(&path).map_err(|e| e.to_string())?;
         Ok(path)
+    }
+
+    /// Writes a new scene from `template` at `path` (see
+    /// [`EditorSession::scene_path_for`]) and opens it. The current scene is
+    /// discarded, so the caller saves or asks first.
+    pub fn new_scene_at(
+        &mut self,
+        path: &Path,
+        name: &str,
+        template: SceneTemplate,
+    ) -> Result<(), String> {
+        if path.exists() {
+            return Err(format!("{} already exists", self.project.relative(path)));
+        }
+        let scene = template.build(name.trim(), &self.scene.settings);
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        save_scene(&scene, path).map_err(|e| e.to_string())?;
+        self.open_scene(path).map_err(|e| e.to_string())
+    }
+
+    /// Creates `scenes/<name>.scene.json` with the current scene's style
+    /// and lighting and no entities, and opens it.
+    pub fn new_scene(&mut self, name: &str) -> Result<PathBuf, String> {
+        let path = self.scene_path_for(SCENES_DIR, name)?;
+        self.new_scene_at(&path, name, SceneTemplate::Empty)?;
+        Ok(path)
+    }
+
+    /// Saves the open scene, edits included, as a new file (with a new
+    /// scene ID) and continues editing that file. The old file is left as
+    /// it was on disk.
+    pub fn save_scene_as(&mut self, path: &Path) -> Result<(), String> {
+        if path.exists() {
+            return Err(format!("{} already exists", self.project.relative(path)));
+        }
+        if !path.starts_with(self.project.resolve(SCENES_DIR)) {
+            return Err(format!("scenes go in the {SCENES_DIR} folder"));
+        }
+        let mut scene = self.scene.clone();
+        scene.id = copperframe_core::SceneId::new();
+        scene.revision = 1;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        save_scene(&scene, path).map_err(|e| e.to_string())?;
+        self.scene = scene;
+        self.scene_path = path.to_path_buf();
+        self.disk_revision = 1;
+        self.history.mark_saved();
+        self.remember_scene();
+        self.info(format!("saved as {}", self.project.relative(path)));
+        Ok(())
+    }
+
+    /// Renames or moves a scene file (`to` is the new path, under
+    /// `scenes/`). The start scene, the recent list and behaviour
+    /// parameters naming the old path (in every scene) follow it; in the
+    /// open scene that is an undoable edit. Returns how many references
+    /// were updated.
+    pub fn move_scene(&mut self, from: &Path, to: &Path) -> Result<usize, String> {
+        let scenes = self.project.resolve(SCENES_DIR);
+        if !to.starts_with(&scenes) || !to.to_string_lossy().ends_with(SCENE_SUFFIX) {
+            return Err(format!(
+                "scene files must stay in {SCENES_DIR}/ and end in {SCENE_SUFFIX}"
+            ));
+        }
+        if to.exists() {
+            return Err(format!("{} already exists", self.project.relative(to)));
+        }
+        if !from.is_file() {
+            return Err(format!("{} does not exist", self.project.relative(from)));
+        }
+        let old_rel = self.project.relative(from);
+        let new_rel = self.project.relative(to);
+        if let Some(dir) = to.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::rename(from, to).map_err(|e| format!("could not move {old_rel}: {e}"))?;
+        // The backup follows the file it belongs to.
+        let bak = |p: &Path| PathBuf::from(format!("{}.bak", p.display()));
+        if bak(from).is_file() {
+            let _ = std::fs::rename(bak(from), bak(to));
+        }
+        let mut updated = 0;
+        if self.project.file.startup_scene == old_rel {
+            self.project.file.startup_scene = new_rel.clone();
+            if let Err(e) = self.project.save() {
+                self.error(format!("could not update the start scene: {e}"));
+            } else {
+                updated += 1;
+            }
+        }
+        if self.scene_path == from {
+            self.scene_path = to.to_path_buf();
+        }
+        for r in &mut self.recent_scenes {
+            if *r == old_rel {
+                *r = new_rel.clone();
+            }
+        }
+        self.save_recent();
+        // Behaviour parameters that name the scene, in every scene.
+        let old_value = serde_json::Value::String(old_rel.clone());
+        let new_value = serde_json::Value::String(new_rel.clone());
+        let fixes: Vec<(
+            copperframe_core::EntityId,
+            Vec<copperframe_scene::BehaviorComponent>,
+        )> = self
+            .scene
+            .entities
+            .iter()
+            .filter_map(|e| {
+                let mut b = e.behaviors.clone();
+                let n = replace_param(&mut b, &old_value, &new_value);
+                (n > 0).then_some((e.id, b))
+            })
+            .collect();
+        for (id, behaviors) in fixes {
+            if self
+                .execute(Command::SetBehaviors { id, behaviors })
+                .is_some()
+            {
+                updated += 1;
+            }
+        }
+        for path in self.scene_files() {
+            if path == self.scene_path {
+                continue;
+            }
+            let Ok(mut scene) = load_scene(&path) else {
+                continue;
+            };
+            let n: usize = scene
+                .entities
+                .iter_mut()
+                .map(|e| replace_param(&mut e.behaviors, &old_value, &new_value))
+                .sum();
+            if n > 0 {
+                scene.revision += 1;
+                match save_scene(&scene, &path) {
+                    Ok(()) => updated += n,
+                    Err(e) => self.error(format!(
+                        "could not update {}: {e}",
+                        self.project.relative(&path)
+                    )),
+                }
+            }
+        }
+        self.info(format!("moved {old_rel} to {new_rel}"));
+        Ok(updated)
+    }
+
+    /// Moves a scene file into `.psx/deleted/` (out of the game, but
+    /// recoverable by hand). The open scene and the start scene cannot be
+    /// deleted.
+    pub fn delete_scene(&mut self, path: &Path) -> Result<(), String> {
+        let rel = self.project.relative(path);
+        if path == self.scene_path {
+            return Err(format!(
+                "{rel} is open; open another scene before deleting it"
+            ));
+        }
+        if path == self.project.startup_scene_path() {
+            return Err(format!(
+                "{rel} is the start scene; make another scene the start scene first"
+            ));
+        }
+        let bin = self.project.root.join(DELETED_DIR);
+        std::fs::create_dir_all(&bin).map_err(|e| format!("{}: {e}", bin.display()))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut target = bin.join(&name);
+        let mut n = 1;
+        while target.exists() {
+            target = bin.join(format!("{n}-{name}"));
+            n += 1;
+        }
+        std::fs::rename(path, &target).map_err(|e| format!("could not delete {rel}: {e}"))?;
+        let _ = std::fs::remove_file(format!("{}.bak", path.display()));
+        self.recent_scenes.retain(|r| *r != rel);
+        self.save_recent();
+        self.info(format!(
+            "deleted {rel} (kept as {})",
+            self.project.relative(&target)
+        ));
+        Ok(())
+    }
+
+    /// Makes a folder under `scenes/`.
+    pub fn create_scene_folder(&mut self, parent: &str, name: &str) -> Result<PathBuf, String> {
+        let name = name.trim();
+        if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
+            return Err("give the folder a plain name".into());
+        }
+        let parent = parent.trim_matches('/');
+        if !(parent == SCENES_DIR || parent.starts_with(&format!("{SCENES_DIR}/"))) {
+            return Err(format!("scene folders go in {SCENES_DIR}/"));
+        }
+        let path = self.project.resolve(parent).join(name);
+        if path.exists() {
+            return Err(format!("{} already exists", self.project.relative(&path)));
+        }
+        std::fs::create_dir_all(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(path)
+    }
+
+    /// Every folder under `scenes/` (relative, sorted), including empty ones.
+    pub fn scene_folders(&self) -> Vec<String> {
+        fn walk(dir: &Path, project: &Project, out: &mut Vec<String>) {
+            out.push(project.relative(dir));
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                let hidden = e.file_name().to_string_lossy().starts_with('.');
+                if p.is_dir() && !hidden {
+                    walk(&p, project, out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.project.resolve(SCENES_DIR), &self.project, &mut out);
+        out.sort();
+        out
+    }
+
+    /// Recently opened scenes of this project (relative paths, newest
+    /// first), without the open one and without files that are gone.
+    pub fn recent_scene_paths(&self) -> Vec<PathBuf> {
+        self.recent_scenes
+            .iter()
+            .map(|r| self.project.resolve(r))
+            .filter(|p| *p != self.scene_path && p.is_file())
+            .collect()
+    }
+
+    /// Puts the open scene at the top of the recent list.
+    fn remember_scene(&mut self) {
+        let rel = self.project.relative(&self.scene_path);
+        self.recent_scenes.retain(|r| *r != rel);
+        self.recent_scenes.insert(0, rel);
+        self.recent_scenes.truncate(RECENT_SCENES);
+        self.save_recent();
+    }
+
+    fn save_recent(&self) {
+        let path = self.project.root.join(RECENT_FILE);
+        let text = serde_json::to_string_pretty(&self.recent_scenes).unwrap_or_default();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Err(e) = copperframe_core::fsutil::atomic_write(&path, text.as_bytes()) {
+            tracing::warn!("could not save the recent scenes list: {e}");
+        }
     }
 
     pub fn is_startup_scene(&self) -> bool {
@@ -582,6 +943,96 @@ mod tests {
         s.open_scene(&main).unwrap();
         assert_eq!(s.scene.entities.len(), 4);
         assert!(!s.is_startup_scene());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn scenes_save_as_move_delete_and_keep_references() {
+        let root = temp("scene_files");
+        Project::create(&root, "T").unwrap();
+        let mut s = EditorSession::open(&root, None, true, false).unwrap();
+        let main = s.scene_path.clone();
+
+        // A second scene whose behaviour names the main scene.
+        let level = s.scene_path_for("scenes", "Level").unwrap();
+        s.new_scene_at(&level, "Level", SceneTemplate::Basic)
+            .unwrap();
+        assert_eq!(
+            s.scene.entities.len(),
+            2,
+            "basic template: floor and player"
+        );
+        let player = s.scene.entities[1].id;
+        let mut door = copperframe_scene::BehaviorComponent::new("game.door");
+        door.params.insert(
+            "scene".into(),
+            serde_json::Value::String("scenes/main.scene.json".into()),
+        );
+        s.execute(Command::SetBehaviors {
+            id: player,
+            behaviors: vec![door],
+        });
+        s.save(false).unwrap();
+        // Existing files are never overwritten; names outside scenes/ are refused.
+        assert!(
+            s.scene_path_for("scenes", "level")
+                .unwrap_err()
+                .contains("already exists")
+        );
+        assert!(s.scene_path_for("assets", "x").is_err());
+        assert!(s.scene_path_for("scenes/../assets", "x").is_err());
+
+        // Save As keeps edits, makes a new file and leaves the old one.
+        s.execute(Command::Rename {
+            id: player,
+            name: "Hero".into(),
+        });
+        let copy = s.scene_path_for("scenes", "Level copy").unwrap();
+        let old_id = s.scene.id;
+        s.save_scene_as(&copy).unwrap();
+        assert_eq!(s.scene_path, copy);
+        assert!(!s.is_dirty());
+        assert_ne!(s.scene.id, old_id);
+        assert_eq!(load_scene(&copy).unwrap().entities[1].name, "Hero");
+        assert_eq!(load_scene(&level).unwrap().entities[1].name, "Player");
+        assert!(s.save_scene_as(&level).is_err(), "no overwrite");
+
+        // Moving the start scene into a folder updates the project and
+        // every scene that names it, open or not.
+        let folder = s.create_scene_folder("scenes", "levels").unwrap();
+        let moved = folder.join("main.scene.json");
+        let n = s.move_scene(&main, &moved).unwrap();
+        assert_eq!(n, 3, "start scene, the open copy, the closed level");
+        assert_eq!(
+            Project::open(&root).unwrap().file.startup_scene,
+            "scenes/levels/main.scene.json"
+        );
+        let param = |scene: &Scene| scene.entities[1].behaviors[0].params["scene"].clone();
+        assert_eq!(param(&s.scene), "scenes/levels/main.scene.json");
+        assert!(
+            s.is_dirty(),
+            "the open scene's reference is an undoable edit"
+        );
+        assert_eq!(
+            param(&load_scene(&level).unwrap()),
+            "scenes/levels/main.scene.json"
+        );
+        assert!(!main.exists() && moved.exists());
+        assert!(s.scene_folders().contains(&"scenes/levels".to_owned()));
+
+        // Deleting: not the open or start scene; others go to .psx/deleted.
+        assert!(s.delete_scene(&copy).is_err());
+        assert!(s.delete_scene(&moved).is_err());
+        s.delete_scene(&level).unwrap();
+        assert!(!level.exists());
+        assert!(root.join(DELETED_DIR).join("level.scene.json").is_file());
+
+        // Recent scenes survive a restart.
+        s.open_scene(&moved).unwrap();
+        drop(s);
+        let s = EditorSession::open(&root, Some(&copy), true, false).unwrap();
+        assert_eq!(s.recent_scene_paths(), vec![moved.clone()]);
+        drop(s);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

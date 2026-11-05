@@ -345,6 +345,34 @@ impl HierarchyPanel {
     }
 
     fn header(&mut self, ui: &mut egui::Ui, session: &mut EditorSession) {
+        // The open scene, and whether it has unsaved changes.
+        ui.horizontal(|ui| {
+            let rect = crate::icons::row_rect(ui, 13.0);
+            crate::icons::paint(
+                ui.painter(),
+                rect,
+                crate::icons::Icon::Scene,
+                theme::TEXT_DIM,
+            );
+            let file = session
+                .scene_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let name = file
+                .strip_suffix(crate::session::SCENE_SUFFIX)
+                .unwrap_or(&file);
+            ui.label(egui::RichText::new(name).strong())
+                .on_hover_text(session.project.relative(&session.scene_path));
+            if session.is_dirty() {
+                ui.label(
+                    egui::RichText::new("* unsaved")
+                        .color(theme::ACCENT)
+                        .small(),
+                )
+                .on_hover_text("Ctrl+S saves the scene");
+            }
+        });
         ui.horizontal(|ui| {
             let clear_w = if self.search.is_empty() { 0.0 } else { 22.0 };
             let edit = ui.add(

@@ -19,6 +19,7 @@ use glam::Vec3;
 use std::path::PathBuf;
 
 use crate::assets_panel::AssetsPanel;
+use crate::assets_panel::PanelRequest;
 use crate::components;
 use crate::dock::{Dock, Pane, PaneContents};
 use crate::gameplay::GameTools;
@@ -27,7 +28,9 @@ use crate::hierarchy::HierarchyPanel;
 use crate::hub::{self, RecentProject};
 use crate::project_settings::ProjectSettingsPanel;
 use crate::reporting::Reporting;
-use crate::session::{EditorSession, LogLevel, SaveOutcome};
+use crate::session::{
+    EditorSession, LogLevel, SCENE_SUFFIX, SaveOutcome, SceneTemplate, scene_stem,
+};
 use crate::viewport::{EditorCamera, snap};
 use crate::viewport_panel::{self, GizmoDrag};
 use crate::{theme, toolbar};
@@ -41,6 +44,12 @@ pub enum Action {
     AssetsChanged,
     /// Switch to another scene of this project.
     OpenScene(PathBuf),
+    /// Create a scene file from a template and switch to it.
+    NewScene {
+        path: PathBuf,
+        name: String,
+        template: SceneTemplate,
+    },
     /// Close this project and open another.
     OpenProject(PathBuf),
     /// Close this project and show the project hub.
@@ -57,6 +66,7 @@ impl Action {
         matches!(
             self,
             Action::OpenScene(_)
+                | Action::NewScene { .. }
                 | Action::OpenProject(_)
                 | Action::CloseProject
                 | Action::NewProject
@@ -67,13 +77,14 @@ impl Action {
     /// Whether the action closes the project (so unsaved project settings
     /// would be lost).
     fn leaves_project(&self) -> bool {
-        self.leaves_scene() && !matches!(self, Action::OpenScene(_))
+        self.leaves_scene() && !matches!(self, Action::OpenScene(_) | Action::NewScene { .. })
     }
 
     fn verb(&self) -> &'static str {
         match self {
             Action::Quit => "quit",
             Action::OpenScene(_) => "open the other scene",
+            Action::NewScene { .. } => "create the new scene",
             Action::OpenProject(_) | Action::NewProject => "switch project",
             Action::CloseProject => "close the project",
             Action::Reimport(_) | Action::AssetsChanged => "continue",
@@ -110,8 +121,8 @@ pub struct UiState {
     conflict: Option<u64>,
     /// Another program changed the open scene file (its revision).
     pub disk_changed: Option<u64>,
-    /// Name typed into File > New Scene.
-    new_scene: Option<String>,
+    /// File > New Scene or Save Scene As, while open.
+    scene_dialog: Option<SceneDialog>,
     pub stats: Stats,
     /// Crash prompt and bug report dialog.
     pub reporting: Reporting,
@@ -134,7 +145,7 @@ impl Default for UiState {
             confirm: None,
             conflict: None,
             disk_changed: None,
-            new_scene: None,
+            scene_dialog: None,
             stats: Stats::default(),
             reporting: Reporting::default(),
             snap_settings_open: false,
@@ -174,6 +185,49 @@ impl UiState {
             self.confirm = Some(action);
         } else {
             actions.push(action);
+        }
+    }
+}
+
+/// Which scene file dialog is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SceneDialogKind {
+    New,
+    SaveAs,
+}
+
+/// The New Scene / Save Scene As dialog: a name, a folder under `scenes/`
+/// and (for a new scene) a template.
+#[derive(Debug, Clone, PartialEq)]
+struct SceneDialog {
+    kind: SceneDialogKind,
+    name: String,
+    folder: String,
+    template: SceneTemplate,
+    error: Option<String>,
+}
+
+impl SceneDialog {
+    fn new(kind: SceneDialogKind, session: &EditorSession, folder: Option<String>) -> Self {
+        let folder = folder.unwrap_or_else(|| {
+            // Next to the open scene.
+            session
+                .scene_path
+                .parent()
+                .map(|p| session.project.relative(p))
+                .filter(|f| f.starts_with(copperframe_assets::project::SCENES_DIR))
+                .unwrap_or_else(|| copperframe_assets::project::SCENES_DIR.to_owned())
+        });
+        let name = match kind {
+            SceneDialogKind::New => "New scene".to_owned(),
+            SceneDialogKind::SaveAs => format!("{} copy", session.scene.name),
+        };
+        Self {
+            kind,
+            name,
+            folder,
+            template: SceneTemplate::Empty,
+            error: None,
         }
     }
 }
@@ -322,6 +376,20 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         }
         state.dock = dock;
     });
+    for request in std::mem::take(&mut state.assets.requests) {
+        match request {
+            PanelRequest::OpenScene(path) => {
+                state.request(session, Action::OpenScene(path), &mut actions);
+            }
+            PanelRequest::NewScene(folder) => {
+                state.scene_dialog = Some(SceneDialog::new(
+                    SceneDialogKind::New,
+                    session,
+                    Some(folder),
+                ));
+            }
+        }
+    }
     let viewport = viewport.map(|r| viewport_panel::to_pixels(r, ppp));
 
     modals(ui.ctx(), session, state, &mut actions);
@@ -348,8 +416,14 @@ fn shortcuts(
     }
     let cmd = |key| KeyboardShortcut::new(Modifiers::COMMAND, key);
     let cmd_shift = |key| KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key);
-    if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::S))) {
+    // Shift first: Ctrl+S would also match Ctrl+Shift+S.
+    if ctx.input_mut(|i| i.consume_shortcut(&cmd_shift(Key::S))) {
+        state.scene_dialog = Some(SceneDialog::new(SceneDialogKind::SaveAs, session, None));
+    } else if ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::S))) {
         save(session, state, false);
+    }
+    if state.scene_dialog.is_none() && ctx.input_mut(|i| i.consume_shortcut(&cmd(Key::N))) {
+        state.scene_dialog = Some(SceneDialog::new(SceneDialogKind::New, session, None));
     }
     // Text fields handle their own undo while focused.
     if ctx.egui_wants_keyboard_input() {
@@ -574,8 +648,8 @@ fn file_menu(
         state.request(session, Action::CloseProject, actions);
     }
     ui.separator();
-    if ui.button("New Scene…").clicked() {
-        state.new_scene = Some("New scene".into());
+    if ui.button("New Scene…   Ctrl+N").clicked() {
+        state.scene_dialog = Some(SceneDialog::new(SceneDialogKind::New, session, None));
     }
     let scenes = session.scene_files();
     ui.menu_button("Open Scene", |ui| {
@@ -584,7 +658,7 @@ fn file_menu(
             let current = path == session.scene_path;
             let startup = path == session.project.startup_scene_path();
             let label = if startup {
-                format!("{rel}  (startup)")
+                format!("{rel}  (start)")
             } else {
                 rel
             };
@@ -592,11 +666,27 @@ fn file_menu(
                 state.request(session, Action::OpenScene(path), actions);
             }
         }
+        ui.separator();
+        if ui.button("Browse…").clicked()
+            && let Some(path) = pick_scene(session)
+        {
+            state.request(session, Action::OpenScene(path), actions);
+        }
+    });
+    let recent = session.recent_scene_paths();
+    ui.add_enabled_ui(!recent.is_empty(), |ui| {
+        ui.menu_button("Recent Scenes", |ui| {
+            for path in recent {
+                if ui.button(session.project.relative(&path)).clicked() {
+                    state.request(session, Action::OpenScene(path), actions);
+                }
+            }
+        });
     });
     if ui
         .add_enabled(
             !session.is_startup_scene(),
-            egui::Button::new("Set as Startup Scene"),
+            egui::Button::new("Set as Start Scene"),
         )
         .on_hover_text("The exported game starts with this scene")
         .clicked()
@@ -604,8 +694,11 @@ fn file_menu(
         session.set_startup_scene();
     }
     ui.separator();
-    if ui.button("Save   Ctrl+S").clicked() {
+    if ui.button("Save Scene   Ctrl+S").clicked() {
         save(session, state, false);
+    }
+    if ui.button("Save Scene As…   Ctrl+Shift+S").clicked() {
+        state.scene_dialog = Some(SceneDialog::new(SceneDialogKind::SaveAs, session, None));
     }
     if ui.button("Reload from disk (discard changes)").clicked()
         && let Err(e) = session.reload()
@@ -1420,41 +1513,7 @@ fn modals(
             });
         });
     }
-    if let Some(name) = &mut state.new_scene {
-        let mut done = false;
-        let mut create = false;
-        egui::Modal::new(egui::Id::unique("copperframe-new-scene")).show(ctx, |ui| {
-            ui.heading("New scene");
-            ui.label("An empty scene with this scene's style, lighting and camera.");
-            let edit = ui.text_edit_singleline(name);
-            edit.request_focus();
-            ui.horizontal(|ui| {
-                if ui.button("Create").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
-                    create = true;
-                }
-                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-                    done = true;
-                }
-            });
-        });
-        if create {
-            let name = name.clone();
-            done = true;
-            if session.is_dirty() {
-                save(session, state, false);
-            }
-            if session.is_dirty() {
-                session.error("new scene cancelled: the current scene could not be saved");
-            } else if let Err(e) = session.new_scene(&name) {
-                session.error(e);
-            } else {
-                actions.push(Action::OpenScene(session.scene_path.clone()));
-            }
-        }
-        if done {
-            state.new_scene = None;
-        }
-    }
+    scene_dialog(ctx, session, state, actions);
     if let Some(disk) = state.disk_changed {
         egui::Modal::new(egui::Id::unique("copperframe-disk-changed")).show(ctx, |ui| {
             ui.heading("Scene changed by another program");
@@ -1503,5 +1562,149 @@ fn modals(
                 }
             });
         });
+    }
+}
+
+/// File > Open Scene > Browse…: a file picker in the project's scenes
+/// folder. Files outside it are refused.
+fn pick_scene(session: &mut EditorSession) -> Option<PathBuf> {
+    let dir = session
+        .project
+        .resolve(copperframe_assets::project::SCENES_DIR);
+    let picked = rfd::FileDialog::new()
+        .set_title("Open a scene")
+        .set_directory(&dir)
+        .add_filter("Scene", &["json"])
+        .pick_file()?;
+    let picked = dunce::canonicalize(&picked).unwrap_or(picked);
+    let dir = dunce::canonicalize(&dir).unwrap_or(dir);
+    let name = picked.to_string_lossy();
+    if !picked.starts_with(&dir) || !name.ends_with(SCENE_SUFFIX) {
+        session.error(format!(
+            "{} is not a scene of this project (scenes are *{SCENE_SUFFIX} files in scenes/)",
+            picked.display()
+        ));
+        return None;
+    }
+    let rel = picked.strip_prefix(&dir).ok()?;
+    Some(
+        session
+            .project
+            .resolve(copperframe_assets::project::SCENES_DIR)
+            .join(rel),
+    )
+}
+
+/// The New Scene and Save Scene As dialog.
+fn scene_dialog(
+    ctx: &egui::Context,
+    session: &mut EditorSession,
+    state: &mut UiState,
+    actions: &mut Vec<Action>,
+) {
+    let Some(dialog) = &mut state.scene_dialog else {
+        return;
+    };
+    let folders = session.scene_folders();
+    let mut close = false;
+    let mut confirm = false;
+    egui::Modal::new(egui::Id::unique("copperframe-scene-dialog")).show(ctx, |ui| {
+        ui.heading(match dialog.kind {
+            SceneDialogKind::New => "New scene",
+            SceneDialogKind::SaveAs => "Save scene as",
+        });
+        egui::Grid::new("scene-dialog-grid")
+            .num_columns(2)
+            .show(ui, |ui| {
+                ui.label("Name");
+                let edit = ui.text_edit_singleline(&mut dialog.name);
+                if !edit.has_focus() && !edit.lost_focus() {
+                    edit.request_focus();
+                }
+                if edit.changed() {
+                    dialog.error = None;
+                }
+                ui.end_row();
+                ui.label("Folder");
+                egui::ComboBox::from_id_salt("scene-dialog-folder")
+                    .selected_text(format!("{}/", dialog.folder))
+                    .show_ui(ui, |ui| {
+                        for f in &folders {
+                            ui.selectable_value(&mut dialog.folder, f.clone(), format!("{f}/"));
+                        }
+                    });
+                ui.end_row();
+                if dialog.kind == SceneDialogKind::New {
+                    ui.label("Start with");
+                    ui.vertical(|ui| {
+                        for t in SceneTemplate::ALL {
+                            ui.radio_value(&mut dialog.template, t, t.label());
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+        ui.label(
+            egui::RichText::new(format!(
+                "File: {}/{}{SCENE_SUFFIX}",
+                dialog.folder,
+                scene_stem(&dialog.name)
+            ))
+            .weak(),
+        );
+        if dialog.kind == SceneDialogKind::New {
+            ui.label(egui::RichText::new("Uses the open scene's look and lighting.").weak());
+        } else {
+            ui.label(
+                egui::RichText::new(
+                    "Saves the scene with your edits under the new name and keeps editing \
+                     that copy. The original file stays as it was last saved.",
+                )
+                .weak(),
+            );
+        }
+        if let Some(e) = &dialog.error {
+            ui.colored_label(level_color(LogLevel::Error), e);
+        }
+        ui.horizontal(|ui| {
+            let verb = match dialog.kind {
+                SceneDialogKind::New => "Create",
+                SceneDialogKind::SaveAs => "Save",
+            };
+            if ui.button(verb).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                confirm = true;
+            }
+            if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                close = true;
+            }
+        });
+    });
+    if confirm {
+        match session.scene_path_for(&dialog.folder, &dialog.name) {
+            Err(e) => dialog.error = Some(e),
+            Ok(path) => match dialog.kind {
+                SceneDialogKind::New => {
+                    let action = Action::NewScene {
+                        path,
+                        name: dialog.name.trim().to_owned(),
+                        template: dialog.template,
+                    };
+                    state.scene_dialog = None;
+                    // Asks about unsaved edits first.
+                    state.request(session, action, actions);
+                    return;
+                }
+                SceneDialogKind::SaveAs => match session.save_scene_as(&path) {
+                    Ok(()) => {
+                        close = true;
+                        state.conflict = None;
+                    }
+                    Err(e) => dialog.error = Some(e),
+                },
+            },
+        }
+    }
+    if close {
+        state.scene_dialog = None;
     }
 }
