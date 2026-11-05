@@ -20,7 +20,9 @@ pub const MAX_KIND_LEN: usize = 64;
 /// Prefix reserved for behaviours provided by the engine.
 pub const ENGINE_BEHAVIOR_PREFIX: &str = "psx.";
 
-/// A collision shape plus the kind of body that owns it.
+/// A collision shape. Without a [`RigidbodyComponent`] on the same entity
+/// the collider is static (it never moves); with one it moves with that
+/// body.
 ///
 /// Sizes are in the entity's local units and are scaled by the entity's
 /// world scale when the body is created: boxes scale per axis; spheres use
@@ -34,8 +36,6 @@ pub struct ColliderComponent {
     /// Shape centre relative to the entity origin (local units).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub offset: Vec3,
-    #[serde(default)]
-    pub body: BodyKind,
     /// Sensors report overlaps (trigger events) but never push anything.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sensor: bool,
@@ -45,16 +45,20 @@ pub struct ColliderComponent {
     /// Layers this collider interacts with, one bit per layer.
     #[serde(default = "all_layers", skip_serializing_if = "is_all_layers")]
     pub mask: u16,
-    /// Mass in kilograms, dynamic bodies only.
-    #[serde(default = "one", skip_serializing_if = "is_one")]
-    pub mass: f32,
     /// Friction coefficient, `0..=10`.
     #[serde(default = "half", skip_serializing_if = "is_half")]
     pub friction: f32,
+    /// Bounciness, `0..=1`: 0 stops dead, 1 bounces back at full speed.
+    /// Since scene version 5.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub restitution: f32,
 }
 
 fn is_zero(v: &Vec3) -> bool {
     *v == Vec3::ZERO
+}
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
 }
 fn is_default_layer(v: &u8) -> bool {
     *v == 0
@@ -77,18 +81,23 @@ fn half() -> f32 {
 fn is_half(v: &f32) -> bool {
     *v == 0.5
 }
+fn default_angular_damping() -> f32 {
+    DEFAULT_ANGULAR_DAMPING
+}
+fn is_default_angular_damping(v: &f32) -> bool {
+    *v == DEFAULT_ANGULAR_DAMPING
+}
 
 impl ColliderComponent {
-    pub fn new(shape: ColliderShape, body: BodyKind) -> Self {
+    pub fn new(shape: ColliderShape) -> Self {
         Self {
             shape,
             offset: Vec3::ZERO,
-            body,
             sensor: false,
             layer: 0,
             mask: u16::MAX,
-            mass: 1.0,
             friction: 0.5,
+            restitution: 0.0,
         }
     }
 
@@ -104,9 +113,6 @@ impl ColliderComponent {
             ColliderShape::Capsule { radius, height } if !positive(radius) || !positive(height) => {
                 return Some("capsule radius and height must be positive and finite".into());
             }
-            ColliderShape::Mesh if self.body != BodyKind::Static => {
-                return Some("mesh colliders are only supported on static bodies".into());
-            }
             _ => {}
         }
         if !self.offset.is_finite() {
@@ -118,11 +124,11 @@ impl ColliderComponent {
                 self.layer
             ));
         }
-        if !positive(self.mass) {
-            return Some("mass must be positive and finite".into());
-        }
         if !(self.friction.is_finite() && (0.0..=10.0).contains(&self.friction)) {
             return Some(format!("friction {} is outside 0..=10", self.friction));
+        }
+        if !(self.restitution.is_finite() && (0.0..=1.0).contains(&self.restitution)) {
+            return Some(format!("bounciness {} is outside 0..=1", self.restitution));
         }
         None
     }
@@ -143,7 +149,7 @@ pub enum ColliderShape {
         radius: f32,
         height: f32,
     },
-    /// The triangles of the entity's own mesh (static bodies only).
+    /// The triangles of the entity's own mesh (static colliders only).
     Mesh,
 }
 
@@ -158,23 +164,125 @@ impl ColliderShape {
     }
 }
 
-/// How the physics simulation treats a body.
+/// Default [`RigidbodyComponent::angular_damping`]: a little, so rolling
+/// objects come to rest.
+pub const DEFAULT_ANGULAR_DAMPING: f32 = 0.05;
+/// Largest accepted damping value.
+pub const MAX_DAMPING: f32 = 100.0;
+/// Largest accepted gravity scale magnitude.
+pub const MAX_GRAVITY_SCALE: f32 = 100.0;
+
+/// Makes the entity a moving physics body (since scene version 5; earlier
+/// versions stored the body kind on the collider). Must be a root entity.
+///
+/// - Dynamic (the default): gravity, forces and contacts move it, and its
+///   pose is written back to the entity every tick.
+/// - Kinematic: moved by gameplay code (doors, lifts) through its
+///   transform; pushes dynamic bodies but is never pushed.
+///
+/// Without a collider a dynamic body is a point mass: it falls but does not
+/// touch anything.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RigidbodyComponent {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kinematic: bool,
+    /// Mass in kilograms (dynamic bodies).
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub mass: f32,
+    /// Multiplies the project's gravity for this body (0 floats, -1 falls
+    /// upwards). Dynamic bodies only.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub gravity_scale: f32,
+    /// Slows linear motion over time (air drag), `0..=100`.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub linear_damping: f32,
+    /// Slows rotation over time, `0..=100`.
+    #[serde(
+        default = "default_angular_damping",
+        skip_serializing_if = "is_default_angular_damping"
+    )]
+    pub angular_damping: f32,
+    /// Keeps the body upright: contacts never rotate it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lock_rotation: bool,
+}
+
+impl Default for RigidbodyComponent {
+    fn default() -> Self {
+        Self::dynamic()
+    }
+}
+
+impl RigidbodyComponent {
+    pub fn dynamic() -> Self {
+        Self {
+            kinematic: false,
+            mass: 1.0,
+            gravity_scale: 1.0,
+            linear_damping: 0.0,
+            angular_damping: DEFAULT_ANGULAR_DAMPING,
+            lock_rotation: false,
+        }
+    }
+
+    pub fn kinematic() -> Self {
+        Self {
+            kinematic: true,
+            ..Self::dynamic()
+        }
+    }
+
+    pub fn kind(&self) -> BodyKind {
+        if self.kinematic {
+            BodyKind::Kinematic
+        } else {
+            BodyKind::Dynamic
+        }
+    }
+
+    pub fn problem(&self) -> Option<String> {
+        if !(self.mass.is_finite() && self.mass > 0.0) {
+            return Some("mass must be positive and finite".into());
+        }
+        if !(self.gravity_scale.is_finite() && self.gravity_scale.abs() <= MAX_GRAVITY_SCALE) {
+            return Some(format!(
+                "gravity scale {} is outside -{MAX_GRAVITY_SCALE}..={MAX_GRAVITY_SCALE}",
+                self.gravity_scale
+            ));
+        }
+        for (name, v) in [
+            ("linear damping", self.linear_damping),
+            ("angular damping", self.angular_damping),
+        ] {
+            if !(v.is_finite() && (0.0..=MAX_DAMPING).contains(&v)) {
+                return Some(format!("{name} {v} is outside 0..={MAX_DAMPING}"));
+            }
+        }
+        None
+    }
+}
+
+/// How the physics simulation treats a body: derived from whether the
+/// entity has a [`RigidbodyComponent`] and whether it is kinematic.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BodyKind {
     /// Never moves; placed from the entity's world transform at load.
     #[default]
     Static,
-    /// Simulated: gravity and contacts move it, and its pose is written
-    /// back to the entity every tick. Must be a root entity.
+    /// Simulated: gravity and contacts move it.
     Dynamic,
-    /// Moved by gameplay code (doors, lifts); pushes dynamic bodies but is
-    /// not pushed. Must be a root entity.
+    /// Moved by gameplay code; pushes dynamic bodies but is not pushed.
     Kinematic,
 }
 
 impl BodyKind {
     pub const ALL: [BodyKind; 3] = [BodyKind::Static, BodyKind::Dynamic, BodyKind::Kinematic];
+
+    pub fn of(rigidbody: Option<&RigidbodyComponent>) -> Self {
+        rigidbody.map_or(BodyKind::Static, RigidbodyComponent::kind)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -496,28 +604,39 @@ mod tests {
 
     #[test]
     fn defaults_are_omitted_and_restored() {
-        let c = ColliderComponent::new(
-            ColliderShape::Box {
-                size: Vec3::new(1.0, 2.0, 3.0),
-            },
-            BodyKind::Static,
-        );
+        let c = ColliderComponent::new(ColliderShape::Box {
+            size: Vec3::new(1.0, 2.0, 3.0),
+        });
         let text = serde_json::to_string(&c).unwrap();
-        assert_eq!(
-            text,
-            r#"{"shape":{"kind":"box","size":[1.0,2.0,3.0]},"body":"static"}"#
-        );
+        assert_eq!(text, r#"{"shape":{"kind":"box","size":[1.0,2.0,3.0]}}"#);
         assert_eq!(serde_json::from_str::<ColliderComponent>(&text).unwrap(), c);
         assert!(c.problem().is_none());
+        let rb = RigidbodyComponent::dynamic();
+        assert_eq!(serde_json::to_string(&rb).unwrap(), "{}");
+        assert_eq!(
+            serde_json::from_str::<RigidbodyComponent>("{}").unwrap(),
+            rb
+        );
+        let k = RigidbodyComponent::kinematic();
+        assert_eq!(serde_json::to_string(&k).unwrap(), r#"{"kinematic":true}"#);
+        assert_eq!(k.kind(), BodyKind::Kinematic);
+        assert_eq!(BodyKind::of(None), BodyKind::Static);
     }
 
     #[test]
     fn invalid_components_are_described() {
-        let mut c = ColliderComponent::new(ColliderShape::Mesh, BodyKind::Dynamic);
-        assert!(c.problem().unwrap().contains("static"));
-        c.body = BodyKind::Static;
+        let mut c = ColliderComponent::new(ColliderShape::Mesh);
         c.layer = 16;
         assert!(c.problem().unwrap().contains("layer"));
+        c.layer = 0;
+        c.restitution = 1.5;
+        assert!(c.problem().unwrap().contains("bounciness"));
+        let mut rb = RigidbodyComponent::dynamic();
+        rb.mass = 0.0;
+        assert!(rb.problem().unwrap().contains("mass"));
+        rb.mass = 2.0;
+        rb.linear_damping = -1.0;
+        assert!(rb.problem().unwrap().contains("linear damping"));
         let mut a = AudioSourceComponent::new(AssetId::new());
         a.max_distance = 0.5;
         assert!(a.problem().is_some());

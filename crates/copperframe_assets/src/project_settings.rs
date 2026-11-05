@@ -124,6 +124,37 @@ impl Default for BuildSettings {
     }
 }
 
+/// Project-wide physics settings.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PhysicsSettings {
+    /// Acceleration applied to every dynamic body (m/s², scaled per body by
+    /// its rigidbody's gravity scale).
+    pub gravity: glam::Vec3,
+}
+
+/// Largest accepted gravity component (m/s²).
+pub const MAX_GRAVITY: f32 = 1000.0;
+
+impl Default for PhysicsSettings {
+    fn default() -> Self {
+        Self {
+            gravity: glam::Vec3::new(0.0, -9.81, 0.0),
+        }
+    }
+}
+
+impl PhysicsSettings {
+    pub fn problem(&self) -> Option<String> {
+        if !self.gravity.is_finite() || self.gravity.abs().max_element() > MAX_GRAVITY {
+            return Some(format!(
+                "physics.gravity must be finite and within ±{MAX_GRAVITY} m/s²"
+            ));
+        }
+        None
+    }
+}
+
 /// A project name as a folder or file name: ASCII letters and digits, the
 /// rest replaced by `_`.
 pub fn file_slug(name: &str) -> String {

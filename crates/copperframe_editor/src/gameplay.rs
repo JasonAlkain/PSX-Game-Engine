@@ -671,22 +671,22 @@ fn strip_ansi(s: &str) -> String {
 
 /// A collider that fits the entity's mesh, for Add component > Collider.
 pub fn default_collider(entity: &Entity) -> ColliderComponent {
-    let boxed = |size: Vec3| ColliderComponent::new(ColliderShape::Box { size }, BodyKind::Static);
+    let boxed = |size: Vec3| ColliderComponent::new(ColliderShape::Box { size });
     match entity.mesh.as_ref().map(|m| &m.source) {
         Some(MeshSource::Primitive { shape, .. }) => match shape {
             PrimitiveShape::Cube => boxed(Vec3::ONE),
-            PrimitiveShape::Sphere => {
-                ColliderComponent::new(ColliderShape::Sphere { radius: 0.5 }, BodyKind::Static)
-            }
+            PrimitiveShape::Sphere => ColliderComponent::new(ColliderShape::Sphere { radius: 0.5 }),
             PrimitiveShape::Plane => ColliderComponent {
                 offset: Vec3::new(0.0, -0.1, 0.0),
                 ..boxed(Vec3::new(1.0, 0.2, 1.0))
             },
             PrimitiveShape::Quad => boxed(Vec3::new(1.0, 1.0, 0.05)),
         },
-        Some(MeshSource::Model { .. }) => {
-            ColliderComponent::new(ColliderShape::Mesh, BodyKind::Static)
+        // Mesh colliders are static only; a moving model gets a box.
+        Some(MeshSource::Model { .. }) if entity.rigidbody.is_none() => {
+            ColliderComponent::new(ColliderShape::Mesh)
         }
+        Some(MeshSource::Model { .. }) => boxed(Vec3::ONE),
         None => boxed(Vec3::ONE),
     }
 }
@@ -731,26 +731,25 @@ pub fn collider_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &
                     ColliderShape::Mesh,
                 ];
                 for o in options {
-                    if ui
-                        .selectable_label(c.shape.label() == o.label(), o.label())
-                        .clicked()
-                    {
+                    let allowed = o != ColliderShape::Mesh || entity.rigidbody.is_none();
+                    let r = ui
+                        .add_enabled(
+                            allowed,
+                            egui::Button::selectable(c.shape.label() == o.label(), o.label()),
+                        )
+                        .on_disabled_hover_text(
+                            "Mesh colliders are static only: remove the rigidbody first",
+                        );
+                    if r.clicked() {
                         c.shape = o;
                         done = true;
                     }
                 }
             });
-        egui::ComboBox::from_id_salt("collider-body")
-            .selected_text(c.body.label())
-            .show_ui(ui, |ui| {
-                for b in BodyKind::ALL {
-                    if ui.selectable_label(c.body == b, b.label()).clicked() {
-                        c.body = b;
-                        done = true;
-                    }
-                }
-            });
-        done |= ui.checkbox(&mut c.sensor, "sensor").changed();
+        done |= ui
+            .checkbox(&mut c.sensor, "sensor")
+            .on_hover_text("Reports overlaps (triggers) but never blocks or pushes anything")
+            .changed();
     });
     let mut drag = |ui: &mut egui::Ui, label: &str, v: &mut f32, speed: f64| {
         ui.horizontal(|ui| {
@@ -786,21 +785,21 @@ pub fn collider_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &
         ui.label("Layer");
         let r = ui.add(egui::DragValue::new(&mut c.layer).range(0..=15));
         done |= r.drag_stopped() || r.lost_focus();
-        if c.body == BodyKind::Dynamic {
-            ui.label("Mass");
-            let r = ui.add(
-                egui::DragValue::new(&mut c.mass)
-                    .speed(0.05)
-                    .range(0.001..=100_000.0),
-            );
-            done |= r.drag_stopped() || r.lost_focus();
-        }
         ui.label("Friction");
         let r = ui.add(
             egui::DragValue::new(&mut c.friction)
                 .speed(0.01)
                 .range(0.0..=10.0),
         );
+        done |= r.drag_stopped() || r.lost_focus();
+        ui.label("Bounciness");
+        let r = ui
+            .add(
+                egui::DragValue::new(&mut c.restitution)
+                    .speed(0.01)
+                    .range(0.0..=1.0),
+            )
+            .on_hover_text("0 = no bounce, 1 = bounces back at full speed");
         done |= r.drag_stopped() || r.lost_focus();
     });
     let key = format!("collider:{id}");
@@ -809,6 +808,116 @@ pub fn collider_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &
             Command::SetCollider {
                 id,
                 collider: Some(c),
+            },
+            Some(&key),
+        );
+    }
+    if done {
+        session.end_merge();
+    }
+}
+
+/// The rigidbody card's fields (the card header adds and removes it).
+pub fn rigidbody_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &Entity) {
+    let id = entity.id;
+    let Some(original) = entity.rigidbody else {
+        return;
+    };
+    let mut rb = original;
+    let mut done = false;
+    ui.horizontal(|ui| {
+        ui.label("Type");
+        egui::ComboBox::from_id_salt("rigidbody-kind")
+            .selected_text(rb.kind().label())
+            .show_ui(ui, |ui| {
+                for (kinematic, kind, help) in [
+                    (
+                        false,
+                        BodyKind::Dynamic,
+                        "Simulated: falls, collides and can be pushed",
+                    ),
+                    (
+                        true,
+                        BodyKind::Kinematic,
+                        "Moved by its transform (doors, lifts); pushes others",
+                    ),
+                ] {
+                    if ui
+                        .selectable_label(rb.kinematic == kinematic, kind.label())
+                        .on_hover_text(help)
+                        .clicked()
+                    {
+                        rb.kinematic = kinematic;
+                        done = true;
+                    }
+                }
+            });
+    });
+    if entity.collider.is_none() {
+        ui.label(
+            egui::RichText::new("No collider: it falls but touches nothing. Add a collider.")
+                .small()
+                .color(Color32::from_rgb(230, 180, 80)),
+        );
+    }
+    if !rb.kinematic {
+        let mut drag =
+            |ui: &mut egui::Ui, label: &str, help: &str, v: &mut f32, speed: f64, range| {
+                ui.horizontal(|ui| {
+                    ui.label(label).on_hover_text(help);
+                    let r = ui.add(
+                        egui::DragValue::new(v)
+                            .speed(speed)
+                            .range(range)
+                            .max_decimals(3),
+                    );
+                    done |= r.drag_stopped() || r.lost_focus();
+                });
+            };
+        drag(
+            ui,
+            "Mass (kg)",
+            "Heavier bodies are harder to push",
+            &mut rb.mass,
+            0.05,
+            0.001..=100_000.0,
+        );
+        drag(
+            ui,
+            "Gravity scale",
+            "1 = normal gravity, 0 = floats, negative = falls upwards",
+            &mut rb.gravity_scale,
+            0.01,
+            -copperframe_scene::components::MAX_GRAVITY_SCALE
+                ..=copperframe_scene::components::MAX_GRAVITY_SCALE,
+        );
+        drag(
+            ui,
+            "Linear damping",
+            "Air drag: slows movement over time",
+            &mut rb.linear_damping,
+            0.01,
+            0.0..=copperframe_scene::components::MAX_DAMPING,
+        );
+        drag(
+            ui,
+            "Angular damping",
+            "Slows spinning over time",
+            &mut rb.angular_damping,
+            0.01,
+            0.0..=copperframe_scene::components::MAX_DAMPING,
+        );
+        done |= ui
+            .checkbox(&mut rb.lock_rotation, "Lock rotation")
+            .on_hover_text("Keep it upright: collisions never tip it over")
+            .changed();
+    }
+    let key = format!("rigidbody:{id}");
+    if rb != original {
+        session.execute_merging(
+            Command::SetRigidbody {
+                id,
+                rigidbody: Some(rb),
             },
             Some(&key),
         );
@@ -1073,12 +1182,12 @@ pub fn sounds(session: &EditorSession) -> Vec<(AssetId, String)> {
 // ---------------------------------------------------------------------------
 // Collider display
 
-/// Wireframe colour for a collider.
-pub fn collider_color(c: &ColliderComponent) -> Color32 {
+/// Wireframe colour for a collider on a body of kind `body`.
+pub fn collider_color(c: &ColliderComponent, body: BodyKind) -> Color32 {
     if c.sensor {
         return Color32::from_rgb(240, 220, 60);
     }
-    match c.body {
+    match body {
         BodyKind::Static => Color32::from_rgb(90, 220, 120),
         BodyKind::Dynamic => Color32::from_rgb(250, 150, 50),
         BodyKind::Kinematic => Color32::from_rgb(90, 170, 255),
@@ -1175,12 +1284,9 @@ mod tests {
     fn collider_wireframes_follow_offset_and_transform() {
         let c = ColliderComponent {
             offset: Vec3::new(0.0, 1.0, 0.0),
-            ..ColliderComponent::new(
-                ColliderShape::Box {
-                    size: Vec3::splat(2.0),
-                },
-                BodyKind::Static,
-            )
+            ..ColliderComponent::new(ColliderShape::Box {
+                size: Vec3::splat(2.0),
+            })
         };
         let world = glam::Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
         let lines = collider_lines(&c, world, None);
@@ -1191,15 +1297,14 @@ mod tests {
                 .all(|y| (*y - 0.0).abs() < 1e-5 || (*y - 2.0).abs() < 1e-5)
         );
         assert!(lines.iter().all(|(a, _)| (a.x - 10.0).abs() <= 1.0 + 1e-5));
-        let sphere =
-            ColliderComponent::new(ColliderShape::Sphere { radius: 0.5 }, BodyKind::Dynamic);
+        let sphere = ColliderComponent::new(ColliderShape::Sphere { radius: 0.5 });
         assert_eq!(
             collider_lines(&sphere, glam::Mat4::IDENTITY, None).len(),
             72
         );
         assert!(
             collider_lines(
-                &ColliderComponent::new(ColliderShape::Mesh, BodyKind::Static),
+                &ColliderComponent::new(ColliderShape::Mesh),
                 glam::Mat4::IDENTITY,
                 None
             )

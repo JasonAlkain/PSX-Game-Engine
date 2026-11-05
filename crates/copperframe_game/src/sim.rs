@@ -12,7 +12,8 @@
 //! 4. Deferred commands (spawn, despawn, messages) are applied.
 //! 5. World transforms are recomputed; kinematic bodies receive targets.
 //! 6. Physics steps; dynamic bodies write their poses back.
-//! 7. Trigger events are delivered (`on_trigger`), then commands again.
+//! 7. Trigger events are delivered (`on_trigger`), then contact events
+//!    (`on_collision`), then commands again.
 //! 8. Animators advance (finished non-looping clips are logged), then
 //!    transforms, audio emitters and the listener are updated.
 //!
@@ -44,7 +45,7 @@ use crate::actions::{ActionState, names};
 use crate::animation::Animator;
 use crate::api::{Behavior, Entity, Game, GameEvent, Registry, TimedEvent};
 use crate::audio::Audio;
-use crate::physics::{BodyHandle, CharacterBody, MeshTriangles, Physics, RayHit};
+use crate::physics::{BodyHandle, CharacterBody, MeshTriangles, Physics, QueryShape, RayHit};
 
 /// Fixed simulation rate.
 pub const TICK_HZ: u32 = 60;
@@ -300,18 +301,135 @@ impl Ctx<'_> {
         max_distance: f32,
         ignore: Option<Entity>,
     ) -> Option<RayHit<Entity>> {
-        let exclude = ignore.and_then(|e| {
-            self.core
-                .world
-                .get::<&Character>(e)
-                .ok()
-                .map(|c| c.0.handle)
-                .or_else(|| self.core.world.get::<&Body>(e).ok().map(|b| b.0))
-        });
+        let exclude = ignore.and_then(|e| self.exclude_handle(e));
         self.core
             .physics
             .raycast(origin, direction, max_distance, exclude)
     }
+    fn body(&self, e: Entity) -> Option<BodyHandle> {
+        self.core.world.get::<&Body>(e).ok().map(|b| b.0)
+    }
+
+    /// Linear velocity of `e`'s rigidbody in m/s (zero without one).
+    pub fn velocity(&self, e: Entity) -> Vec3 {
+        self.body(e)
+            .map_or(Vec3::ZERO, |b| self.core.physics.linear_velocity(b))
+    }
+    /// Sets the linear velocity of a dynamic rigidbody.
+    pub fn set_velocity(&mut self, e: Entity, v: Vec3) {
+        if let Some(b) = self.body(e) {
+            self.core.physics.set_linear_velocity(b, v);
+        }
+    }
+    /// Angular velocity in radians per second about each world axis.
+    pub fn angular_velocity(&self, e: Entity) -> Vec3 {
+        self.body(e)
+            .map_or(Vec3::ZERO, |b| self.core.physics.angular_velocity(b))
+    }
+    pub fn set_angular_velocity(&mut self, e: Entity, v: Vec3) {
+        if let Some(b) = self.body(e) {
+            self.core.physics.set_angular_velocity(b, v);
+        }
+    }
+    /// Kicks a dynamic rigidbody: changes its velocity by `impulse / mass`
+    /// immediately (newton-seconds).
+    pub fn apply_impulse(&mut self, e: Entity, impulse: Vec3) {
+        if let Some(b) = self.body(e) {
+            self.core.physics.apply_impulse(b, impulse);
+        }
+    }
+    /// Spins a dynamic rigidbody immediately.
+    pub fn apply_torque_impulse(&mut self, e: Entity, impulse: Vec3) {
+        if let Some(b) = self.body(e) {
+            self.core.physics.apply_torque_impulse(b, impulse);
+        }
+    }
+    /// Pushes a dynamic rigidbody with `force` newtons for this tick only;
+    /// call every tick (e.g. from `fixed_update`) for a steady push.
+    pub fn add_force(&mut self, e: Entity, force: Vec3) {
+        if let Some(b) = self.body(e) {
+            self.core.physics.add_force(b, force);
+        }
+    }
+    /// Mass of `e`'s dynamic rigidbody in kilograms (0 otherwise).
+    pub fn mass(&self, e: Entity) -> f32 {
+        self.body(e).map_or(0.0, |b| self.core.physics.mass(b))
+    }
+    /// Whether `e`'s dynamic rigidbody has come to rest.
+    pub fn is_sleeping(&self, e: Entity) -> bool {
+        self.body(e)
+            .is_some_and(|b| self.core.physics.is_sleeping(b))
+    }
+    pub fn gravity(&self) -> Vec3 {
+        self.core.physics.gravity()
+    }
+    /// Changes gravity for the rest of the session (the project setting is
+    /// the starting value).
+    pub fn set_gravity(&mut self, g: Vec3) {
+        self.core.physics.set_gravity(g);
+    }
+    /// Mass the player character pushes dynamic bodies with (default
+    /// [`crate::physics::CHARACTER_PUSH_MASS`] kg); 0 stops it pushing.
+    pub fn set_character_push_mass(&mut self, mass: f32) {
+        self.core.physics.set_character_push_mass(mass);
+    }
+    /// Entities whose colliders overlap a sphere. Sensors are skipped
+    /// unless `include_sensors`; `ignore`'s own body is skipped.
+    pub fn overlap_sphere(
+        &self,
+        center: Vec3,
+        radius: f32,
+        include_sensors: bool,
+        ignore: Option<Entity>,
+    ) -> Vec<Entity> {
+        self.overlap(
+            QueryShape::Sphere { radius },
+            center,
+            Quat::IDENTITY,
+            include_sensors,
+            ignore,
+        )
+    }
+    /// Entities whose colliders overlap a box (`half` extents, rotated).
+    pub fn overlap_box(
+        &self,
+        center: Vec3,
+        half: Vec3,
+        rotation: Quat,
+        include_sensors: bool,
+        ignore: Option<Entity>,
+    ) -> Vec<Entity> {
+        self.overlap(
+            QueryShape::Box { half },
+            center,
+            rotation,
+            include_sensors,
+            ignore,
+        )
+    }
+    /// Entities whose colliders overlap `shape`.
+    pub fn overlap(
+        &self,
+        shape: QueryShape,
+        center: Vec3,
+        rotation: Quat,
+        include_sensors: bool,
+        ignore: Option<Entity>,
+    ) -> Vec<Entity> {
+        let exclude = ignore.and_then(|e| self.exclude_handle(e));
+        self.core
+            .physics
+            .overlap(shape, center, rotation, include_sensors, exclude)
+    }
+    fn exclude_handle(&self, e: Entity) -> Option<BodyHandle> {
+        self.core
+            .world
+            .get::<&Character>(e)
+            .ok()
+            .map(|c| c.0.handle)
+            .or_else(|| self.body(e))
+    }
+
     /// Asks the engine to resolve interaction along this ray this tick.
     pub fn aim(&mut self, by: Entity, origin: Vec3, direction: Vec3, max_distance: f32) {
         self.core.aim = Some(Aim {
@@ -568,7 +686,11 @@ impl Simulation {
             core: Core {
                 world: hecs::World::new(),
                 ids: HashMap::new(),
-                physics: Physics::new(TICK_DT),
+                physics: {
+                    let mut p = Physics::new(TICK_DT);
+                    p.set_gravity(project.file.physics.gravity);
+                    p
+                },
                 audio,
                 camera,
                 camera_override: None,
@@ -971,23 +1093,28 @@ impl Simulation {
                 .get::<&WorldMatrix>(handle)
                 .map(|w| w.current)
                 .unwrap_or(Mat4::IDENTITY);
-            if let Some(c) = &src.collider
+            if (src.collider.is_some() || src.rigidbody.is_some())
                 && self.core.world.get::<&Body>(handle).is_err()
             {
-                let mesh = if c.shape == ColliderShape::Mesh {
+                let c = src.collider.as_ref();
+                let mesh = if c.is_some_and(|c| c.shape == ColliderShape::Mesh) {
                     src.mesh
                         .as_ref()
                         .and_then(|m| self.core.assets.triangles(&m.source))
                 } else {
                     None
                 };
-                match self.core.physics.add(handle, c, world, mesh.as_ref()) {
+                match self
+                    .core
+                    .physics
+                    .add(handle, c, src.rigidbody.as_ref(), world, mesh.as_ref())
+                {
                     Ok(body) => {
                         let _ = self.core.world.insert_one(handle, Body(body));
                     }
                     Err(err) => self
                         .warnings
-                        .push(format!("\"{}\": collider not created: {err}", src.name)),
+                        .push(format!("\"{}\": physics body not created: {err}", src.name)),
                 }
             }
             if let Some(a) = &src.audio
@@ -1174,7 +1301,7 @@ impl Simulation {
             self.core.physics.set_kinematic_target(b, t, r);
         }
         // 6. physics
-        let triggers = self.core.physics.step();
+        let events = self.core.physics.step();
         let dynamic: Vec<(Entity, BodyHandle)> = self
             .core
             .world
@@ -1192,7 +1319,7 @@ impl Simulation {
             }
         }
         // 7. triggers
-        for t in triggers {
+        for t in events.triggers {
             let sensor = entity_name(&self.core.world, t.sensor);
             let other = entity_name(&self.core.world, t.other);
             self.ctx_log(if t.entered {
@@ -1206,6 +1333,21 @@ impl Simulation {
                         b.on_trigger(ctx, me, t.other, t.entered)
                     });
                 }
+            }
+        }
+        for c in events.contacts {
+            for i in 0..self.slots.len() {
+                let me = self.slots[i].entity;
+                let other = if me == c.a {
+                    c.b
+                } else if me == c.b {
+                    c.a
+                } else {
+                    continue;
+                };
+                self.call(i, input, |b, ctx, me| {
+                    b.on_collision(ctx, me, other, c.started)
+                });
             }
         }
         self.apply_commands(input);

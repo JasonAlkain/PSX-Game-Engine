@@ -13,7 +13,8 @@ use copperframe_game::{
 };
 use copperframe_scene::{
     AudioSourceComponent, BehaviorComponent, BodyKind, ColliderComponent, ColliderShape,
-    Entity as SceneEntity, MeshComponent, MeshSource, PrimitiveShape, Scene, Transform,
+    Entity as SceneEntity, MeshComponent, MeshSource, PrimitiveShape, RigidbodyComponent, Scene,
+    Transform,
 };
 use glam::{Vec2, Vec3};
 
@@ -66,6 +67,25 @@ impl Behavior for Exit {
     }
 }
 
+/// Logs its first landing and kicks itself up once.
+struct Bouncer {
+    kicked: bool,
+}
+impl Behavior for Bouncer {
+    fn on_collision(&mut self, ctx: &mut Ctx, me: Entity, other: Entity, started: bool) {
+        if started && !self.kicked {
+            self.kicked = true;
+            let name = ctx.name(other);
+            ctx.log(GameEvent::Custom {
+                name: "landed".into(),
+                detail: name,
+            });
+            let up = Vec3::Y * 6.0 * ctx.mass(me);
+            ctx.apply_impulse(me, up);
+        }
+    }
+}
+
 struct TestGame;
 impl Game for TestGame {
     fn title(&self) -> String {
@@ -99,6 +119,12 @@ impl Game for TestGame {
             fields: vec![],
             create: |_| Ok(Box::new(Exit)),
         });
+        r.register(BehaviorDescriptor {
+            kind: "test.bouncer",
+            description: "bouncer",
+            fields: vec![],
+            create: |_| Ok(Box::new(Bouncer { kicked: false })),
+        });
     }
 }
 
@@ -114,10 +140,14 @@ fn boxed(name: &str, pos: Vec3, size: Vec3, body: BodyKind) -> SceneEntity {
         },
         material: Default::default(),
     });
-    e.collider = Some(ColliderComponent::new(
-        ColliderShape::Box { size: Vec3::ONE },
-        body,
-    ));
+    e.collider = Some(ColliderComponent::new(ColliderShape::Box {
+        size: Vec3::ONE,
+    }));
+    e.rigidbody = match body {
+        BodyKind::Static => None,
+        BodyKind::Dynamic => Some(RigidbodyComponent::dynamic()),
+        BodyKind::Kinematic => Some(RigidbodyComponent::kinematic()),
+    };
     e
 }
 
@@ -170,12 +200,9 @@ fn build(root: &std::path::Path) -> (Project, Scene, [EntityId; 4]) {
         vec![BehaviorComponent::new("test.switch").with("target", door.id.to_string())];
     let mut exit = SceneEntity::new("Exit");
     exit.transform = Transform::from_translation(Vec3::new(0.0, 1.0, -4.0));
-    let mut zone = ColliderComponent::new(
-        ColliderShape::Box {
-            size: Vec3::new(2.5, 2.0, 1.0),
-        },
-        BodyKind::Static,
-    );
+    let mut zone = ColliderComponent::new(ColliderShape::Box {
+        size: Vec3::new(2.5, 2.0, 1.0),
+    });
     zone.sensor = true;
     exit.collider = Some(zone);
     exit.behaviors = vec![BehaviorComponent::new("test.exit")];
@@ -558,5 +585,73 @@ fn repeated_restarts_do_not_accumulate_entities_bodies_or_emitters() {
         assert!(sim.take_warnings().is_empty());
         sim.take_events();
     }
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn rigidbodies_fall_collide_and_follow_project_gravity() {
+    let root = std::env::temp_dir().join(format!("psx_sim_phys_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let mut project = Project::create(&root, "Phys").unwrap();
+    // Moon gravity from the project settings.
+    project.file.physics.gravity = Vec3::new(0.0, -1.62, 0.0);
+    project.save().unwrap();
+    let mut scene = Scene::new("Drop");
+    let floor = boxed(
+        "Floor",
+        Vec3::new(0.0, -0.5, 0.0),
+        Vec3::new(10.0, 1.0, 10.0),
+        BodyKind::Static,
+    );
+    let mut ball = boxed(
+        "Ball",
+        Vec3::new(0.0, 2.0, 0.0),
+        Vec3::ONE,
+        BodyKind::Dynamic,
+    );
+    ball.rigidbody = Some(RigidbodyComponent {
+        mass: 3.0,
+        ..RigidbodyComponent::dynamic()
+    });
+    ball.behaviors = vec![BehaviorComponent::new("test.bouncer")];
+    let ball_id = ball.id;
+    scene.entities = vec![floor, ball];
+    let path = root.join("scenes/drop.scene.json");
+    copperframe_scene::save_scene(&scene, &path).unwrap();
+
+    let project = Project::open(&root).unwrap();
+    let mut sim = Simulation::new(project, Box::new(TestGame), Audio::silent());
+    sim.load_scene_file(&path).unwrap();
+    assert!(sim.take_warnings().is_empty());
+    let ball = sim.find(ball_id).unwrap();
+    let y = |sim: &Simulation| {
+        sim.world()
+            .get::<&copperframe_game::sim::Local>(ball)
+            .unwrap()
+            .0
+            .translation
+            .y
+    };
+    // Under 1.62 m/s² it takes ~1.1 s (66 ticks) to fall the 1.5 m.
+    run(&mut sim, 40, &[], Vec2::ZERO);
+    assert!(y(&sim) > 1.0, "still falling slowly: {}", y(&sim));
+    let mut landed_at = None;
+    for t in 0..120 {
+        run(&mut sim, 1, &[], Vec2::ZERO);
+        if sim.take_events().iter().any(|e| {
+            matches!(&e.event, GameEvent::Custom { name, detail } if name == "landed" && detail == "Floor")
+        }) {
+            landed_at = Some(t);
+            break;
+        }
+    }
+    assert!(landed_at.is_some(), "on_collision reported the landing");
+    // The kick (6 m/s up) lifts it well above the floor.
+    let mut peak = 0.0f32;
+    for _ in 0..120 {
+        run(&mut sim, 1, &[], Vec2::ZERO);
+        peak = peak.max(y(&sim));
+    }
+    assert!(peak > 3.0, "kicked up by the impulse: {peak}");
     std::fs::remove_dir_all(&root).unwrap();
 }

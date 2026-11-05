@@ -580,7 +580,7 @@ mod tests {
             "scenes/level_2.scene.json"
         );
         s.open_scene(&main).unwrap();
-        assert_eq!(s.scene.entities.len(), 3);
+        assert_eq!(s.scene.entities.len(), 4);
         assert!(!s.is_startup_scene());
         std::fs::remove_dir_all(&root).unwrap();
     }

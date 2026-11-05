@@ -63,17 +63,30 @@ triangle.
 
 ### Collider
 
-Makes the entity solid or a trigger.
+Makes the entity solid or a trigger. Without a rigidbody it is static: it
+never moves.
 
 | Field | Values |
 | --- | --- |
-| `shape` | `box` (`size`, full edge lengths), `sphere` (`radius`), `capsule` (`radius`, `height` including the caps; vertical), or `mesh` (the entity's own triangles; static bodies only) |
-| `body` | `static` (never moves), `kinematic` (moved by gameplay code; pushes others), `dynamic` (simulated; falls and collides) |
+| `shape` | `box` (`size`, full edge lengths), `sphere` (`radius`), `capsule` (`radius`, `height` including the caps; vertical), or `mesh` (the entity's own triangles; static only) |
 | `sensor` | Reports overlaps as trigger events but never blocks anything |
 | `offset` | Shape centre relative to the entity origin |
 | `layer`, `mask` | Collision layer 0–15 and a bit mask of layers it interacts with (default: all) |
-| `mass` | Kilograms, dynamic bodies only (default 1) |
 | `friction` | 0–10 (default 0.5) |
+| `restitution` | Bounciness 0–1 (default 0). The bouncier of two touching surfaces wins |
+
+### Rigidbody
+
+Makes the entity a moving physics body. Root entities only. See
+[Physics](physics.md).
+
+| Field | Values |
+| --- | --- |
+| `kinematic` | `false` (default): dynamic, moved by gravity, contacts and forces. `true`: moved only by its transform (doors, lifts); pushes dynamic bodies but is never pushed |
+| `mass` | Kilograms (default 1) |
+| `gravity_scale` | Multiplies the project's gravity, −100 to 100 (default 1; 0 floats) |
+| `linear_damping`, `angular_damping` | 0–100: slow movement and spinning over time (defaults 0 and 0.05) |
+| `lock_rotation` | Contacts never rotate the body (keeps it upright) |
 
 Collider sizes are multiplied by the entity's world scale. Colliders of
 skinned models use the model's rest pose. Turn on **Colliders** in the toolbar

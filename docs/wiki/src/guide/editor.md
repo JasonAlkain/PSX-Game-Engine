@@ -202,9 +202,12 @@ the kinds it registers.
   *Tint*, *Alpha* (opaque, cutout with a threshold, or blend), and *Lit*,
   *Flat shading*, *Affine UVs* and *Double-sided*, each of which can be
   *source* (keep the model's value), *on* or *off*.
-- **Collider**: shape (box, sphere, capsule, or mesh for static bodies),
-  body (static, kinematic, dynamic), sensor, offset, layer, mass and
-  friction.
+- **Collider**: shape (box, sphere, capsule, or mesh for static colliders),
+  sensor, offset, layer, friction and bounciness.
+- **Rigidbody**: makes the entity move under physics. Type (dynamic or
+  kinematic), mass, gravity scale, linear and angular damping, and lock
+  rotation. Only root entities can have one. Press **Play** to see it
+  simulate; the editor scene itself never moves.
 - **Audio source**: sound, bus (effects or music), loop, autoplay, 3D,
   volume in dB and the min/max distance.
 - **Behaviours**: one card per behaviour with its fields, which come from

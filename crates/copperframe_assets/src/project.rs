@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
-    BehaviorComponent, BodyKind, ColliderComponent, ColliderShape, Entity, MeshComponent,
-    MeshSource, PrimitiveShape, Scene,
+    BehaviorComponent, ColliderComponent, ColliderShape, Entity, MeshComponent, MeshSource,
+    PrimitiveShape, RigidbodyComponent, Scene,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -26,12 +26,13 @@ use thiserror::Error;
 use crate::import::{CpuTexture, ImportError, ImportedModel};
 use crate::meta::{self, AssetKind, AssetMeta, ImportSettings, MetaError};
 pub use crate::project_settings::{
-    BuildSettings, DisplaySettings, GraphicsStyle, StyleSettings, file_slug,
+    BuildSettings, DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings, StyleSettings,
+    file_slug,
 };
 
 pub const PROJECT_FILE: &str = "project.json";
 pub const PROJECT_FORMAT: &str = "psx_project";
-/// Version 2 added the `display`, `style` and `build` sections.
+/// Version 2 added the `display`, `style`, `build` and `physics` sections.
 pub const PROJECT_VERSION: u32 = 2;
 pub const ASSETS_DIR: &str = "assets";
 pub const SCENES_DIR: &str = "scenes";
@@ -51,6 +52,8 @@ pub struct ProjectFile {
     pub style: StyleSettings,
     #[serde(default)]
     pub build: BuildSettings,
+    #[serde(default)]
+    pub physics: PhysicsSettings,
 }
 
 impl ProjectFile {
@@ -79,6 +82,9 @@ impl ProjectFile {
                 DisplaySettings::HEIGHT_RANGE.start(),
                 DisplaySettings::HEIGHT_RANGE.end()
             ));
+        }
+        if let Some(p) = self.physics.problem() {
+            return Err(p);
         }
         let script = self.build.check_script.trim();
         if !script.is_empty() && !is_safe_relative(script) {
@@ -153,6 +159,7 @@ impl Project {
             display: DisplaySettings::default(),
             style: StyleSettings::default(),
             build: BuildSettings::default(),
+            physics: PhysicsSettings::default(),
         };
         let project = Project {
             root: root.to_path_buf(),
@@ -171,12 +178,9 @@ impl Project {
         });
         floor.collider = Some(ColliderComponent {
             offset: glam::Vec3::new(0.0, -0.1, 0.0),
-            ..ColliderComponent::new(
-                ColliderShape::Box {
-                    size: glam::Vec3::new(1.0, 0.2, 1.0),
-                },
-                BodyKind::Static,
-            )
+            ..ColliderComponent::new(ColliderShape::Box {
+                size: glam::Vec3::new(1.0, 0.2, 1.0),
+            })
         });
         let mut cube = Entity::new("Cube");
         cube.transform.translation = glam::Vec3::new(0.0, 0.5, -1.5);
@@ -188,17 +192,31 @@ impl Project {
             },
             material: Default::default(),
         });
-        cube.collider = Some(ColliderComponent::new(
-            ColliderShape::Box {
-                size: glam::Vec3::ONE,
-            },
-            BodyKind::Kinematic,
-        ));
+        cube.collider = Some(ColliderComponent::new(ColliderShape::Box {
+            size: glam::Vec3::ONE,
+        }));
+        cube.rigidbody = Some(RigidbodyComponent::kinematic());
         cube.behaviors = vec![BehaviorComponent::new("psx.spin")];
+        // A physics crate that drops onto the floor and can be pushed.
+        let mut crate_ = Entity::new("Crate");
+        crate_.transform.translation = glam::Vec3::new(1.5, 2.0, -0.5);
+        crate_.transform.scale = glam::Vec3::splat(0.6);
+        crate_.mesh = Some(MeshComponent {
+            source: MeshSource::Primitive {
+                shape: PrimitiveShape::Cube,
+                texture: None,
+                tile_size: Some(copperframe_scene::DEFAULT_TILE_SIZE),
+            },
+            material: Default::default(),
+        });
+        crate_.collider = Some(ColliderComponent::new(ColliderShape::Box {
+            size: glam::Vec3::ONE,
+        }));
+        crate_.rigidbody = Some(RigidbodyComponent::dynamic());
         let mut player = Entity::new("Player");
         player.transform.translation = glam::Vec3::new(0.0, 0.0, 2.5);
         player.behaviors = vec![BehaviorComponent::new("psx.player")];
-        scene.entities.extend([floor, cube, player]);
+        scene.entities.extend([floor, cube, crate_, player]);
         copperframe_scene::save_scene(&scene, &project.startup_scene_path())?;
         project.save()?;
         let ignore = root.join(".gitignore");
@@ -1130,6 +1148,15 @@ mod tests {
             Err(ProjectError::NotAProject(_))
         ));
         let mut p = Project::create(&root, "T").unwrap();
+        p.file.physics.gravity = glam::Vec3::new(0.0, -3.0, 0.0);
+        p.save().unwrap();
+        let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
+        assert!(text.contains("\"gravity\""), "{text}");
+        assert_eq!(Project::open(&root).unwrap().file.physics, p.file.physics);
+        p.file.physics.gravity = glam::Vec3::new(0.0, f32::INFINITY, 0.0);
+        std::fs::write(root.join(PROJECT_FILE), text.replace("-3.0", "1e9")).unwrap();
+        assert!(Project::open(&root).is_err());
+        p.file.physics = PhysicsSettings::default();
         p.file.startup_scene = "../outside.scene.json".into();
         p.save().unwrap();
         assert!(Project::open(&root).is_err());
@@ -1151,6 +1178,7 @@ mod tests {
         assert_eq!(p.file.display, DisplaySettings::default());
         assert_eq!(p.file.style, StyleSettings::default());
         assert_eq!(p.file.build, BuildSettings::default());
+        assert_eq!(p.file.physics, PhysicsSettings::default());
         assert_eq!(p.export_dir(), root.join("dist/Example_room"));
         assert_eq!(p.export_check_script(), None);
 

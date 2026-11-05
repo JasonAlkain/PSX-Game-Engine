@@ -448,7 +448,7 @@ mod tests {
                 copperframe_scene::load_scene(&created.project.startup_scene_path()).unwrap();
             match template {
                 ProjectTemplate::Empty => assert!(scene.entities.is_empty()),
-                ProjectTemplate::Starter => assert_eq!(scene.entities.len(), 3),
+                ProjectTemplate::Starter => assert_eq!(scene.entities.len(), 4),
                 ProjectTemplate::LeverRoom => {
                     assert!(scene.entities.len() > 10);
                     assert!(dir.join("assets/props/crate.glb.meta.json").is_file());

@@ -32,7 +32,10 @@ pub const SCENE_FORMAT: &str = "psx_scene";
 ///   load unchanged and keep their textures covering each face once.
 /// - 5: adds the optional `component_order` entity field (the inspector's
 ///   component order). Older files load unchanged.
-pub const SCENE_VERSION: u32 = 5;
+/// - 6: moving bodies get their own `rigidbody` component; the collider's
+///   `body` and `mass` fields move there (see [`migrate_rigidbodies`]), and
+///   colliders gain `restitution`.
+pub const SCENE_VERSION: u32 = 6;
 /// Conventional file extension.
 pub const SCENE_EXTENSION: &str = "scene.json";
 
@@ -119,11 +122,14 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
     }
     // Migrations from older versions go here. 1 -> 2 -> 3 -> 4 -> 5 only added
     // optional fields (with defaults), so older documents deserialise
-    // unchanged.
-    let scene_value = value
+    // unchanged; 5 -> 6 moves body data off colliders.
+    let mut scene_value = value
         .get("scene")
         .cloned()
         .ok_or(SceneFileError::WrongFormat { path: path_buf() })?;
+    if version < 6 {
+        migrate_rigidbodies(&mut scene_value);
+    }
     let scene: Scene =
         serde_json::from_value(scene_value).map_err(|source| SceneFileError::Schema {
             path: path_buf(),
@@ -137,6 +143,49 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
         });
     }
     Ok(scene)
+}
+
+/// Version 5 and older kept the body kind (`"body"`: static, dynamic or
+/// kinematic) and `mass` on the collider. A dynamic or kinematic collider
+/// becomes a collider plus a `rigidbody`; static colliders just lose the
+/// field. Anything unexpected is left alone for the schema check to report.
+fn migrate_rigidbodies(scene: &mut serde_json::Value) {
+    let Some(entities) = scene
+        .get_mut("entities")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for entity in entities {
+        let Some(e) = entity.as_object_mut() else {
+            continue;
+        };
+        let Some(collider) = e.get_mut("collider").and_then(|c| c.as_object_mut()) else {
+            continue;
+        };
+        let body = collider.remove("body");
+        let mass = collider.remove("mass");
+        let kinematic = match body.as_ref().and_then(|b| b.as_str()) {
+            None | Some("static") => continue,
+            Some("dynamic") => false,
+            Some("kinematic") => true,
+            Some(_) => {
+                // Put it back so the error names the bad value.
+                if let Some(b) = body {
+                    collider.insert("body".into(), b);
+                }
+                continue;
+            }
+        };
+        let mut rb = serde_json::Map::new();
+        if kinematic {
+            rb.insert("kinematic".into(), true.into());
+        } else if let Some(m) = mass {
+            rb.insert("mass".into(), m);
+        }
+        e.entry("rigidbody")
+            .or_insert(serde_json::Value::Object(rb));
+    }
 }
 
 /// Serialises a valid scene to pretty JSON with the format header.
@@ -333,6 +382,57 @@ mod tests {
         let text = scene_to_json(&scene, p).unwrap();
         assert!(text.contains(&current_version()) && !text.contains("component_order"));
         assert_eq!(parse_scene(&text, p).unwrap(), scene);
+    }
+
+    #[test]
+    fn version_5_and_older_bodies_become_rigidbodies() {
+        use crate::components::{BodyKind, RigidbodyComponent};
+        let p = Path::new("v3.scene.json");
+        let v3 = include_str!("../fixtures/v3_room.scene.json");
+        assert!(v3.contains("\"body\": \"dynamic\"") && v3.contains("\"body\": \"kinematic\""));
+        let scene = parse_scene(v3, p).unwrap();
+        let kinds: Vec<BodyKind> = scene
+            .entities
+            .iter()
+            .filter(|e| e.collider.is_some())
+            .map(Entity::body_kind)
+            .collect();
+        assert!(kinds.contains(&BodyKind::Static));
+        let dynamic = scene
+            .entities
+            .iter()
+            .find(|e| e.body_kind() == BodyKind::Dynamic)
+            .unwrap();
+        assert_eq!(
+            dynamic.rigidbody,
+            Some(RigidbodyComponent {
+                mass: 2.0,
+                ..RigidbodyComponent::dynamic()
+            })
+        );
+        assert!(
+            scene
+                .entities
+                .iter()
+                .any(|e| e.rigidbody == Some(RigidbodyComponent::kinematic()))
+        );
+        let text = scene_to_json(&scene, p).unwrap();
+        assert!(
+            !text.contains("\"body\""),
+            "no legacy body fields are written"
+        );
+        assert_eq!(parse_scene(&text, p).unwrap(), scene);
+
+        // Current files must not use the old field.
+        let legacy = text.replacen(
+            "\"collider\": {",
+            "\"collider\": { \"body\": \"dynamic\",",
+            1,
+        );
+        assert!(matches!(
+            parse_scene(&legacy, p),
+            Err(SceneFileError::Schema { .. })
+        ));
     }
 
     #[test]

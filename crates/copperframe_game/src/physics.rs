@@ -18,11 +18,16 @@
 //! Collider sizes are scaled by the entity's world scale at creation (see
 //! `copperframe_scene::ColliderComponent`). Changing an entity's scale at runtime
 //! does not resize its collider.
+//!
+//! Events: sensors report overlap changes ([`TriggerEvent`]); colliders of
+//! dynamic bodies also report solid contacts starting and stopping
+//! ([`ContactEvent`]). Forces added with [`Physics::add_force`] last for one
+//! step.
 
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, channel};
 
-use copperframe_scene::{BodyKind, ColliderComponent, ColliderShape};
+use copperframe_scene::{BodyKind, ColliderComponent, ColliderShape, RigidbodyComponent};
 use glam::{Mat4, Quat, Vec3};
 use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
 use rapier3d::parry::query::ShapeCastOptions;
@@ -71,6 +76,53 @@ pub struct TriggerEvent<E> {
     pub entered: bool,
 }
 
+/// Two solid colliders started (`started`) or stopped touching. At least
+/// one of them belongs to a dynamic body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ContactEvent<E> {
+    pub a: E,
+    pub b: E,
+    pub started: bool,
+}
+
+/// What one [`Physics::step`] reported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepEvents<E> {
+    pub triggers: Vec<TriggerEvent<E>>,
+    pub contacts: Vec<ContactEvent<E>>,
+}
+
+impl<E> Default for StepEvents<E> {
+    fn default() -> Self {
+        Self {
+            triggers: Vec::new(),
+            contacts: Vec::new(),
+        }
+    }
+}
+
+/// A shape for [`Physics::overlap`] queries, in world space.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum QueryShape {
+    Sphere {
+        radius: f32,
+    },
+    /// Half extents.
+    Box {
+        half: Vec3,
+    },
+    /// Vertical capsule; `height` includes the caps.
+    Capsule {
+        radius: f32,
+        height: f32,
+    },
+}
+
+/// Mass the player character pushes dynamic bodies with (kilograms).
+pub const CHARACTER_PUSH_MASS: f32 = 80.0;
+/// Default gravity (metres per second squared).
+pub const DEFAULT_GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RayHit<E> {
     pub entity: E,
@@ -95,7 +147,10 @@ pub struct Physics<E: Copy + Eq + std::hash::Hash> {
     _forces: Receiver<ContactForceEvent>,
     _tears: Receiver<SoftBodyTearEvent>,
     owners: HashMap<ColliderHandle, E>,
+    /// Bodies given a force this step (reset after it).
+    forced: Vec<RigidBodyHandle>,
     controller: KinematicCharacterController,
+    push_mass: f32,
 }
 
 impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
@@ -123,7 +178,9 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
             _forces: fr,
             _tears: tr,
             owners: HashMap::new(),
+            forced: Vec::new(),
             controller,
+            push_mass: CHARACTER_PUSH_MASS,
         }
     }
 
@@ -131,12 +188,33 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
         self.world.bodies.len()
     }
 
-    /// Creates the body and collider for an entity at `world` (its world
-    /// matrix). `mesh` is required for [`ColliderShape::Mesh`].
+    pub fn gravity(&self) -> Vec3 {
+        gv(self.world.gravity)
+    }
+
+    /// Sets the world gravity (non-finite values are ignored).
+    pub fn set_gravity(&mut self, gravity: Vec3) {
+        if gravity.is_finite() {
+            self.world.gravity = rv(gravity);
+            self.world.wake_up_all(true);
+        }
+    }
+
+    /// Mass the character pushes dynamic bodies with; 0 disables pushing.
+    pub fn set_character_push_mass(&mut self, mass: f32) {
+        if mass.is_finite() && mass >= 0.0 {
+            self.push_mass = mass;
+        }
+    }
+
+    /// Creates the body (and collider, if any) for an entity at `world` (its
+    /// world matrix). Without a rigidbody the body is static. `mesh` is
+    /// required for [`ColliderShape::Mesh`].
     pub fn add(
         &mut self,
         owner: E,
-        c: &ColliderComponent,
+        collider: Option<&ColliderComponent>,
+        rigidbody: Option<&RigidbodyComponent>,
         world: Mat4,
         mesh: Option<&MeshTriangles>,
     ) -> Result<BodyHandle, String> {
@@ -144,6 +222,50 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
         if !scale.is_finite() || !rotation.is_finite() || !translation.is_finite() {
             return Err("the entity's world transform is not finite".into());
         }
+        let kind = BodyKind::of(rigidbody);
+        let is_mesh = collider.is_some_and(|c| c.shape == ColliderShape::Mesh);
+        if is_mesh && kind != BodyKind::Static {
+            return Err("mesh colliders are static only".into());
+        }
+        let body_pose = if is_mesh {
+            Pose::IDENTITY
+        } else {
+            pose(translation, rotation)
+        };
+        let mut body = match kind {
+            BodyKind::Static => RigidBodyBuilder::fixed(),
+            BodyKind::Dynamic => RigidBodyBuilder::dynamic().ccd_enabled(true),
+            BodyKind::Kinematic => RigidBodyBuilder::kinematic_position_based(),
+        }
+        .pose(body_pose);
+        if let Some(rb) = rigidbody {
+            body = body
+                .gravity_scale(rb.gravity_scale)
+                .linear_damping(rb.linear_damping)
+                .angular_damping(rb.angular_damping);
+            if rb.lock_rotation {
+                body = body.lock_rotations();
+            }
+        }
+        let Some(c) = collider else {
+            let mut body = body;
+            if let Some(rb) = rigidbody
+                && kind == BodyKind::Dynamic
+            {
+                // A point mass with the inertia of a 0.5 m ball.
+                body = body.additional_mass_properties(MassProperties::new(
+                    RVec::ZERO,
+                    rb.mass,
+                    RVec::splat(0.1 * rb.mass),
+                ));
+            }
+            let body = self.world.insert_body(body);
+            return Ok(BodyHandle {
+                body,
+                collider: ColliderHandle::invalid(),
+                kind,
+            });
+        };
         let s = scale.abs();
         let builder = match c.shape {
             ColliderShape::Box { size } => {
@@ -183,37 +305,33 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
         );
         let mut builder = builder
             .friction(c.friction)
+            .restitution(c.restitution)
+            // The bouncier surface wins, so a bouncy ball bounces on any floor.
+            .restitution_combine_rule(CoefficientCombineRule::Max)
             .collision_groups(groups)
             .sensor(c.sensor);
-        if c.shape != ColliderShape::Mesh {
+        if !is_mesh {
             builder = builder.translation(rv(c.offset * scale));
         }
-        if c.body == BodyKind::Dynamic {
-            builder = builder.mass(c.mass);
+        if let Some(rb) = rigidbody
+            && kind == BodyKind::Dynamic
+        {
+            builder = builder.mass(rb.mass);
         }
         if c.sensor {
             // Sensors must notice kinematic (player) and static bodies too.
             builder = builder
                 .active_events(ActiveEvents::COLLISION_EVENTS)
                 .active_collision_types(ActiveCollisionTypes::all());
+        } else if kind == BodyKind::Dynamic {
+            builder = builder.active_events(ActiveEvents::COLLISION_EVENTS);
         }
-        let body_pose = if c.shape == ColliderShape::Mesh {
-            Pose::IDENTITY
-        } else {
-            pose(translation, rotation)
-        };
-        let body = match c.body {
-            BodyKind::Static => RigidBodyBuilder::fixed(),
-            BodyKind::Dynamic => RigidBodyBuilder::dynamic().ccd_enabled(true),
-            BodyKind::Kinematic => RigidBodyBuilder::kinematic_position_based(),
-        }
-        .pose(body_pose);
         let (body, collider) = self.world.insert(body, builder);
         self.owners.insert(collider, owner);
         Ok(BodyHandle {
             body,
             collider,
-            kind: c.body,
+            kind,
         })
     }
 
@@ -246,6 +364,7 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
 
     pub fn remove(&mut self, handle: BodyHandle) {
         self.owners.remove(&handle.collider);
+        self.forced.retain(|b| *b != handle.body);
         self.world.remove_body(handle.body);
     }
 
@@ -256,6 +375,83 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
         {
             b.set_next_kinematic_position(pose(translation, rotation));
         }
+    }
+
+    /// Linear velocity of a dynamic body (m/s); sets it on kinematic bodies
+    /// too, though their next target overrides it.
+    pub fn set_linear_velocity(&mut self, handle: BodyHandle, v: Vec3) {
+        if v.is_finite()
+            && let Some(b) = self.world.bodies.get_mut(handle.body)
+            && b.is_dynamic()
+        {
+            b.set_linvel(rv(v), true);
+        }
+    }
+
+    /// Angular velocity in radians per second about each world axis.
+    pub fn angular_velocity(&self, handle: BodyHandle) -> Vec3 {
+        self.world
+            .bodies
+            .get(handle.body)
+            .map_or(Vec3::ZERO, |b| gv(b.angvel()))
+    }
+
+    pub fn set_angular_velocity(&mut self, handle: BodyHandle, v: Vec3) {
+        if v.is_finite()
+            && let Some(b) = self.world.bodies.get_mut(handle.body)
+            && b.is_dynamic()
+        {
+            b.set_angvel(rv(v), true);
+        }
+    }
+
+    /// Instantly changes a dynamic body's momentum (newton-seconds): a kick.
+    pub fn apply_impulse(&mut self, handle: BodyHandle, impulse: Vec3) {
+        if impulse.is_finite()
+            && let Some(b) = self.world.bodies.get_mut(handle.body)
+            && b.is_dynamic()
+        {
+            b.apply_impulse(rv(impulse), true);
+        }
+    }
+
+    /// Instantly changes a dynamic body's spin.
+    pub fn apply_torque_impulse(&mut self, handle: BodyHandle, impulse: Vec3) {
+        if impulse.is_finite()
+            && let Some(b) = self.world.bodies.get_mut(handle.body)
+            && b.is_dynamic()
+        {
+            b.apply_torque_impulse(rv(impulse), true);
+        }
+    }
+
+    /// Pushes a dynamic body (newtons) during the next step only; call it
+    /// every tick for a continuous force.
+    pub fn add_force(&mut self, handle: BodyHandle, force: Vec3) {
+        if force.is_finite()
+            && let Some(b) = self.world.bodies.get_mut(handle.body)
+            && b.is_dynamic()
+        {
+            b.add_force(rv(force), true);
+            self.forced.push(handle.body);
+        }
+    }
+
+    /// Mass of a body in kilograms (0 for static and kinematic bodies).
+    pub fn mass(&self, handle: BodyHandle) -> f32 {
+        self.world
+            .bodies
+            .get(handle.body)
+            .filter(|b| b.is_dynamic())
+            .map_or(0.0, |b| b.mass())
+    }
+
+    /// Whether a dynamic body has come to rest and stopped simulating.
+    pub fn is_sleeping(&self, handle: BodyHandle) -> bool {
+        self.world
+            .bodies
+            .get(handle.body)
+            .is_some_and(|b| b.is_sleeping())
     }
 
     /// Moves a dynamic body directly (teleport), e.g. on respawn.
@@ -285,30 +481,105 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
     /// reported by the next [`Physics::step`].
     pub fn refresh(&mut self) {
         self.world.detect_collisions(&(), &self.collector);
+        // rapier's collision-only pass consumes the "new body" changes without
+        // registering bodies with the island manager, so new dynamic bodies
+        // would hang in the air until something touched them. Re-mark them as
+        // changed so the next step adds them to the simulation.
+        for (_, b) in self.world.bodies.iter_mut() {
+            if b.is_dynamic() {
+                let p = *b.position();
+                b.set_position(p, true);
+            }
+        }
     }
 
-    /// Advances one fixed step and returns sensor overlap changes.
-    pub fn step(&mut self) -> Vec<TriggerEvent<E>> {
+    /// Advances one fixed step and returns sensor overlap changes and solid
+    /// contacts of dynamic bodies.
+    pub fn step(&mut self) -> StepEvents<E> {
         self.world.step_with_events(&(), &self.collector);
-        let mut out = Vec::new();
+        for h in self.forced.drain(..) {
+            if let Some(b) = self.world.bodies.get_mut(h) {
+                b.reset_forces(false);
+            }
+        }
+        let mut out = StepEvents::default();
         while let Ok(event) = self.collisions.try_recv() {
             let (a, b, entered) = match event {
                 CollisionEvent::Started(a, b, _) => (a, b, true),
                 CollisionEvent::Stopped(a, b, _) => (a, b, false),
             };
-            let sensor = |h| self.world.colliders.get(h).is_some_and(|c| c.is_sensor());
-            let (s, o) = match (sensor(a), sensor(b)) {
-                (true, false) => (a, b),
-                (false, true) => (b, a),
-                // Sensor-sensor and removed colliders are not reported.
-                _ => continue,
+            let (Some(&oa), Some(&ob)) = (self.owners.get(&a), self.owners.get(&b)) else {
+                // A removed collider.
+                continue;
             };
-            if let (Some(&sensor), Some(&other)) = (self.owners.get(&s), self.owners.get(&o)) {
-                out.push(TriggerEvent {
-                    sensor,
-                    other,
+            let sensor = |h| self.world.colliders.get(h).is_some_and(|c| c.is_sensor());
+            match (sensor(a), sensor(b)) {
+                (true, false) => out.triggers.push(TriggerEvent {
+                    sensor: oa,
+                    other: ob,
                     entered,
-                });
+                }),
+                (false, true) => out.triggers.push(TriggerEvent {
+                    sensor: ob,
+                    other: oa,
+                    entered,
+                }),
+                (false, false) => out.contacts.push(ContactEvent {
+                    a: oa,
+                    b: ob,
+                    started: entered,
+                }),
+                // Sensor-sensor pairs are not reported.
+                (true, true) => {}
+            }
+        }
+        out
+    }
+
+    /// Every collider overlapping `shape` placed at `center` with `rotation`
+    /// (each owner once, in no particular order). Sensors are included only
+    /// with `include_sensors`; `exclude`'s body is skipped.
+    pub fn overlap(
+        &self,
+        shape: QueryShape,
+        center: Vec3,
+        rotation: Quat,
+        include_sensors: bool,
+        exclude: Option<BodyHandle>,
+    ) -> Vec<E> {
+        if !center.is_finite() || !rotation.is_finite() {
+            return Vec::new();
+        }
+        let shape: SharedShape = match shape {
+            QueryShape::Sphere { radius } if radius.is_finite() && radius > 0.0 => {
+                SharedShape::ball(radius)
+            }
+            QueryShape::Box { half } if half.is_finite() && half.min_element() > 0.0 => {
+                SharedShape::cuboid(half.x, half.y, half.z)
+            }
+            QueryShape::Capsule { radius, height }
+                if radius.is_finite() && height.is_finite() && radius > 0.0 && height > 0.0 =>
+            {
+                SharedShape::capsule_y((height * 0.5 - radius).max(0.0), radius)
+            }
+            _ => return Vec::new(),
+        };
+        let mut filter = QueryFilter::default();
+        if !include_sensors {
+            filter = filter.exclude_sensors();
+        }
+        if let Some(h) = exclude {
+            filter = filter.exclude_rigid_body(h.body);
+        }
+        let mut out: Vec<E> = Vec::new();
+        for (handle, _) in
+            self.world
+                .intersect_shape(pose(center, rotation.normalize()), &*shape, filter)
+        {
+            if let Some(&e) = self.owners.get(&handle)
+                && !out.contains(&e)
+            {
+                out.push(e);
             }
         }
         out
@@ -362,20 +633,35 @@ impl<E: Copy + Eq + std::hash::Hash> Physics<E> {
         };
         let offset = *collider.position_wrt_parent().unwrap_or(&Pose::IDENTITY);
         let shape = collider.shared_shape().clone();
+        let mut collisions = Vec::new();
         let movement = {
             let filter = QueryFilter::exclude_kinematic()
                 .exclude_sensors()
                 .exclude_rigid_body(ch.handle.body);
             let queries = self.world.query_pipeline_with_filter(filter);
-            self.controller.move_shape(
-                dt,
-                &queries,
-                &*shape,
-                &(start * offset),
-                rv(desired),
-                |_| {},
-            )
+            self.controller
+                .move_shape(dt, &queries, &*shape, &(start * offset), rv(desired), |c| {
+                    collisions.push(c)
+                })
         };
+        // Push the dynamic bodies the character ran into.
+        if self.push_mass > 0.0 && !collisions.is_empty() {
+            let filter = QueryFilter::only_dynamic().exclude_sensors();
+            let world = &mut self.world;
+            let mut queries = world.broad_phase.as_query_pipeline_mut(
+                world.narrow_phase.query_dispatcher(),
+                &mut world.bodies,
+                &mut world.colliders,
+                filter,
+            );
+            self.controller.solve_character_collision_impulses(
+                dt,
+                &mut queries,
+                &*shape,
+                self.push_mass,
+                &collisions,
+            );
+        }
         // Sweep against kinematic bodies: up to two contacts (slide once).
         const SKIN: f32 = 0.02;
         let mut feet = gv(start.translation);
@@ -435,15 +721,13 @@ mod tests {
     use super::*;
 
     fn floor(p: &mut Physics<u32>) {
-        let c = ColliderComponent::new(
-            ColliderShape::Box {
-                size: Vec3::new(20.0, 1.0, 20.0),
-            },
-            BodyKind::Static,
-        );
+        let c = ColliderComponent::new(ColliderShape::Box {
+            size: Vec3::new(20.0, 1.0, 20.0),
+        });
         p.add(
             0,
-            &c,
+            Some(&c),
+            None,
             Mat4::from_translation(Vec3::new(0.0, -0.5, 0.0)),
             None,
         )
@@ -454,11 +738,12 @@ mod tests {
     fn dynamic_box_falls_and_rests_on_the_floor() {
         let mut p = Physics::new(1.0 / 60.0);
         floor(&mut p);
-        let c = ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }, BodyKind::Dynamic);
+        let c = ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE });
         let h = p
             .add(
                 1,
-                &c,
+                Some(&c),
+                Some(&RigidbodyComponent::dynamic()),
                 Mat4::from_translation(Vec3::new(0.0, 3.0, 0.0)),
                 None,
             )
@@ -477,29 +762,25 @@ mod tests {
         let dt = 1.0 / 60.0;
         let mut p = Physics::new(dt);
         floor(&mut p);
-        let wall = ColliderComponent::new(
-            ColliderShape::Box {
-                size: Vec3::new(1.0, 3.0, 10.0),
-            },
-            BodyKind::Static,
-        );
+        let wall = ColliderComponent::new(ColliderShape::Box {
+            size: Vec3::new(1.0, 3.0, 10.0),
+        });
         p.add(
             2,
-            &wall,
+            Some(&wall),
+            None,
             Mat4::from_translation(Vec3::new(3.0, 1.5, 0.0)),
             None,
         )
         .unwrap();
-        let mut zone = ColliderComponent::new(
-            ColliderShape::Box {
-                size: Vec3::new(1.0, 2.0, 1.0),
-            },
-            BodyKind::Static,
-        );
+        let mut zone = ColliderComponent::new(ColliderShape::Box {
+            size: Vec3::new(1.0, 2.0, 1.0),
+        });
         zone.sensor = true;
         p.add(
             3,
-            &zone,
+            Some(&zone),
+            None,
             Mat4::from_translation(Vec3::new(1.5, 1.0, 0.0)),
             None,
         )
@@ -513,7 +794,7 @@ mod tests {
             let (f, g) = p.move_character(&ch, Vec3::new(2.0 * dt, -9.81 * dt * dt, 0.0), dt);
             feet = f;
             grounded = g;
-            for e in p.step() {
+            for e in p.step().triggers {
                 if e.sensor == 3 && e.other == 9 && e.entered {
                     entered = true;
                 }
@@ -545,14 +826,21 @@ mod tests {
     #[test]
     fn kinematic_body_follows_its_target_and_scale_sizes_shapes() {
         let mut p = Physics::new(1.0 / 60.0);
-        let door =
-            ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }, BodyKind::Kinematic);
+        let door = ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE });
         let world = Mat4::from_scale_rotation_translation(
             Vec3::new(2.0, 3.0, 0.2),
             Quat::IDENTITY,
             Vec3::new(0.0, 1.5, 0.0),
         );
-        let h = p.add(5, &door, world, None).unwrap();
+        let h = p
+            .add(
+                5,
+                Some(&door),
+                Some(&RigidbodyComponent::kinematic()),
+                world,
+                None,
+            )
+            .unwrap();
         p.refresh();
         // Scaled box: a ray from the side hits the face at x = -1.
         let hit = p
@@ -575,14 +863,21 @@ mod tests {
         let dt = 1.0 / 60.0;
         let mut p: Physics<u32> = Physics::new(dt);
         floor(&mut p);
-        let door =
-            ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }, BodyKind::Kinematic);
+        let door = ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE });
         let m = Mat4::from_scale_rotation_translation(
             Vec3::new(2.8, 2.5, 0.2),
             Quat::IDENTITY,
             Vec3::new(0.0, 1.25, -1.0),
         );
-        let h = p.add(1, &door, m, None).unwrap();
+        let h = p
+            .add(
+                1,
+                Some(&door),
+                Some(&RigidbodyComponent::kinematic()),
+                m,
+                None,
+            )
+            .unwrap();
         let ch = p.add_character(9, Vec3::new(0.0, 0.0, 1.0), 0.3, 1.75);
         let mut feet = Vec3::ZERO;
         for _ in 0..90 {
@@ -605,5 +900,271 @@ mod tests {
             feet.z > blocked.z + 1.1,
             "walked away: {blocked:?} -> {feet:?}"
         );
+    }
+
+    fn dynamic_box(
+        p: &mut Physics<u32>,
+        owner: u32,
+        at: Vec3,
+        c: ColliderComponent,
+        rb: RigidbodyComponent,
+    ) -> BodyHandle {
+        p.add(owner, Some(&c), Some(&rb), Mat4::from_translation(at), None)
+            .unwrap()
+    }
+
+    #[test]
+    fn bounciness_gravity_scale_and_gravity_setting() {
+        let mut p: Physics<u32> = Physics::new(1.0 / 60.0);
+        floor(&mut p);
+        let ball = ColliderComponent {
+            restitution: 0.9,
+            ..ColliderComponent::new(ColliderShape::Sphere { radius: 0.25 })
+        };
+        let bouncy = dynamic_box(
+            &mut p,
+            1,
+            Vec3::new(-3.0, 2.0, 0.0),
+            ball,
+            RigidbodyComponent::dynamic(),
+        );
+        let floaty = dynamic_box(
+            &mut p,
+            2,
+            Vec3::new(3.0, 2.0, 0.0),
+            ColliderComponent::new(ColliderShape::Sphere { radius: 0.25 }),
+            RigidbodyComponent {
+                gravity_scale: 0.0,
+                ..RigidbodyComponent::dynamic()
+            },
+        );
+        let mut max_after_bounce = 0.0f32;
+        let mut touched = false;
+        let mut contacts = 0;
+        for _ in 0..90 {
+            let events = p.step();
+            contacts += events
+                .contacts
+                .iter()
+                .filter(|c| c.started && (c.a == 1 || c.b == 1))
+                .count();
+            let y = p.body_pose(bouncy).unwrap().0.y;
+            if y < 0.3 {
+                touched = true;
+            } else if touched {
+                max_after_bounce = max_after_bounce.max(y);
+            }
+        }
+        assert!(
+            touched && max_after_bounce > 1.0,
+            "bounced to {max_after_bounce}"
+        );
+        assert!(contacts >= 1, "contact with the floor is reported");
+        let y = p.body_pose(floaty).unwrap().0.y;
+        assert!((y - 2.0).abs() < 1e-3, "gravity scale 0 floats: {y}");
+
+        p.set_gravity(Vec3::new(0.0, 5.0, 0.0));
+        assert_eq!(p.gravity(), Vec3::new(0.0, 5.0, 0.0));
+        let before = p.body_pose(bouncy).unwrap().0.y;
+        for _ in 0..60 {
+            p.step();
+        }
+        assert!(
+            p.body_pose(bouncy).unwrap().0.y > before + 1.0,
+            "falls upwards"
+        );
+    }
+
+    #[test]
+    fn impulses_forces_velocity_and_overlaps() {
+        let mut p: Physics<u32> = Physics::new(1.0 / 60.0);
+        p.set_gravity(Vec3::ZERO);
+        let rb = RigidbodyComponent {
+            mass: 2.0,
+            ..RigidbodyComponent::dynamic()
+        };
+        let b = dynamic_box(
+            &mut p,
+            1,
+            Vec3::ZERO,
+            ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }),
+            rb,
+        );
+        assert!((p.mass(b) - 2.0).abs() < 1e-4);
+        p.apply_impulse(b, Vec3::new(4.0, 0.0, 0.0));
+        let v = p.linear_velocity(b);
+        assert!((v.x - 2.0).abs() < 1e-3, "impulse / mass: {v:?}");
+        p.set_linear_velocity(b, Vec3::ZERO);
+        // A force lasts one step: 120 N on 2 kg for 1/60 s = 1 m/s.
+        p.add_force(b, Vec3::new(120.0, 0.0, 0.0));
+        p.step();
+        p.step();
+        let v = p.linear_velocity(b);
+        assert!((v.x - 1.0).abs() < 1e-2, "{v:?}");
+        p.set_angular_velocity(b, Vec3::new(0.0, 1.0, 0.0));
+        assert!((p.angular_velocity(b).y - 1.0).abs() < 1e-4);
+
+        let mut zone = ColliderComponent::new(ColliderShape::Sphere { radius: 0.5 });
+        zone.sensor = true;
+        p.add(
+            2,
+            Some(&zone),
+            None,
+            Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0)),
+            None,
+        )
+        .unwrap();
+        p.refresh();
+        let hits = p.overlap(
+            QueryShape::Sphere { radius: 10.0 },
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            false,
+            None,
+        );
+        assert!(hits.contains(&1) && !hits.contains(&2), "{hits:?}");
+        let hits = p.overlap(
+            QueryShape::Sphere { radius: 10.0 },
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            true,
+            Some(b),
+        );
+        assert_eq!(hits, vec![2]);
+        let hits = p.overlap(
+            QueryShape::Box {
+                half: Vec3::splat(0.1),
+            },
+            Vec3::new(0.0, 3.0, 0.0),
+            Quat::IDENTITY,
+            true,
+            None,
+        );
+        assert!(hits.is_empty());
+        assert!(
+            p.overlap(
+                QueryShape::Sphere { radius: -1.0 },
+                Vec3::ZERO,
+                Quat::IDENTITY,
+                true,
+                None
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn point_mass_without_collider_falls_and_locked_bodies_stay_upright() {
+        let mut p: Physics<u32> = Physics::new(1.0 / 60.0);
+        floor(&mut p);
+        let point = p
+            .add(
+                1,
+                None,
+                Some(&RigidbodyComponent::dynamic()),
+                Mat4::from_translation(Vec3::Y),
+                None,
+            )
+            .unwrap();
+        for _ in 0..30 {
+            p.step();
+        }
+        assert!(
+            p.body_pose(point).unwrap().0.y < 0.0,
+            "falls through: no collider"
+        );
+
+        // A tall box dropped on its corner tips over unless rotation is locked.
+        let tilt = Quat::from_rotation_z(0.6);
+        let tall = ColliderComponent::new(ColliderShape::Box {
+            size: Vec3::new(0.4, 2.0, 0.4),
+        });
+        let free = p
+            .add(
+                2,
+                Some(&tall),
+                Some(&RigidbodyComponent::dynamic()),
+                Mat4::from_rotation_translation(tilt, Vec3::new(-3.0, 1.5, 0.0)),
+                None,
+            )
+            .unwrap();
+        let locked = p
+            .add(
+                3,
+                Some(&tall),
+                Some(&RigidbodyComponent {
+                    lock_rotation: true,
+                    ..RigidbodyComponent::dynamic()
+                }),
+                Mat4::from_rotation_translation(tilt, Vec3::new(3.0, 1.5, 0.0)),
+                None,
+            )
+            .unwrap();
+        for _ in 0..240 {
+            p.step();
+        }
+        let angle = |h| p.body_pose(h).unwrap().1.angle_between(tilt);
+        assert!(angle(free) > 0.3, "free box tipped over");
+        assert!(angle(locked) < 1e-3, "locked box kept its rotation");
+    }
+
+    #[test]
+    fn character_pushes_dynamic_bodies() {
+        let dt = 1.0 / 60.0;
+        let mut p: Physics<u32> = Physics::new(dt);
+        floor(&mut p);
+        let crate_ = dynamic_box(
+            &mut p,
+            1,
+            Vec3::new(1.5, 0.5, 0.0),
+            ColliderComponent::new(ColliderShape::Box { size: Vec3::ONE }),
+            RigidbodyComponent::dynamic(),
+        );
+        let ch = p.add_character(9, Vec3::ZERO, 0.3, 1.7);
+        for _ in 0..30 {
+            p.step();
+        }
+        let start = p.body_pose(crate_).unwrap().0;
+        for _ in 0..120 {
+            p.move_character(&ch, Vec3::new(2.0 * dt, -0.1 * dt, 0.0), dt);
+            p.step();
+        }
+        let end = p.body_pose(crate_).unwrap().0;
+        assert!(end.x > start.x + 0.5, "crate pushed: {start:?} -> {end:?}");
+
+        p.set_character_push_mass(0.0);
+        let before = p.body_pose(crate_).unwrap().0;
+        for _ in 0..60 {
+            p.move_character(&ch, Vec3::new(2.0 * dt, -0.1 * dt, 0.0), dt);
+            p.step();
+        }
+        let after = p.body_pose(crate_).unwrap().0;
+        assert!(
+            after.x < before.x + 0.1,
+            "pushing disabled: {before:?} -> {after:?}"
+        );
+    }
+
+    #[test]
+    fn dynamic_bodies_fall_after_a_refresh() {
+        // Regression: a scene load refreshes queries before the first step,
+        // which used to leave new dynamic bodies frozen in the air.
+        let mut p: Physics<u32> = Physics::new(1.0 / 60.0);
+        let h = p
+            .add(
+                1,
+                Some(&ColliderComponent::new(ColliderShape::Box {
+                    size: Vec3::ONE,
+                })),
+                Some(&RigidbodyComponent::dynamic()),
+                Mat4::from_translation(Vec3::Y * 2.0),
+                None,
+            )
+            .unwrap();
+        p.refresh();
+        for _ in 0..30 {
+            p.step();
+        }
+        assert!(p.body_pose(h).unwrap().0.y < 1.0);
     }
 }

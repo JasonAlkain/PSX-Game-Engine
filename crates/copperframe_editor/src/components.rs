@@ -57,7 +57,7 @@ impl Group {
         match key {
             component_key::MESH | component_key::ANIMATOR => Group::Rendering,
             component_key::LIGHT | component_key::SHADOW => Group::Lighting,
-            component_key::COLLIDER => Group::Physics,
+            component_key::COLLIDER | component_key::RIGIDBODY => Group::Physics,
             component_key::AUDIO => Group::Audio,
             _ => Group::Behaviours,
         }
@@ -72,6 +72,7 @@ pub fn title(key: &str) -> String {
         component_key::LIGHT => "Point light".into(),
         component_key::SHADOW => "Blob shadow".into(),
         component_key::COLLIDER => "Collider".into(),
+        component_key::RIGIDBODY => "Rigidbody".into(),
         component_key::AUDIO => "Audio source".into(),
         _ => component_key::behavior_kind(key).map_or_else(|| key.to_owned(), behavior_title),
     }
@@ -114,6 +115,10 @@ pub fn remove_command(entity: &Entity, key: &str) -> Option<Command> {
         component_key::LIGHT => Command::SetLight { id, light: None },
         component_key::SHADOW => Command::SetShadow { id, shadow: None },
         component_key::COLLIDER => Command::SetCollider { id, collider: None },
+        component_key::RIGIDBODY => Command::SetRigidbody {
+            id,
+            rigidbody: None,
+        },
         component_key::AUDIO => Command::SetAudio { id, audio: None },
         _ => {
             let kind = component_key::behavior_kind(key)?;
@@ -205,6 +210,7 @@ fn body(
         component_key::LIGHT => visuals::light_editor(ui, session, entity),
         component_key::SHADOW => visuals::shadow_editor(ui, session, entity),
         component_key::COLLIDER => gameplay::collider_editor(ui, session, entity),
+        component_key::RIGIDBODY => gameplay::rigidbody_editor(ui, session, entity),
         component_key::AUDIO => {
             let sounds = gameplay::sounds(session);
             gameplay::audio_editor(ui, session, entity, &sounds);
@@ -554,6 +560,25 @@ fn entries(
             })
         },
     ));
+    out.push(Entry::new(
+        &["Physics"],
+        "Rigidbody",
+        if entity.rigidbody.is_some() {
+            Err(ALREADY.into())
+        } else if entity.parent.is_some() {
+            Err("rigidbodies go on root entities: unparent it first".into())
+        } else if entity
+            .collider
+            .is_some_and(|c| c.shape == copperframe_scene::ColliderShape::Mesh)
+        {
+            Err("mesh colliders are static: pick a box, sphere or capsule first".into())
+        } else {
+            run(Command::SetRigidbody {
+                id,
+                rigidbody: Some(copperframe_scene::RigidbodyComponent::dynamic()),
+            })
+        },
+    ));
 
     // Audio.
     let sounds = gameplay::sounds(session);
@@ -799,6 +824,7 @@ mod tests {
         assert_eq!(behavior_title("plain"), "Plain");
         assert_eq!(title("behavior:psx.player"), "Player");
         assert_eq!(title("collider"), "Collider");
+        assert_eq!(title("rigidbody"), "Rigidbody");
     }
 
     #[test]

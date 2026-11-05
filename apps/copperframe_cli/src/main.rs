@@ -381,12 +381,20 @@ fn schema(project: Option<&Path>) -> Result<Success, Failure> {
             "collider": {
                 "shape": "{kind: box, size: [x,y,z]} | {kind: sphere, radius} | {kind: capsule, radius, height} | {kind: mesh} (static only); sizes are in local space and follow the entity's scale",
                 "offset": "[x, y, z] local, default 0",
-                "body": "static (default) | dynamic | kinematic; dynamic and kinematic bodies must be root entities",
                 "sensor": "bool: reports overlaps instead of colliding",
                 "layer": "0..15 (default 0)",
                 "mask": "u16 bitmask of layers it collides with (default all)",
-                "mass": "kg, dynamic bodies (default 1)",
                 "friction": "0..=10 (default 0.5)",
+                "restitution": "bounciness 0..=1 (default 0)",
+            },
+            "rigidbody": {
+                "about": "makes the entity a moving body; without one its collider is static. Root entities only",
+                "kinematic": "bool (default false = dynamic): moved by its transform, pushes but is never pushed",
+                "mass": "kg > 0 (default 1)",
+                "gravity_scale": "-100..=100 (default 1; 0 floats)",
+                "linear_damping": "0..=100 (default 0)",
+                "angular_damping": "0..=100 (default 0.05)",
+                "lock_rotation": "bool: never rotated by contacts",
             },
             "audio": {
                 "sound": "sound asset id",
