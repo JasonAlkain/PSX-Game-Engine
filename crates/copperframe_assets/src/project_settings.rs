@@ -7,7 +7,7 @@
 //! editor and `copperframe export` read the build section.
 
 use copperframe_core::RetroStyle;
-use copperframe_scene::{LookSource, SceneSettings};
+use copperframe_scene::{AudioBus, LookSource, SceneSettings};
 use serde::{Deserialize, Serialize};
 
 /// The game window, and the defaults a player starts with until they change
@@ -173,6 +173,97 @@ impl PhysicsSettings {
             return Some(format!(
                 "physics.gravity must be finite and within ±{MAX_GRAVITY} m/s²"
             ));
+        }
+        None
+    }
+}
+
+/// One mixer bus.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BusSettings {
+    /// Gain in decibels, [`BusSettings::DB_RANGE`].
+    pub volume_db: f32,
+    /// Silences the bus.
+    pub mute: bool,
+}
+
+impl BusSettings {
+    pub const DB_RANGE: std::ops::RangeInclusive<f32> = -60.0..=12.0;
+}
+
+impl Default for BusSettings {
+    fn default() -> Self {
+        Self {
+            volume_db: 0.0,
+            mute: false,
+        }
+    }
+}
+
+/// The project's audio mixer (since project version 4): a master bus and
+/// one bus per [`AudioBus`], applied by the game and the editor's preview.
+/// Players' volume sliders multiply on top.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioSettings {
+    pub master: BusSettings,
+    pub music: BusSettings,
+    pub effects: BusSettings,
+    pub voice: BusSettings,
+    pub ambient: BusSettings,
+    /// A limiter on the master bus that pulls peaks down before they clip.
+    pub limiter: bool,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            master: BusSettings::default(),
+            music: BusSettings::default(),
+            effects: BusSettings::default(),
+            voice: BusSettings::default(),
+            ambient: BusSettings::default(),
+            limiter: true,
+        }
+    }
+}
+
+impl AudioSettings {
+    pub fn bus(&self, bus: AudioBus) -> &BusSettings {
+        match bus {
+            AudioBus::Music => &self.music,
+            AudioBus::Effects => &self.effects,
+            AudioBus::Voice => &self.voice,
+            AudioBus::Ambient => &self.ambient,
+        }
+    }
+
+    pub fn bus_mut(&mut self, bus: AudioBus) -> &mut BusSettings {
+        match bus {
+            AudioBus::Music => &mut self.music,
+            AudioBus::Effects => &mut self.effects,
+            AudioBus::Voice => &mut self.voice,
+            AudioBus::Ambient => &mut self.ambient,
+        }
+    }
+
+    pub fn problem(&self) -> Option<String> {
+        let all = [
+            ("master", &self.master),
+            ("music", &self.music),
+            ("effects", &self.effects),
+            ("voice", &self.voice),
+            ("ambient", &self.ambient),
+        ];
+        for (name, b) in all {
+            if !(b.volume_db.is_finite() && BusSettings::DB_RANGE.contains(&b.volume_db)) {
+                return Some(format!(
+                    "audio.{name}.volume_db must be between {} and {} dB",
+                    BusSettings::DB_RANGE.start(),
+                    BusSettings::DB_RANGE.end()
+                ));
+            }
         }
         None
     }

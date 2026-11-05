@@ -293,13 +293,45 @@ impl BodyKind {
     }
 }
 
-/// Mixer bus a sound plays on.
+/// Mixer bus a sound plays on. Every bus feeds the master bus. `voice`
+/// and `ambient` are since scene version 8.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AudioBus {
+    /// Sound effects ("SFX" in the editor).
     #[default]
     Effects,
     Music,
+    Voice,
+    Ambient,
+}
+
+impl AudioBus {
+    pub const ALL: [AudioBus; 4] = [
+        AudioBus::Music,
+        AudioBus::Effects,
+        AudioBus::Voice,
+        AudioBus::Ambient,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            AudioBus::Effects => "SFX",
+            AudioBus::Music => "Music",
+            AudioBus::Voice => "Voice",
+            AudioBus::Ambient => "Ambient",
+        }
+    }
+
+    /// Position in [`AudioBus::ALL`].
+    pub fn index(self) -> usize {
+        match self {
+            AudioBus::Music => 0,
+            AudioBus::Effects => 1,
+            AudioBus::Voice => 2,
+            AudioBus::Ambient => 3,
+        }
+    }
 }
 
 /// A sound emitted from the entity's world position (or played flat when

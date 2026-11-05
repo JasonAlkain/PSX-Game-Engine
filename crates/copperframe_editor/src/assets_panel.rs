@@ -10,11 +10,13 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use copperframe_assets::project::AudioSettings;
 use copperframe_assets::{AssetEntry, AssetKind};
 use copperframe_core::AssetId;
 use copperframe_runtime::scene_gpu::{AssetStatus, SceneResources};
 use egui::{Color32, RichText, Sense, TextureHandle, vec2};
 
+use crate::audio_tools::EditorAudio;
 use crate::icons::{self, Icon};
 use crate::session::{EditorSession, LogLevel, SCENE_SUFFIX, scene_stem};
 use crate::theme;
@@ -250,6 +252,8 @@ impl AssetsPanel {
         self.thumbnails.clear();
     }
 
+    /// `audio` previews sounds through the project's `mixer` settings.
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -257,6 +261,8 @@ impl AssetsPanel {
         camera: &EditorCamera,
         resources: &SceneResources,
         actions: &mut Vec<Action>,
+        audio: &mut EditorAudio,
+        mixer: AudioSettings,
     ) {
         let entries = session.db.entries.clone();
         let scenes: Vec<String> = session
@@ -290,7 +296,9 @@ impl AssetsPanel {
         egui::Panel::bottom("asset-details")
             .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 3)))
             .show(ui, |ui| {
-                self.details(ui, session, camera, resources, &entries, actions);
+                self.details(
+                    ui, session, camera, resources, &entries, actions, audio, mixer,
+                );
             });
         egui::Panel::left("asset-folders")
             .resizable(true)
@@ -306,7 +314,9 @@ impl AssetsPanel {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    self.grid(ui, session, camera, resources, &entries, &all, &scenes);
+                    self.grid(
+                        ui, session, camera, resources, &entries, &all, &scenes, audio, mixer,
+                    );
                 });
         });
         self.dialogs(ui.ctx(), session);
@@ -485,6 +495,8 @@ impl AssetsPanel {
         entries: &[AssetEntry],
         all: &[String],
         scenes: &[String],
+        audio: &mut EditorAudio,
+        mixer: AudioSettings,
     ) {
         let mut any = false;
         let mut loaded_one = false;
@@ -588,7 +600,27 @@ impl AssetsPanel {
                         session.add_model(entry.id, camera.spawn_point(4.0));
                     }
                 }
-                response.on_hover_text(format!("{}\n{}", entry.relative, entry.kind.label()));
+                let mut hover = format!("{}\n{}", entry.relative, entry.kind.label());
+                if entry.kind == AssetKind::Audio {
+                    let playing = audio.state().is_some_and(|s| s.asset == entry.id);
+                    if playing {
+                        // A small play mark in the corner while it sounds.
+                        let mark = egui::Rect::from_center_size(
+                            response.rect.left_top() + vec2(10.0, 10.0),
+                            vec2(10.0, 10.0),
+                        );
+                        icons::paint(ui.painter(), mark, Icon::Play, theme::ACCENT);
+                    }
+                    if response.double_clicked() {
+                        audio.toggle(session, entry, mixer);
+                    }
+                    hover.push_str(if playing {
+                        "\nDouble-click to stop"
+                    } else {
+                        "\nDouble-click to preview"
+                    });
+                }
+                response.on_hover_text(hover);
             }
         });
         if in_scenes(&self.folder) || self.filter == Filter::Scenes {
@@ -823,6 +855,7 @@ impl AssetsPanel {
         (response, picture)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn details(
         &mut self,
         ui: &mut egui::Ui,
@@ -831,6 +864,8 @@ impl AssetsPanel {
         resources: &SceneResources,
         entries: &[AssetEntry],
         actions: &mut Vec<Action>,
+        audio: &mut EditorAudio,
+        mixer: AudioSettings,
     ) {
         let entry = self
             .selected
@@ -897,6 +932,11 @@ impl AssetsPanel {
                     .clicked()
             {
                 session.add_model(entry.id, camera.spawn_point(4.0));
+            }
+            if entry.kind == AssetKind::Audio {
+                ui.separator();
+                audio.controls(ui, session, entry, mixer);
+                ui.separator();
             }
             if entry.kind != AssetKind::Audio
                 && ui

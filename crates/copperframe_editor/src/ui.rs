@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use crate::assets_panel::AssetsPanel;
 use crate::assets_panel::PanelRequest;
+use crate::audio_tools::EditorAudio;
 use crate::components;
 use crate::dock::{Dock, Pane, PaneContents};
 use crate::gameplay::GameTools;
@@ -111,6 +112,8 @@ pub struct UiState {
     pub assets: AssetsPanel,
     pub project_settings: ProjectSettingsPanel,
     pub hierarchy: HierarchyPanel,
+    /// Sound previews and the mixer's meters.
+    pub audio: EditorAudio,
     keep_world_on_reparent: bool,
     name_buffer: Option<(EntityId, String)>,
     pub(crate) drag: Option<GizmoDrag>,
@@ -141,6 +144,7 @@ impl Default for UiState {
             assets: AssetsPanel::default(),
             project_settings: ProjectSettingsPanel::default(),
             hierarchy: HierarchyPanel::default(),
+            audio: EditorAudio::default(),
             keep_world_on_reparent: true,
             name_buffer: None,
             drag: None,
@@ -302,9 +306,24 @@ impl PaneContents for Panes<'_> {
                     });
             }
             Pane::Assets => {
-                self.state
-                    .assets
-                    .show(ui, self.session, self.camera, self.resources, self.actions);
+                let mixer = self.state.project_settings.audio_settings(self.session);
+                self.state.assets.show(
+                    ui,
+                    self.session,
+                    self.camera,
+                    self.resources,
+                    self.actions,
+                    &mut self.state.audio,
+                    mixer,
+                );
+            }
+            Pane::AudioMixer => {
+                self.state.project_settings.mixer(
+                    ui,
+                    self.session,
+                    self.tools,
+                    &mut self.state.audio,
+                );
             }
             Pane::Console => console(ui, self.session),
             Pane::ProjectSettings => {
@@ -338,6 +357,8 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         dt,
     } = cx;
     let mut actions = Vec::new();
+    let mixer = state.project_settings.audio_settings(session);
+    state.audio.sync(ui.ctx(), mixer);
     shortcuts(ui.ctx(), session, state, tools, camera, resources);
 
     egui::Panel::top("menu").show(ui, |ui| {
@@ -382,6 +403,9 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         }
         state.dock = dock;
     });
+    if std::mem::take(&mut state.project_settings.open_mixer) {
+        state.open_pane = Some(Pane::AudioMixer);
+    }
     if let Some(pane) = state.open_pane.take() {
         state.dock.set_open(pane, true);
     }

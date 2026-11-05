@@ -219,6 +219,7 @@ impl Running {
 
         let (mut audio, audio_warning) = Audio::open_default();
         warnings.extend(audio_warning);
+        audio.set_mixer(options.project.file.audio);
         audio.set_volumes(settings.volumes());
         let mut sim = Simulation::new(options.project, game, audio);
         let screen = match sim.load_scene_file(&options.scene) {

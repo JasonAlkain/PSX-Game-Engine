@@ -35,7 +35,7 @@ pub const SCENE_FORMAT: &str = "psx_scene";
 /// - 6: moving bodies get their own `rigidbody` component; the collider's
 ///   `body` and `mass` fields move there (see [`migrate_rigidbodies`]), and
 ///   colliders gain `restitution`.
-pub const SCENE_VERSION: u32 = 7;
+pub const SCENE_VERSION: u32 = 8;
 /// Conventional file extension.
 pub const SCENE_EXTENSION: &str = "scene.json";
 
@@ -123,7 +123,8 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
     // Migrations from older versions go here. 1 -> 2 -> 3 -> 4 -> 5 only added
     // optional fields (with defaults), so older documents deserialise
     // unchanged; 5 -> 6 moves body data off colliders; 6 -> 7 adds
-    // `settings.look` (missing = the scene's own style, as before).
+    // `settings.look` (missing = the scene's own style, as before); 7 -> 8
+    // adds the `voice` and `ambient` audio buses.
     let mut scene_value = value
         .get("scene")
         .cloned()
@@ -240,6 +241,7 @@ mod tests {
     fn current_version() -> String {
         format!("\"version\": {SCENE_VERSION}")
     }
+    use crate::components::{AudioBus, AudioSourceComponent};
     use crate::scene::*;
     use crate::transform::euler_deg_to_quat;
     use copperframe_core::AssetId;
@@ -334,6 +336,23 @@ mod tests {
         assert!(scene.entities[0].behaviors.is_empty());
         let text = scene_to_json(&scene, p).unwrap();
         assert!(text.contains(&current_version()));
+    }
+
+    #[test]
+    fn every_audio_bus_round_trips() {
+        let p = Path::new("buses.scene.json");
+        let mut scene = sample();
+        for bus in AudioBus::ALL {
+            let mut audio = AudioSourceComponent::new(AssetId::new());
+            audio.bus = bus;
+            scene.entities[0].audio = Some(audio);
+            let text = scene_to_json(&scene, p).unwrap();
+            let again = parse_scene(&text, p).unwrap();
+            assert_eq!(again.entities[0].audio.as_ref().unwrap().bus, bus);
+        }
+        // Older scenes name only the first two.
+        let old: AudioBus = serde_json::from_str("\"effects\"").unwrap();
+        assert_eq!(old, AudioBus::Effects);
     }
 
     #[test]

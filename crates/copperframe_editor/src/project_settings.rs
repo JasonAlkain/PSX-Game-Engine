@@ -11,11 +11,13 @@ use std::path::{Path, PathBuf};
 
 use copperframe_assets::input::{self, BUTTON_NAMES, InputMap};
 use copperframe_assets::project::{
-    DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings, ProjectFile, StyleSettings,
+    AudioSettings, BusSettings, DisplaySettings, GraphicsStyle, MAX_GRAVITY, PhysicsSettings,
+    ProjectFile, StyleSettings,
 };
 use copperframe_scene::{Command, LookSource};
 use egui::{Color32, RichText};
 
+use crate::audio_tools::EditorAudio;
 use crate::gameplay::GameTools;
 use crate::hub;
 use crate::icons::{self, Icon};
@@ -31,16 +33,18 @@ pub enum Page {
     Look,
     Input,
     Physics,
+    Audio,
     Build,
 }
 
 impl Page {
-    pub const ALL: [Page; 6] = [
+    pub const ALL: [Page; 7] = [
         Page::General,
         Page::Display,
         Page::Look,
         Page::Input,
         Page::Physics,
+        Page::Audio,
         Page::Build,
     ];
 
@@ -51,6 +55,7 @@ impl Page {
             Page::Look => "Look",
             Page::Input => "Input",
             Page::Physics => "Physics",
+            Page::Audio => "Audio",
             Page::Build => "Build",
         }
     }
@@ -133,6 +138,8 @@ pub struct ProjectSettingsPanel {
     looks: Option<(f64, Vec<(String, LookSource)>)>,
     /// "Make all use the project look" is asking for confirmation.
     confirm_migrate: bool,
+    /// The Audio page asked for the Audio mixer panel.
+    pub open_mixer: bool,
 }
 
 /// The look source of every scene file (unreadable files are skipped).
@@ -207,6 +214,80 @@ impl ProjectSettingsPanel {
 
     pub fn is_dirty(&self) -> bool {
         self.draft.as_ref().is_some_and(Draft::is_dirty)
+    }
+
+    /// The mixer to preview with: the draft's, so changes are heard
+    /// before Save.
+    pub fn audio_settings(&self, session: &EditorSession) -> AudioSettings {
+        match &self.draft {
+            Some(d) => d.file.audio,
+            None => session.project.file.audio,
+        }
+    }
+
+    /// The Audio mixer panel. It edits the same draft as this panel, so
+    /// either one's Save writes both.
+    pub fn mixer(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        tools: &mut GameTools,
+        audio: &mut EditorAudio,
+    ) {
+        self.refresh_draft(session);
+        let Some(mut draft) = self.draft.take() else {
+            return;
+        };
+        ui.horizontal(|ui| {
+            let rect = icons::row_rect(ui, 16.0);
+            icons::paint(ui.painter(), rect, Icon::Sound, theme::ACCENT);
+            ui.label(RichText::new("Audio mixer").strong());
+            ui.label(
+                RichText::new("project mixer: saved in project.json, used by Play and Export")
+                    .color(theme::TEXT_DIM),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.save_revert(ui, session, tools, &mut draft);
+            });
+        });
+        if !ui.horizontal(|ui| audio.unavailable(ui)).inner {
+            hint(
+                ui,
+                "Meters show sound previews (double-click a sound in Assets). Solo is for \
+                 listening here and is not saved. A running game keeps the mixer it started \
+                 with.",
+            );
+        }
+        if let Some(problem) = draft.file.audio.problem() {
+            ui.colored_label(
+                crate::ui::level_color(crate::session::LogLevel::Error),
+                problem,
+            );
+        }
+        egui::ScrollArea::both()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                audio.strips(ui, &mut draft.file.audio);
+            });
+        if let Some(problem) = draft.file.audio.problem() {
+            ui.colored_label(
+                crate::ui::level_color(crate::session::LogLevel::Error),
+                problem,
+            );
+        }
+        self.draft = Some(draft);
+    }
+
+    /// Loads the draft if there is none, or if it has no edits of its own
+    /// and the project changed under it (File > Set as Startup Scene).
+    fn refresh_draft(&mut self, session: &EditorSession) {
+        let stale = match &self.draft {
+            None => true,
+            Some(d) => !d.is_dirty() && d.base_file != session.project.file,
+        };
+        if stale {
+            self.draft = Some(Draft::load(session));
+        }
     }
 
     /// The look settings to preview: the draft's while the panel has
@@ -316,15 +397,7 @@ impl ProjectSettingsPanel {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, tools: &mut GameTools) {
-        // Without edits of its own the draft follows the project, which
-        // File > Set as Startup Scene can change.
-        let stale = match &self.draft {
-            None => true,
-            Some(d) => !d.is_dirty() && d.base_file != session.project.file,
-        };
-        if stale {
-            self.draft = Some(Draft::load(session));
-        }
+        self.refresh_draft(session);
         let Some(mut draft) = self.draft.take() else {
             return;
         };
@@ -360,26 +433,7 @@ impl ProjectSettingsPanel {
             icons::paint(ui.painter(), rect, Icon::Cog, theme::ACCENT);
             ui.label(RichText::new("Project settings").strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let dirty = draft.is_dirty();
-                if ui
-                    .add_enabled(dirty, egui::Button::new("Save"))
-                    .on_hover_text("Write project.json (and input.json if the keys changed)")
-                    .clicked()
-                    && save_draft(draft, session, &mut self.message)
-                {
-                    tools.export_dir = session.project.export_dir().display().to_string();
-                }
-                if ui
-                    .add_enabled(dirty, egui::Button::new("Revert"))
-                    .on_hover_text("Drop the unsaved changes")
-                    .clicked()
-                {
-                    *draft = Draft::load(session);
-                    self.message = None;
-                }
-                if dirty {
-                    ui.label(RichText::new("unsaved").color(theme::ACCENT));
-                }
+                self.save_revert(ui, session, tools, draft);
             });
         });
         if let Some((ok, text)) = &self.message {
@@ -392,6 +446,36 @@ impl ProjectSettingsPanel {
         }
     }
 
+    /// Save and Revert (right to left) and the unsaved mark.
+    fn save_revert(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        tools: &mut GameTools,
+        draft: &mut Draft,
+    ) {
+        let dirty = draft.is_dirty();
+        if ui
+            .add_enabled(dirty, egui::Button::new("Save"))
+            .on_hover_text("Write project.json (and input.json if the keys changed)")
+            .clicked()
+            && save_draft(draft, session, &mut self.message)
+        {
+            tools.export_dir = session.project.export_dir().display().to_string();
+        }
+        if ui
+            .add_enabled(dirty, egui::Button::new("Revert"))
+            .on_hover_text("Drop the unsaved project settings")
+            .clicked()
+        {
+            *draft = Draft::load(session);
+            self.message = None;
+        }
+        if dirty {
+            ui.label(RichText::new("unsaved").color(theme::ACCENT));
+        }
+    }
+
     fn nav(&mut self, ui: &mut egui::Ui, draft: &Draft) {
         for page in Page::ALL {
             let mut text = RichText::new(page.title());
@@ -399,17 +483,14 @@ impl ProjectSettingsPanel {
                 text = text.color(crate::ui::level_color(crate::session::LogLevel::Warning));
             }
             let selected = self.page == page;
-            let r = ui.add_sized(
-                [
-                    if ui.layout().is_horizontal() {
-                        0.0
-                    } else {
-                        100.0
-                    },
-                    22.0,
-                ],
-                egui::Button::selectable(selected, text),
-            );
+            let button = egui::Button::selectable(selected, text);
+            // In a row the buttons take their own width so the row can
+            // wrap; in the side column they share one width.
+            let r = if ui.layout().is_horizontal() {
+                ui.add(button.min_size(egui::vec2(0.0, 22.0)))
+            } else {
+                ui.add_sized([100.0, 22.0], button)
+            };
             if r.clicked() {
                 self.page = page;
             }
@@ -425,6 +506,7 @@ impl ProjectSettingsPanel {
                 Page::Look => self.look(ui, session, draft),
                 Page::Input => self.input(ui, draft),
                 Page::Physics => physics(ui, &mut draft.file.physics),
+                Page::Audio => self.audio(ui, draft),
                 Page::Build => build(ui, session, draft),
             });
     }
@@ -527,6 +609,53 @@ impl ProjectSettingsPanel {
             .clicked()
         {
             draft.input = InputMap::default();
+        }
+    }
+}
+
+impl ProjectSettingsPanel {
+    /// The Audio page: a summary of the mixer and a way to the full panel.
+    fn audio(&mut self, ui: &mut egui::Ui, draft: &mut Draft) {
+        hint(
+            ui,
+            "The project mixer: a master bus and Music, SFX, Voice and Ambient buses that \
+             every Audio source plays through (choose a source's bus in its inspector). \
+             Players' volume sliders apply on top.",
+        );
+        let a = &mut draft.file.audio;
+        egui::Grid::new("project-audio")
+            .num_columns(3)
+            .spacing([12.0, 6.0])
+            .show(ui, |ui| {
+                let rows = [
+                    ("Master", &mut a.master),
+                    ("Music", &mut a.music),
+                    ("SFX", &mut a.effects),
+                    ("Voice", &mut a.voice),
+                    ("Ambient", &mut a.ambient),
+                ];
+                for (name, bus) in rows {
+                    ui.label(name);
+                    ui.add(
+                        egui::DragValue::new(&mut bus.volume_db)
+                            .range(BusSettings::DB_RANGE)
+                            .speed(0.2)
+                            .max_decimals(1)
+                            .suffix(" dB"),
+                    );
+                    ui.checkbox(&mut bus.mute, "Mute");
+                    ui.end_row();
+                }
+            });
+        ui.checkbox(&mut a.limiter, "Limiter on the master bus")
+            .on_hover_text("Pulls peaks down before they clip");
+        ui.add_space(6.0);
+        if ui
+            .button("Open the Audio mixer")
+            .on_hover_text("Faders, meters, mute and solo")
+            .clicked()
+        {
+            self.open_mixer = true;
         }
     }
 }

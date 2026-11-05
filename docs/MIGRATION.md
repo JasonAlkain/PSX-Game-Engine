@@ -53,9 +53,9 @@ editor and the player's title screen open with a short Copperframe splash
 
 | Format | Current | Older versions | What changed | What you do |
 | --- | --- | --- | --- | --- |
-| `psx_project` (`project.json`) | 3 | 1, 2 | v2 (Project settings): optional `display`, `style`, `build` and `physics` sections. v3 (0.8): optional `style.look`, the project look | Nothing. A v1 file loads with the defaults (1280 × 960 window, vsync on, each scene's own look, export to `dist/<name>` with a start check, gravity 0, −9.81, 0); a v1 or v2 file gets the PS1 preset as the project look, which only scenes set to use it see. The editor writes v3 the next time project settings or the start scene are saved, which older engine builds refuse to open |
+| `psx_project` (`project.json`) | 4 | 1, 2, 3 | v2 (Project settings): optional `display`, `style`, `build` and `physics` sections. v3 (0.8): optional `style.look`, the project look. v4 (0.9): optional `audio` section, the project mixer (bus volumes and mutes, limiter); missing means every bus at 0 dB with the limiter on, which sounds like before apart from the limiter catching peaks over −1 dBFS | Nothing. A v1 file loads with the defaults (1280 × 960 window, vsync on, each scene's own look, export to `dist/<name>` with a start check, gravity 0, −9.81, 0); a v1 or v2 file gets the PS1 preset as the project look, which only scenes set to use it see. The editor writes v3 the next time project settings or the start scene are saved, which older engine builds refuse to open |
 | `psx_asset_meta` (`*.meta.json`) | 1 | — | — | — |
-| `psx_scene` (`scenes/*.scene.json`) | 7 | 1, 2, 3, 4, 5, 6 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources. v5: optional `component_order` on entities (inspector order) | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, primitives without `tile_size` keep one texture per face, and components without `component_order` are listed in the default order. To tile an existing primitive, tick **Tile texture** in the inspector. v6: moving bodies get their own `rigidbody` component; the collider's `body` and `mass` move there (a `dynamic` collider becomes a rigidbody, a `kinematic` one a rigidbody with `kinematic: true`), and colliders gain `restitution`. This happens on load. v7 (0.8): `settings.look` (`scene` or `project`); older scenes load as `scene`, so they look exactly as before. Switch a scene in Scene settings, or all of them from Project settings > Look. Saving writes v7, which older engine builds refuse to open |
+| `psx_scene` (`scenes/*.scene.json`) | 7 | 1, 2, 3, 4, 5, 6 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources. v5: optional `component_order` on entities (inspector order) | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, primitives without `tile_size` keep one texture per face, and components without `component_order` are listed in the default order. To tile an existing primitive, tick **Tile texture** in the inspector. v6: moving bodies get their own `rigidbody` component; the collider's `body` and `mass` move there (a `dynamic` collider becomes a rigidbody, a `kinematic` one a rigidbody with `kinematic: true`), and colliders gain `restitution`. This happens on load. v7 (0.8): `settings.look` (`scene` or `project`); older scenes load as `scene`, so they look exactly as before. Switch a scene in Scene settings, or all of them from Project settings > Look. Saving writes v7, which older engine builds refuse to open. v8 (0.9): audio sources may name the `voice` and `ambient` buses; older scenes only use `music` and `effects` and load unchanged. Saving writes v8 |
 | `psx_style` (`psx_style.json`, scene style) | 2 | 1 | `textures {filter, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}` | Nothing; v1 gets PS1 values. Pick the PS2 preset in the editor or sandbox to opt in |
 | `psx_command_batch` | 1 | — | M5 added the ops `set_light`, `set_animator`, `set_shadow`; 0.4 added `set_component_order`; 0.5 added `set_rigidbody` and removed `body`/`mass` from `set_collider` | Batches that set `"body"` or `"mass"` on a collider no longer parse: delete `"body": "static"`, and replace `dynamic`/`kinematic` with a following `set_rigidbody` op (`{}` or `{"kinematic": true}`, with `mass` moved there) |
 | `psx_input` (`input.json`) | 1 | — | — | — |
@@ -89,6 +89,18 @@ cooked cache yet), so an importer change takes effect without any action.
 | 2 (M5) | glTF skins and animation clips. Before, skins and animations were ignored with a warning and the mesh was drawn in its node pose; now a skinned mesh is drawn from its bind pose through the skeleton (the rest pose), which for most exported files is the same shape |
 
 ## Game code (Rust API)
+
+### Audio mixer (0.9)
+
+`AudioBus` gained `Voice` and `Ambient`: add arms for them to a `match`
+(or use `_`). Mixer types live in the new `copperframe_audio` crate
+(`Mixer`, `Strip`, `Preview`, meters); `copperframe_game::audio` still
+re-exports `linear_to_db`. `ProjectFile` has a new `audio: AudioSettings`
+field (use `..Default::default()` in struct literals), and
+`Audio::set_mixer` applies it (the player does this from `project.json`).
+Emitters and `Ctx` sounds now play on the bus's mixer track rather than
+directly on the music or effects track, so a bus's mute and volume apply
+to them.
 
 ### Project look (0.8)
 

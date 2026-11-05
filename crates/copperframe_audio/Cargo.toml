@@ -1,0 +1,18 @@
+[package]
+name = "copperframe_audio"
+description = "The audio mixer (buses, mute, meters, master limiter) shared by the game and the editor, and the editor's sound preview player."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+copperframe_core.workspace = true
+copperframe_scene.workspace = true
+copperframe_assets.workspace = true
+kira.workspace = true
+glam.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

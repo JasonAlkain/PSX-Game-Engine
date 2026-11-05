@@ -1,6 +1,31 @@
 # Status
 
-Last updated: 2026-11-05 (project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Audio mixer and sound preview (2026-11-05, v0.9.0)
+
+A project mixer in `project.json` v4 (`audio`): Master plus Music, SFX,
+Voice and Ambient buses with volume and mute, and a limiter on Master.
+Audio sources route to any bus (scene format 8). The game builds the mixer
+with kira sub-tracks and applies it on start; players' volume sliders
+multiply on top. A new `copperframe_audio` crate holds the mixer, meters
+(a peak effect on every track, with clip detection) and the editor's
+sound preview. The editor gains an **Audio mixer** panel (faders, dB,
+mute, editor-only solo, peak meters with hold and clip lights, limiter)
+editing the Project settings draft, an **Audio** page in Project
+settings, and preview controls for sounds in the Assets panel (play,
+pause, stop, seek, position and duration, preview volume, bus).
+
+Not done, on purpose: per-bus effects (EQ, reverb, compression per bus)
+and mixer snapshots; kira supports them but there is no game feature that
+needs them yet. A running game does not follow mixer edits until the next
+Play (it is a separate process). Meters reflect editor previews only.
+
+Verified on Linux: unit tests on kira's mock backend (bus routing, mute,
+solo, limiter, metering and clipping, preview play/pause/seek/stop, game
+emitters on the project mixer), and the panel and preview controls under
+Xvfb. The container has no sound device, so nothing was listened to. Not
+yet verified on Windows 11.
 
 ## Project look and scene overrides (2026-11-05, v0.8.0)
 
@@ -19,8 +44,8 @@ edits.
 Verified on Linux (Xvfb): switching the example room to the project look,
 the Look page, and a live PS2 preview from the draft. Unit tests cover the
 resolution (`scene_style`), the v6 scene and v2 project fixtures, and the
-v7 round trip. Not yet verified on Windows 11. Audio settings are not
-project-level yet (next phase).
+v7 round trip. Not yet verified on Windows 11. Audio settings became
+project-level in v0.9.0 (below).
 
 ## Scene workflow (2026-11-05, v0.7.0)
 
