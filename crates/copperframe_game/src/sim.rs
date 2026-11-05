@@ -43,7 +43,7 @@ use thiserror::Error;
 
 use crate::actions::{ActionState, names};
 use crate::animation::Animator;
-use crate::api::{Behavior, Entity, Game, GameEvent, Registry, TimedEvent};
+use crate::api::{Behavior, Entity, Game, GameEvent, Registry, ScriptDiagnostic, TimedEvent};
 use crate::audio::Audio;
 use crate::physics::{BodyHandle, CharacterBody, MeshTriangles, Physics, QueryShape, RayHit};
 
@@ -183,6 +183,7 @@ pub struct Core {
     order_dirty: bool,
     assets: Assets,
     scene: Option<Arc<Scene>>,
+    diagnostics: Vec<ScriptDiagnostic>,
 }
 
 /// Asset access for spawning: CPU models (for mesh colliders) and sounds.
@@ -601,6 +602,13 @@ impl Ctx<'_> {
     pub fn state_mut(&mut self) -> &mut GameState {
         &mut self.core.state
     }
+    /// Reports a script problem (the log, the editor, headless reports).
+    pub fn report_script_problem(&mut self, mut d: ScriptDiagnostic) {
+        d.tick.get_or_insert(self.core.tick);
+        tracing::error!("{d}");
+        self.core.diagnostics.push(d);
+    }
+
     pub fn log(&mut self, event: GameEvent) {
         tracing::info!(tick = self.core.tick, "{event:?}");
         self.core.events.push(TimedEvent {
@@ -675,6 +683,10 @@ impl Simulation {
     pub fn new(project: Project, game: Box<dyn Game>, audio: Audio<Entity>) -> Self {
         let mut registry = Registry::with_builtins();
         game.register(&mut registry);
+        let load_problems = crate::lua::register_project_scripts(&project, &mut registry);
+        for d in &load_problems {
+            tracing::error!("{d}");
+        }
         let db = AssetDatabase::scan(&project);
         let camera = CameraState {
             position: Vec3::new(0.0, 1.6, 0.0),
@@ -709,6 +721,7 @@ impl Simulation {
                     sounds: HashSet::new(),
                 },
                 scene: None,
+                diagnostics: load_problems,
             },
             slots: Vec::new(),
             registry,
@@ -785,6 +798,12 @@ impl Simulation {
             .filter(|s| s.entity == e)
             .map(|s| s.kind.as_str())
             .collect()
+    }
+
+    /// Script problems since the last call: scripts that did not load
+    /// (reported once, at start) and callbacks that failed.
+    pub fn take_diagnostics(&mut self) -> Vec<ScriptDiagnostic> {
+        std::mem::take(&mut self.core.diagnostics)
     }
 
     /// Load-time warnings (missing assets and the like).

@@ -7,6 +7,7 @@
 //! scene when the scene loads or an entity is spawned.
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use copperframe_core::EntityId;
 use serde::Serialize;
@@ -117,6 +118,32 @@ impl FieldDescriptor {
 
 pub type CreateFn = fn(&Params) -> Result<Box<dyn Behavior>, String>;
 
+/// Creates behaviours of a kind found at run time (a script), which needs
+/// state a plain [`CreateFn`] cannot hold.
+pub type DynCreateFn = Rc<dyn Fn(&Params) -> Result<Box<dyn Behavior>, String>>;
+
+/// A behaviour kind found at run time, for [`Registry::register_dynamic`].
+#[derive(Clone)]
+pub struct DynamicKind {
+    pub kind: String,
+    pub description: String,
+    /// `(name, kind, default, help)` per parameter.
+    pub fields: Vec<(String, FieldKind, Value, String)>,
+    /// Add component menu folder, `/`-separated; empty = none.
+    pub folder: String,
+    pub create: DynCreateFn,
+}
+
+fn not_dynamic(_: &Params) -> Result<Box<dyn Behavior>, String> {
+    Err("this kind is created by its script host".into())
+}
+
+/// Kinds are found once per process (scripts load at start), so their
+/// names live for the rest of it; the descriptor needs `&'static str`.
+fn leak(s: String) -> &'static str {
+    Box::leak(s.into_boxed_str())
+}
+
 #[derive(Clone, Serialize)]
 pub struct BehaviorDescriptor {
     pub kind: &'static str,
@@ -157,6 +184,11 @@ pub struct Registry {
     kinds: BTreeMap<&'static str, BehaviorDescriptor>,
     /// Folder paths for the editor's Add component menu, by kind.
     folders: BTreeMap<&'static str, &'static str>,
+    /// Constructors of kinds registered with [`Registry::register_dynamic`].
+    dynamic: BTreeMap<&'static str, DynCreateFn>,
+    /// Problems found while registering (a script that does not load), by
+    /// file; listed in the schema so the editor can show them.
+    problems: Vec<Value>,
 }
 
 /// Version of the schema document [`Registry::schema`] emits.
@@ -177,7 +209,45 @@ impl Registry {
             tracing::warn!("behaviour kind `{}` registered twice", descriptor.kind);
         }
         self.folders.remove(descriptor.kind);
+        self.dynamic.remove(descriptor.kind);
         self.kinds.insert(descriptor.kind, descriptor);
+    }
+
+    /// Adds a kind whose constructor carries state (a script).
+    pub fn register_dynamic(&mut self, k: DynamicKind) {
+        let kind = leak(k.kind);
+        let fields = k
+            .fields
+            .into_iter()
+            .map(|(name, kind, default, help)| FieldDescriptor {
+                name: leak(name),
+                kind,
+                default,
+                help: leak(help),
+            })
+            .collect();
+        let descriptor = BehaviorDescriptor {
+            kind,
+            description: leak(k.description),
+            fields,
+            create: not_dynamic,
+        };
+        if k.folder.trim_matches('/').is_empty() {
+            self.register(descriptor);
+        } else {
+            self.register_in(leak(k.folder), descriptor);
+        }
+        self.dynamic.insert(kind, k.create);
+    }
+
+    /// Records a problem for the schema's `problems` list (for example a
+    /// script that does not compile): `{file, line?, message}`.
+    pub fn add_problem(&mut self, problem: Value) {
+        self.problems.push(problem);
+    }
+
+    pub fn problems(&self) -> &[Value] {
+        &self.problems
     }
 
     /// Like [`Registry::register`], filing the kind under `folder` in the
@@ -246,7 +316,11 @@ impl Registry {
     ) -> Result<Box<dyn Behavior>, String> {
         let params = self.params(b)?;
         let d = self.get(&b.kind).ok_or("unregistered")?;
-        (d.create)(&params).map_err(|e| format!("{}: {e}", b.kind))
+        let made = match self.dynamic.get(d.kind) {
+            Some(create) => create(&params),
+            None => (d.create)(&params),
+        };
+        made.map_err(|e| format!("{}: {e}", b.kind))
     }
 
     /// Versioned description of every behaviour kind, emitted by game
@@ -264,12 +338,16 @@ impl Registry {
                 v
             })
             .collect();
-        serde_json::json!({
+        let mut schema = serde_json::json!({
             "format": "psx_game_schema",
             "version": SCHEMA_VERSION,
             "game": game,
             "behaviors": behaviors,
-        })
+        });
+        if !self.problems.is_empty() {
+            schema["problems"] = Value::from(self.problems.clone());
+        }
+        schema
     }
 }
 
@@ -311,6 +389,48 @@ pub enum GameEvent {
     Finished {
         message: String,
     },
+}
+
+/// A script problem: it did not load, or a callback failed and its
+/// behaviour was switched off. Shown in the log, the editor and headless
+/// reports (where any diagnostic fails the run).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ScriptDiagnostic {
+    /// Project-relative script path, `/`-separated.
+    pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// Behaviour kind (`lua.door`).
+    pub kind: String,
+    /// Entity name, for runtime errors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity: Option<String>,
+    /// Callback that failed (`fixed_update`), for runtime errors.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub callback: Option<String>,
+    pub message: String,
+    /// Fixed tick of a runtime error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tick: Option<u64>,
+}
+
+impl std::fmt::Display for ScriptDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.file)?;
+        if let Some(l) = self.line {
+            write!(f, ":{l}")?;
+        }
+        write!(f, ": {}", self.message)?;
+        match (&self.entity, &self.callback) {
+            (Some(e), Some(c)) => write!(
+                f,
+                " (in {c} on \"{e}\"; behaviour {} switched off)",
+                self.kind
+            ),
+            (Some(e), None) => write!(f, " (on \"{e}\", behaviour {})", self.kind),
+            _ => Ok(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

@@ -1,0 +1,14 @@
+{
+  "format": "psx_project",
+  "version": 4,
+  "name": "Version four",
+  "startup_scene": "scenes/main.scene.json",
+  "audio": {
+    "master": { "volume_db": 0.0, "mute": false },
+    "music": { "volume_db": -6.0, "mute": false },
+    "effects": { "volume_db": 0.0, "mute": false },
+    "voice": { "volume_db": 0.0, "mute": false },
+    "ambient": { "volume_db": 0.0, "mute": false },
+    "limiter": true
+  }
+}

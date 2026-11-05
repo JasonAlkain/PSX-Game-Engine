@@ -309,6 +309,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bstr"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+dependencies = [
+ "memchr",
+ "serde_core",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -522,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_assets"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "base64 0.23.1",
  "copperframe_core",
@@ -538,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_audio"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "copperframe_assets",
  "copperframe_core",
@@ -550,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_cli"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -563,7 +573,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "directories",
  "serde",
@@ -574,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_editor"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "copperframe_assets",
@@ -604,7 +614,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_game"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -621,6 +631,7 @@ dependencies = [
  "glam 0.34.2",
  "hecs",
  "kira",
+ "mlua",
  "pollster 1.0.1",
  "rapier3d",
  "serde",
@@ -633,14 +644,14 @@ dependencies = [
 
 [[package]]
 name = "copperframe_player"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "copperframe_game",
 ]
 
 [[package]]
 name = "copperframe_render"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "bytemuck",
  "copperframe_core",
@@ -654,7 +665,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_runtime"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "copperframe_assets",
@@ -674,7 +685,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_sandbox"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "copperframe_core",
@@ -683,7 +694,7 @@ dependencies = [
 
 [[package]]
 name = "copperframe_scene"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "copperframe_core",
  "glam 0.34.2",
@@ -1812,7 +1823,7 @@ checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
 name = "lever_room"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "copperframe_assets",
  "copperframe_core",
@@ -1901,6 +1912,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
+name = "lua-src"
+version = "551.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d400ffef0e3d4d29287092bdc5a276d0bf468b2c69709d5bab0d469312d9f947"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "luajit-src"
+version = "210.7.4+c6ffc14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1db548b001f0b7da416daf0ffae963912bae6cad1799fa9f4eaba09da6dba837"
+dependencies = [
+ "cc",
+ "which",
+]
+
+[[package]]
 name = "mach2"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1965,6 +1995,35 @@ name = "mint"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e53debba6bda7a793e5f99b8dacf19e626084f525f7829104ba9898f367d85ff"
+
+[[package]]
+name = "mlua"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a7ae6b65bf54b7fdd4cf5b6f44f60862350ebf3fe3779b3a9cc005e7fa14f81"
+dependencies = [
+ "bstr",
+ "either",
+ "libc",
+ "mlua-sys",
+ "num-traits",
+ "parking_lot",
+ "rustc-hash 2.1.3",
+]
+
+[[package]]
+name = "mlua-sys"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1631cda17bd6486410ab751d91f5fd4484f441589278cdad879eb3afc721a285"
+dependencies = [
+ "cc",
+ "cfg-if",
+ "libc",
+ "lua-src",
+ "luajit-src",
+ "pkg-config",
+]
 
 [[package]]
 name = "moxcms"
@@ -4353,6 +4412,15 @@ dependencies = [
  "raw-window-handle",
  "static_assertions",
  "web-sys",
+]
+
+[[package]]
+name = "which"
+version = "8.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

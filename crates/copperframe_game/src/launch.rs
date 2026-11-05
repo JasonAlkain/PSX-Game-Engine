@@ -146,6 +146,17 @@ pub fn run(args: Args, create: fn() -> Box<dyn Game>, dev_project: &Path) -> Exi
         let game = create();
         let mut registry = crate::api::Registry::with_builtins();
         game.register(&mut registry);
+        // The project's scripts are behaviour kinds too. Without a readable
+        // project the schema lists the compiled kinds only.
+        let root = args
+            .project
+            .clone()
+            .unwrap_or_else(|| default_project(dev_project));
+        if let Ok(project) = Project::open(&root) {
+            for d in crate::lua::register_project_scripts(&project, &mut registry) {
+                registry.add_problem(serde_json::to_value(&d).unwrap_or_default());
+            }
+        }
         let schema = registry.schema(&game.title());
         println!(
             "{}",
@@ -272,6 +283,7 @@ fn run_headless(
             "game": sim.title(),
             "passed": false,
             "failures": [e.to_string()],
+            "diagnostics": sim.take_diagnostics(),
         }),
     };
     sim.shutdown();

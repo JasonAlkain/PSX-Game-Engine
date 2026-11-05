@@ -178,6 +178,25 @@ impl PhysicsSettings {
     }
 }
 
+/// Gameplay scripting languages the project uses (since project version
+/// 5). Rust game code (`game/`) is always available; these switch on the
+/// script languages whose files the game loads from [`SCRIPTS_DIR`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ScriptingSettings {
+    /// Load `scripts/**/*.lua` as behaviour kinds `lua:<path>`.
+    pub lua: bool,
+}
+
+impl Default for ScriptingSettings {
+    fn default() -> Self {
+        Self { lua: true }
+    }
+}
+
+/// Folder (relative to the project) that holds gameplay scripts.
+pub const SCRIPTS_DIR: &str = "scripts";
+
 /// One mixer bus.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

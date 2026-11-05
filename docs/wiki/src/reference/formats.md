@@ -20,7 +20,7 @@ so existing projects keep loading.
 
 | Format | Current | File | Contents |
 | --- | --- | --- | --- |
-| `psx_project` | 4 | `project.json` | `name`, `startup_scene`; optional `display {width, height, fullscreen, vsync}`, `style {default, player_can_change, look}` (`look` is the project look, a retro style), `build {export_dir, check_after_export, check_script}`, `physics {gravity}`, `audio {master, music, effects, voice, ambient, limiter}` (each bus `{volume_db, mute}`, the [Audio mixer](../guide/editor.md#the-audio-mixer)) (the [Project settings](../guide/editor.md#project-settings) panel; see also [Physics](../guide/physics.md)) |
+| `psx_project` | 5 | `project.json` | `name`, `startup_scene`; optional `display {width, height, fullscreen, vsync}`, `style {default, player_can_change, look}` (`look` is the project look, a retro style), `build {export_dir, check_after_export, check_script}`, `physics {gravity}`, `audio {master, music, effects, voice, ambient, limiter}` (each bus `{volume_db, mute}`, the [Audio mixer](../guide/editor.md#the-audio-mixer)), `scripting {lua}` ([Lua scripting](../guide/lua.md)) (the [Project settings](../guide/editor.md#project-settings) panel; see also [Physics](../guide/physics.md)) |
 | `psx_scene` | 8 | `scenes/*.scene.json` | ID, name, revision, settings (`look`, `style`, `lighting`, `camera`), entities. v1 to v7 load; v5 and older bodies move from the collider to a `rigidbody`; v6 and older keep their own look; v8 audio sources can use the `voice` and `ambient` buses. See [Scenes](../guide/scenes.md) |
 | `psx_asset_meta` | 1 | `assets/**/<file>.meta.json` | Asset `id`, `importer` (`gltf`, `texture`, `audio`), `settings` (`scale`, `max_texture_size`). See [Asset pipeline](../guide/assets.md) |
 | `psx_input` | 1 | `input.json` (optional) | Action → bindings. See [Input](../guide/player.md#input) |
@@ -35,8 +35,8 @@ separators, and may not point outside the project.
 | --- | --- | --- | --- |
 | `psx_command_batch` | 1 | Anywhere; applied with `copperframe apply` | A list of scene commands. See [Command batches](batches.md) |
 | `psx_script` | 1 | For example `scripts/*.script.json` | Input steps and expectations. See [Testing](../guide/testing.md) |
-| `psx_run_report` | 1 | Standard output of headless runs, or `--report` | Ticks, outcome, events, warnings, `passed`, `failures` |
-| `psx_game_schema` | 1 | Standard output of `--schema`; cached in `.psx/game_schema.json` | The behaviour kinds a game registers, with typed fields |
+| `psx_run_report` | 1 | Standard output of headless runs, or `--report` | Ticks, outcome, events, warnings, `diagnostics` (script problems: `file`, `line`, `kind`, `entity`, `callback`, `message`, `tick`), `passed`, `failures` |
+| `psx_game_schema` | 1 | Standard output of `--schema`; cached in `.psx/game_schema.json` | The behaviour kinds a game registers (including the project's Lua scripts), with typed fields; `problems` lists scripts that did not load |
 | `psx_bench` | 1 | Standard output of `--bench`, or `--report` | Adapter, sizes, and tick/frame timing per style |
 | `copperframe_play_status` | 1 | Standard output of a game run with `--control stdin`, one line each, after `@copperframe ` | Run state (`running`, `paused`, `stepping`, `quitting`), tick, optional `error`. See [Game executable options](game-options.md#editor-control---control-stdin) |
 | `psx_export` | 1 | `export.json` in an export folder | Marks a folder `copperframe build --replace` may overwrite |

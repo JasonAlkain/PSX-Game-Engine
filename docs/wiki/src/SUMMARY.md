@@ -17,6 +17,7 @@
 - [Asset pipeline](guide/assets.md)
 - [Physics](guide/physics.md)
 - [Behaviours and game code](guide/behaviours.md)
+- [Lua scripting](guide/lua.md)
 - [Input, audio and the player app](guide/player.md)
 - [Testing gameplay headless](guide/testing.md)
 - [Exporting a game](guide/exporting.md)

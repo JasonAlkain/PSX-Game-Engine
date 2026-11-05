@@ -1,6 +1,38 @@
 # Status
 
-Last updated: 2026-11-05 (Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Lua gameplay scripting (2026-11-05, v0.11.0)
+
+Behaviours can be written in Lua 5.4 (mlua, Lua compiled in, nothing to
+install). `scripts/**/*.lua` become behaviour kinds `lua.<path>` in the same
+registry as Rust behaviours, so scenes, the inspector (through
+`--schema`), saves and headless tests handle them unchanged, in game
+crates and in the stock player. `project.json` v5 adds `scripting {lua}`
+(on by default; v4 files migrate). Scripts declare typed fields and the
+usual callbacks and reach the simulation through a `ctx` table with about
+40 methods (transforms, physics, raycast, sound, animation, input,
+messages, events, game state, scene flow). The Lua state is sandboxed (no
+file or OS access) and seeded for determinism. A callback error or an
+endless loop switches off only that behaviour and becomes a diagnostic
+(file, line, entity, callback, tick) in the log, the game window and
+headless reports, where it fails the run; scripts that do not load are
+reported at start.
+
+Not done yet (next PRs): editor support beyond the inspector (Project
+settings page, New script, a Problems panel, opening a script at the
+error), reloading scripts while the game runs, and C# (waiting on the
+runtime decision).
+
+Verified on Linux: 13 integration tests in
+`crates/copperframe_game/tests/lua_scripts.rs` (schema and folders,
+parameters, messages, events and state, runtime errors with line numbers
+and switch-off, bad `ctx` arguments, the instruction budget, load errors,
+headless failure, sandbox and repeatable random numbers, the project
+switch, `ctx` inside coroutines, every `ctx` method documented on the wiki
+page) and the stock player running a Lua-only project headless. Release
+build: 200 scripted entities, 600 ticks in 0.28 s. Not yet verified on
+Windows 11 beyond CI (which builds Lua with MSVC).
 
 ## Play mode pause, resume and step (2026-11-05, v0.10.0)
 
