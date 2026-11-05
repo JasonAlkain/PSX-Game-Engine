@@ -277,7 +277,7 @@ gameplay in Milestone 4 and is built from the document, not the other way
 round.
 
 A `MeshComponent` has a source, either `{"kind": "primitive", "shape":
-"cube"|"plane"|"sphere"|"quad", "texture": <asset id>?}` or `{"kind":
+"cube"|"plane"|"sphere"|"quad", "texture": <asset id>?, "tile_size": <metres>?}` or `{"kind":
 "model", "asset": <asset id>}`, and a `MaterialOverride` whose optional fields
 (`tint`, `alpha`, `lit`, `flat_shading`, `allow_affine`, `double_sided`)
 replace the imported material's values. Settings hold the scene's
@@ -380,6 +380,16 @@ through the same layout as the composite pass (letterbox and integer scale,
 in physical pixels) to internal NDC, unprojects with the camera, and tests
 the ray against CPU copies of each entity's triangles (Möller–Trumbore,
 both faces). The nearest hit wins.
+
+## Texture tiling
+
+Primitive meshes are shared unit shapes, so `tile_size` is applied per draw and
+needs no new mesh or re-upload when an entity is scaled. `scene_gpu::uv_tile`
+turns the entity's world scale and tile size into repeats along local X, Y and
+Z (`Material::uv_tile`, `DrawUniforms::uv_tile`), and the vertex shader scales a
+vertex's UVs by the two axes its face spans, chosen by its normal. This only
+suits flat faces, so spheres ignore it. Repeats are measured from each face's
+own corner, so neighbouring faces are not continuous across an edge.
 
 ## Editor
 

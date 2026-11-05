@@ -151,7 +151,9 @@ With an entity selected, the inspector shows, top to bottom:
 - **Transform**: position (metres), rotation (Euler degrees, applied as
   yaw Y, then pitch X, then roll Z) and scale.
 - **Mesh**: a primitive shape with an optional texture, or an imported
-  model. **Material overrides** replace the model's own values:
+  model. **Tile texture** repeats a primitive's texture by its size in the
+  world, so scaling it does not stretch the texture; the value is the metres
+  one repeat covers. **Material overrides** replace the model's own values:
   *Tint*, *Alpha* (opaque, cutout with a threshold, or blend), and *Lit*,
   *Flat shading*, *Affine UVs* and *Double-sided*, each of which can be
   *source* (keep the model's value), *on* or *off*.

@@ -1,6 +1,6 @@
 {
   "format": "psx_scene",
-  "version": 3,
+  "version": 4,
   "scene": {
     "id": "6da14d69-ca00-4d56-be46-f873b9126ad0",
     "name": "Main",
@@ -117,7 +117,8 @@
           "source": {
             "kind": "primitive",
             "shape": "plane",
-            "texture": "22f5ae69-6cfb-4f07-b108-a536dd6faea1"
+            "texture": "22f5ae69-6cfb-4f07-b108-a536dd6faea1",
+            "tile_size": 5.0
           }
         },
         "collider": {
@@ -184,7 +185,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -232,7 +234,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -280,7 +283,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -665,7 +669,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -713,7 +718,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -761,7 +767,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -808,7 +815,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 2.0
           },
           "material": {
             "tint": [
@@ -996,7 +1004,8 @@
           "source": {
             "kind": "primitive",
             "shape": "plane",
-            "texture": "22f5ae69-6cfb-4f07-b108-a536dd6faea1"
+            "texture": "22f5ae69-6cfb-4f07-b108-a536dd6faea1",
+            "tile_size": 5.0
           }
         },
         "collider": {
@@ -1041,7 +1050,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -1089,7 +1099,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -1137,7 +1148,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -1185,7 +1197,8 @@
         "mesh": {
           "source": {
             "kind": "primitive",
-            "shape": "cube"
+            "shape": "cube",
+            "tile_size": 4.0
           },
           "material": {
             "tint": [
@@ -1448,10 +1461,10 @@
             -14.7
           ],
           "rotation": [
-            9.4608765e-9,
+            9.4608765e-09,
             0.976296,
             0.21643962,
-            -4.2675254e-8
+            -4.2675254e-08
           ],
           "scale": [
             1.0,

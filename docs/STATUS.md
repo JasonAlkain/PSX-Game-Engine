@@ -14,8 +14,12 @@ The Assets panel is now a browser with folders, tiles, texture thumbnails,
 search and drag into the viewport. The editor has a copper theme.
 
 Cube and quad primitives are split into 4×4 quads per face, because entities
-scale them up to whole walls and one quad warped badly under affine UVs. The
-room's reference images still pass unchanged.
+scale them up to whole walls and one quad warped badly under affine UVs. This
+reduces the warping but does not remove it: it is the PS1 effect, and Sharp or
+Affine UVs off turn it off. Primitives can now tile their texture by world size
+(`tile_size`, scene format 4), so scaled walls no longer stretch it. The example
+room uses it, and its reference images are regenerated on llvmpipe for these
+visual changes.
 
 Game crates created on Windows no longer get `//?/` paths, and existing ones
 are repaired when their game target is resolved.

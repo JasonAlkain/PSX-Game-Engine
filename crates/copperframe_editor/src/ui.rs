@@ -1059,6 +1059,7 @@ fn mesh_editor(
                             source: MeshSource::Primitive {
                                 shape,
                                 texture: None,
+                                tile_size: Some(copperframe_scene::DEFAULT_TILE_SIZE),
                             },
                             material: Default::default(),
                         }),
@@ -1087,8 +1088,13 @@ fn mesh_editor(
         return;
     };
     let mut source = mesh.source.clone();
+    let mut tile_finished = false;
     match &mut source {
-        MeshSource::Primitive { shape, texture } => {
+        MeshSource::Primitive {
+            shape,
+            texture,
+            tile_size,
+        } => {
             ui.horizontal(|ui| {
                 ui.label("Shape");
                 egui::ComboBox::from_id_salt("shape")
@@ -1114,6 +1120,29 @@ fn mesh_editor(
             if let Some(t) = texture {
                 status_line(ui, resources.status(*t));
             }
+            if shape.tiles() {
+                ui.horizontal(|ui| {
+                    let mut on = tile_size.is_some();
+                    ui.checkbox(&mut on, "Tile texture").on_hover_text(
+                        "Repeat the texture by the entity's size in the world, so scaling \
+                         it does not stretch the texture. Off covers each face once.",
+                    );
+                    *tile_size =
+                        on.then(|| tile_size.unwrap_or(copperframe_scene::DEFAULT_TILE_SIZE));
+                    if let Some(size) = tile_size {
+                        let r = ui.add(
+                            egui::DragValue::new(size)
+                                .speed(0.05)
+                                .range(
+                                    copperframe_scene::MIN_TILE_SIZE
+                                        ..=copperframe_scene::MAX_TILE_SIZE,
+                                )
+                                .suffix(" m per repeat"),
+                        );
+                        tile_finished = r.drag_stopped() || r.lost_focus();
+                    }
+                });
+            }
         }
         MeshSource::Model { asset } => {
             ui.horizontal(|ui| {
@@ -1130,13 +1159,19 @@ fn mesh_editor(
         }
     }
     if source != mesh.source {
-        session.execute(Command::SetMesh {
-            id,
-            mesh: Some(MeshComponent {
-                source,
-                material: mesh.material,
-            }),
-        });
+        session.execute_merging(
+            Command::SetMesh {
+                id,
+                mesh: Some(MeshComponent {
+                    source,
+                    material: mesh.material,
+                }),
+            },
+            Some(&format!("mesh-source:{id}")),
+        );
+    }
+    if tile_finished {
+        session.end_merge();
     }
 
     // Material overrides: each field is either "from source" or a value.

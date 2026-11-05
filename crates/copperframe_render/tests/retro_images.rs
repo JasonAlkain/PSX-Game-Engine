@@ -200,6 +200,36 @@ fn project_row(cam: &Camera, height: u32, p: Vec3) -> f32 {
 }
 
 #[test]
+fn uv_tile_repeats_the_texture_across_a_face() {
+    let Some(h) = harness() else { return };
+    let size = (64, 16);
+    let cam = camera_at(Vec3::new(0.0, 0.0, 1.0));
+    let stripes = TextureData::new(2, 1, vec![255, 255, 255, 255, 0, 0, 0, 255]).unwrap();
+    let render = |uv_tile: Option<[f32; 3]>| {
+        let material = Material { uv_tile, ..unlit() };
+        let quad = h.object(
+            &MeshData::quad(6.0, 2.0),
+            &stripes,
+            material,
+            Mat4::IDENTITY,
+        );
+        h.render(&bare_style(size), &cam, &[quad], size, size, None)
+    };
+    let changes = |img: &Image| {
+        (1..size.0)
+            .filter(|&x| img.rgb(x, size.1 / 2) != img.rgb(x - 1, size.1 / 2))
+            .count()
+    };
+    let once = changes(&render(None));
+    let tiled = changes(&render(Some([4.0, 1.0, 1.0])));
+    assert!(once <= 1, "one repeat has at most one stripe edge: {once}");
+    assert!(
+        tiled >= 3,
+        "four repeats show several stripe edges: {tiled}"
+    );
+}
+
+#[test]
 fn affine_uvs_interpolate_in_screen_space() {
     let Some(h) = harness() else { return };
     let size = (64, 64);

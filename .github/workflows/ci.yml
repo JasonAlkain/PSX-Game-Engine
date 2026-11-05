@@ -31,6 +31,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: TEMPORARY regenerate reference images
+        run: cargo test --locked -p copperframe_runtime --test scene_resources example_room_matches_reference_images
+        env:
+          COPPERFRAME_REQUIRE_GPU: "1"
+          COPPERFRAME_UPDATE_GOLDEN: "1"
+      - name: TEMPORARY upload reference images
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden
+          path: crates/copperframe_runtime/tests/golden/
       - name: Test (GPU tests required on lavapipe)
         run: cargo test --workspace --locked
         env:

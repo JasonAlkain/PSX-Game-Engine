@@ -183,6 +183,13 @@ pub fn primitive_mesh(shape: PrimitiveShape) -> MeshData {
     }
 }
 
+/// Texture repeats along a unit primitive's axes for its size in the world.
+pub fn uv_tile(shape: PrimitiveShape, tile_size: Option<f32>, model: Mat4) -> Option<[f32; 3]> {
+    let size = tile_size.filter(|_| shape.tiles())?;
+    let axis = |a: glam::Vec4| a.truncate().length() / size;
+    Some([axis(model.x_axis), axis(model.y_axis), axis(model.z_axis)])
+}
+
 fn to_mesh_data(mesh: &CpuMesh) -> MeshData {
     MeshData {
         vertices: mesh
@@ -486,6 +493,7 @@ impl SceneResources {
                     allow_affine: true,
                     double_sided: src.double_sided,
                     emissive: src.emissive,
+                    uv_tile: None,
                 },
             });
         }
@@ -595,7 +603,11 @@ impl SceneResources {
         for (id, mesh, model, pose) in items {
             let e_id = id;
             match &mesh.source {
-                MeshSource::Primitive { shape, texture } => {
+                MeshSource::Primitive {
+                    shape,
+                    texture,
+                    tile_size,
+                } => {
                     let tex = match texture {
                         None => TexRef::Checker,
                         Some(id) if self.textures.contains_key(id) => TexRef::Asset(*id),
@@ -607,6 +619,14 @@ impl SceneResources {
                             ..Material::default()
                         },
                         _ => apply_override(Material::default(), &mesh.material),
+                    };
+                    let material = Material {
+                        uv_tile: if matches!(tex, TexRef::Missing) {
+                            None
+                        } else {
+                            uv_tile(*shape, *tile_size, model)
+                        },
+                        ..material
                     };
                     self.scratch_materials.push(material);
                     plan.push((
@@ -837,6 +857,19 @@ mod tests {
             let p = pick_of(&m);
             assert!(p.max.max_element() <= 0.5 + 1e-5 && p.min.min_element() >= -0.5 - 1e-5);
         }
+    }
+
+    #[test]
+    fn tiling_follows_world_size_and_skips_spheres() {
+        let model = Mat4::from_scale(Vec3::new(10.0, 3.0, 0.2));
+        let tile = uv_tile(PrimitiveShape::Cube, Some(2.0), model).unwrap();
+        assert!((tile[0] - 5.0).abs() < 1e-5 && (tile[1] - 1.5).abs() < 1e-5);
+        assert_eq!(uv_tile(PrimitiveShape::Cube, None, model), None);
+        assert_eq!(uv_tile(PrimitiveShape::Sphere, Some(2.0), model), None);
+        // A parent's scale counts: it is the size in the world.
+        let parent = Mat4::from_scale(Vec3::splat(2.0));
+        let tile = uv_tile(PrimitiveShape::Plane, Some(1.0), parent * model).unwrap();
+        assert!((tile[0] - 20.0).abs() < 1e-5);
     }
 
     #[test]

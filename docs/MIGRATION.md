@@ -55,7 +55,7 @@ editor and the player's title screen open with a short Copperframe splash
 | --- | --- | --- | --- | --- |
 | `psx_project` (`project.json`) | 1 | — | — | — |
 | `psx_asset_meta` (`*.meta.json`) | 1 | — | — | — |
-| `psx_scene` (`scenes/*.scene.json`) | 3 | 1, 2 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows` | Nothing. Older scenes load unchanged; missing style sections get the PS1 values, so an M4 scene looks the same. Saving writes v3, which older engine builds refuse to open |
+| `psx_scene` (`scenes/*.scene.json`) | 4 | 1, 2, 3 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, and primitives without `tile_size` keep one texture per face. To tile an existing primitive, tick **Tile texture** in the inspector. Saving writes v4, which older engine builds refuse to open |
 | `psx_style` (`psx_style.json`, scene style) | 2 | 1 | `textures {filter, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}` | Nothing; v1 gets PS1 values. Pick the PS2 preset in the editor or sandbox to opt in |
 | `psx_command_batch` | 1 | — | M5 added the ops `set_light`, `set_animator`, `set_shadow` | Batches written for M3/M4 still apply |
 | `psx_input` (`input.json`) | 1 | — | — | — |
@@ -69,6 +69,7 @@ editor and the player's title screen open with a short Copperframe splash
 Fixtures that pin older versions, each loaded by a test:
 `crates/copperframe_scene/fixtures/v1_room.scene.json` (scene v1, Milestone 3),
 `crates/copperframe_scene/fixtures/v2_room.scene.json` (scene v2, Milestone 4),
+`crates/copperframe_scene/fixtures/v3_room.scene.json` (scene v3, Milestone 5),
 `crates/copperframe_core/fixtures/v1.style.json` (style v1),
 `crates/copperframe_game/fixtures/m4_settings.json` (player settings without
 `graphics_style`).
@@ -84,6 +85,14 @@ cooked cache yet), so an importer change takes effect without any action.
 | 2 (M5) | glTF skins and animation clips. Before, skins and animations were ignored with a warning and the mesh was drawn in its node pose; now a skinned mesh is drawn from its bind pose through the skeleton (the rest pose), which for most exported files is the same shape |
 
 ## Game code (Rust API)
+
+### Texture tiling
+
+`MeshSource::Primitive` has a new `tile_size: Option<f32>` field: add
+`tile_size: None` where you build one, or `..` where you match one.
+`copperframe_render::Material` has a new `uv_tile` field; code using
+`..Material::default()` needs no change. `Command`s and batches accept the new
+field in mesh sources, and leaving it out keeps the old behaviour.
 
 Game crates depend on the engine by path, so they move with the checkout.
 

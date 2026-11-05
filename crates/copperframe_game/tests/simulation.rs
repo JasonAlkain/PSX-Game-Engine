@@ -110,6 +110,7 @@ fn boxed(name: &str, pos: Vec3, size: Vec3, body: BodyKind) -> SceneEntity {
         source: MeshSource::Primitive {
             shape: PrimitiveShape::Cube,
             texture: None,
+            tile_size: None,
         },
         material: Default::default(),
     });

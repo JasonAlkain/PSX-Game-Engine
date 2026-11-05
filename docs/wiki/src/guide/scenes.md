@@ -47,6 +47,11 @@ What the entity draws.
 - **Source**: a primitive (`cube` 1×1×1, `plane` 1×1 facing +Y, `sphere`
   1 m diameter, `quad` 1×1 facing +Z) with an optional texture asset, or an
   imported **model** asset.
+- **Tile size** (`tile_size`, primitives except spheres): how many metres one
+  repeat of the texture covers, measured on the entity's size in the world
+  including its parents' scale. Scaling the entity then shows more of the
+  texture instead of stretching it. Without it the texture covers each face
+  once, however large the entity is. New primitives start at 1 m.
 - **Material overrides** replace the model's values when set: `tint`
   (linear RGBA), `alpha` (`opaque`, `cutout` with a threshold, or `blend`),
   `lit`, `flat_shading`, `allow_affine` (set false to keep this mesh's
