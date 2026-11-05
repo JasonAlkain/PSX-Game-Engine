@@ -89,6 +89,20 @@ pub enum Command {
         #[serde(default = "default_true")]
         keep_world_transform: bool,
     },
+    /// Moves an entity to position `index` among the children of `parent`
+    /// (`None` = the scene roots), counted without the entity itself; an
+    /// index past the end puts it last. This is how the hierarchy reorders
+    /// and reparents by drag and drop. Only the moved entity changes place
+    /// in the list; its descendants follow it through their parent links.
+    /// `keep_world_transform` works as for `SetParent`.
+    MoveEntity {
+        id: EntityId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<EntityId>,
+        index: usize,
+        #[serde(default = "default_true")]
+        keep_world_transform: bool,
+    },
     /// Adds, replaces or (with `null`) removes the mesh component.
     SetMesh {
         id: EntityId,
@@ -163,6 +177,7 @@ impl Command {
             Command::Rename { .. } => "rename",
             Command::SetTransform { .. } => "set_transform",
             Command::SetParent { .. } => "set_parent",
+            Command::MoveEntity { .. } => "move_entity",
             Command::SetMesh { .. } => "set_mesh",
             Command::SetMaterial { .. } => "set_material",
             Command::SetCollider { .. } => "set_collider",
@@ -178,7 +193,7 @@ impl Command {
     }
 
     /// Every op with a one-line description, for `copperframe schema`.
-    pub const OPS: [(&'static str, &'static str); 17] = [
+    pub const OPS: [(&'static str, &'static str); 18] = [
         (
             "create_entity",
             "{id?, name, parent?, transform?, mesh?} -> created id",
@@ -199,6 +214,10 @@ impl Command {
         (
             "set_parent",
             "{id, parent (null = root), keep_world_transform = true}",
+        ),
+        (
+            "move_entity",
+            "{id, parent (null = root), index (among the parent's other children), keep_world_transform = true}",
         ),
         ("set_mesh", "{id, mesh (null removes)}"),
         ("set_material", "{id, material}"),
@@ -397,6 +416,35 @@ fn check_entities(scene: &Scene, ids: &[EntityId]) -> Result<(), CommandError> {
     Ok(())
 }
 
+/// Checks that `id` may go under `parent` and, with `keep_world`, returns
+/// the local transform that keeps it where it is in the world.
+fn reparent_local(
+    scene: &Scene,
+    id: EntityId,
+    parent: Option<EntityId>,
+    keep_world: bool,
+) -> Result<Option<Transform>, CommandError> {
+    require(scene, id)?;
+    if let Some(p) = parent {
+        require(scene, p)?;
+        if scene.is_ancestor_or_self(id, p) {
+            return Err(CommandError::Cycle {
+                child: id,
+                parent: p,
+            });
+        }
+    }
+    if !keep_world {
+        return Ok(None);
+    }
+    let world = scene.world_matrix(id).ok_or(CommandError::TooDeep)?;
+    let parent_world = match parent {
+        Some(p) => scene.world_matrix(p).ok_or(CommandError::TooDeep)?,
+        None => glam::Mat4::IDENTITY,
+    };
+    Ok(Some(Transform::from_matrix(parent_world.inverse() * world)))
+}
+
 fn require(scene: &Scene, id: EntityId) -> Result<(), CommandError> {
     scene
         .get(id)
@@ -521,26 +569,7 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
             parent,
             keep_world_transform,
         } => {
-            require(scene, *id)?;
-            if let Some(p) = parent {
-                require(scene, *p)?;
-                if scene.is_ancestor_or_self(*id, *p) {
-                    return Err(CommandError::Cycle {
-                        child: *id,
-                        parent: *p,
-                    });
-                }
-            }
-            let local = if *keep_world_transform {
-                let world = scene.world_matrix(*id).ok_or(CommandError::TooDeep)?;
-                let parent_world = match parent {
-                    Some(p) => scene.world_matrix(*p).ok_or(CommandError::TooDeep)?,
-                    None => glam::Mat4::IDENTITY,
-                };
-                Some(Transform::from_matrix(parent_world.inverse() * world))
-            } else {
-                None
-            };
+            let local = reparent_local(scene, *id, *parent, *keep_world_transform)?;
             tracked(scene, &[*id], |s| {
                 if let Some(e) = s.get_mut(*id) {
                     e.parent = *parent;
@@ -548,6 +577,40 @@ pub fn apply(scene: &mut Scene, command: &Command) -> Result<Change, CommandErro
                         e.transform = local;
                     }
                 }
+                Ok(())
+            })
+        }
+        Command::MoveEntity {
+            id,
+            parent,
+            index,
+            keep_world_transform,
+        } => {
+            let local = reparent_local(scene, *id, *parent, *keep_world_transform)?;
+            tracked(scene, &[*id], |s| {
+                let from = s.index_of(*id).ok_or(CommandError::NoSuchEntity(*id))?;
+                let mut entity = s.entities.remove(from);
+                entity.parent = *parent;
+                if let Some(local) = local {
+                    entity.transform = local;
+                }
+                // List positions of the new siblings, in order.
+                let siblings: Vec<usize> = s
+                    .entities
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.parent == *parent)
+                    .map(|(i, _)| i)
+                    .collect();
+                let at = match siblings.get(*index) {
+                    Some(&i) => i,
+                    None => match siblings.last() {
+                        Some(&last) => last + 1,
+                        // No siblings: stay where it was in the list.
+                        None => from.min(s.entities.len()),
+                    },
+                };
+                s.entities.insert(at, entity);
                 Ok(())
             })
         }
@@ -755,7 +818,7 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(Command::OPS.len(), 17);
+        assert_eq!(Command::OPS.len(), 18);
     }
 
     #[test]
@@ -1102,5 +1165,54 @@ mod tests {
         ));
         e.component_order.push("collider".into());
         assert!(e.local_problems().iter().any(|p| p.contains("twice")));
+    }
+
+    #[test]
+    fn move_entity_reorders_reparents_and_reverts_exactly() {
+        let mut scene = Scene::new("t");
+        let a = create(&mut scene, "a", None, 1.0);
+        let b = create(&mut scene, "b", None, 2.0);
+        let c = create(&mut scene, "c", None, 3.0);
+        let kid = create(&mut scene, "kid", Some(a), 1.0);
+        let names = |s: &Scene, p: Option<EntityId>| -> Vec<String> {
+            s.children(p).map(|e| e.name.clone()).collect()
+        };
+        let mv = |id, parent, index| Command::MoveEntity {
+            id,
+            parent,
+            index,
+            keep_world_transform: true,
+        };
+
+        // c to the top of the roots.
+        let before = scene.clone();
+        let change = apply(&mut scene, &mv(c, None, 0)).unwrap();
+        assert_eq!(names(&scene, None), ["c", "a", "b"]);
+        change.revert(&mut scene);
+        assert_eq!(scene, before);
+        change.reapply(&mut scene);
+
+        // b into a, after its child, keeping its world position.
+        apply(&mut scene, &mv(b, Some(a), 5)).unwrap();
+        assert_eq!(names(&scene, Some(a)), ["kid", "b"]);
+        let world = scene.world_matrix(b).unwrap().w_axis.x;
+        assert!((world - 2.0).abs() < 1e-5);
+        // ...then before it.
+        apply(&mut scene, &mv(b, Some(a), 0)).unwrap();
+        assert_eq!(names(&scene, Some(a)), ["b", "kid"]);
+        // Back to the root, last.
+        apply(&mut scene, &mv(b, None, usize::MAX)).unwrap();
+        assert_eq!(names(&scene, None), ["c", "a", "b"]);
+        assert!((scene.get(b).unwrap().transform.translation.x - 2.0).abs() < 1e-5);
+
+        // A parent cannot go under its own child, and nothing changes.
+        let before = scene.clone();
+        assert!(matches!(
+            apply(&mut scene, &mv(a, Some(kid), 0)),
+            Err(CommandError::Cycle { .. })
+        ));
+        assert!(apply(&mut scene, &mv(a, Some(a), 0)).is_err());
+        assert_eq!(scene, before);
+        assert!(scene.problems().is_empty());
     }
 }

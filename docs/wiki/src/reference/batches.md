@@ -55,6 +55,7 @@ generate_level | copperframe apply --project my_game -    # from stdin
 | `rename` | `id`, `name` | |
 | `set_transform` | `id`, `translation?`, `rotation?` or `rotation_euler_deg?`, `scale?` | Sets the given parts of the local transform. `rotation` is a quaternion `[x, y, z, w]`; `rotation_euler_deg` is `[x, y, z]` degrees |
 | `set_parent` | `id`, `parent` (`null` = root), `keep_world_transform` (default `true`) | Reparents |
+| `move_entity` | `id`, `parent` (`null` or left out = root), `index`, `keep_world_transform` (default `true`) | Moves the entity to position `index` among `parent`'s other children (past the end = last); reparents too. Its children follow it |
 | `set_mesh` | `id`, `mesh` (`null` removes) | |
 | `set_material` | `id`, `material` | Material overrides |
 | `set_collider` | `id`, `collider` (`null` removes): `{shape, offset?, sensor?, layer?, mask?, friction?, restitution?}` | |

@@ -15,6 +15,12 @@ pub const BAR: Color32 = Color32::from_rgb(27, 24, 22);
 pub const WELL: Color32 = Color32::from_rgb(24, 21, 19);
 pub const TEXT: Color32 = Color32::from_rgb(226, 218, 208);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(158, 148, 137);
+/// List rows: odd rows are a shade darker than the panel.
+pub const ROW_ODD: Color32 = Color32::from_rgb(33, 29, 27);
+pub const ROW_HOVER: Color32 = Color32::from_rgb(54, 47, 42);
+pub const ROW_SELECTED: Color32 = Color32::from_rgb(96, 60, 34);
+/// A drop or action that is not allowed.
+pub const INVALID: Color32 = Color32::from_rgb(220, 80, 70);
 const LINE: Color32 = Color32::from_rgb(62, 55, 49);
 const WIDGET: Color32 = Color32::from_rgb(58, 52, 47);
 const WIDGET_HOVER: Color32 = Color32::from_rgb(76, 67, 59);

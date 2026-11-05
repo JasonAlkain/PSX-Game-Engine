@@ -1,6 +1,23 @@
 # Status
 
-Last updated: 2026-11-05 (project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Hierarchy panel (2026-11-05, v0.6.0)
+
+The Hierarchy has a case-insensitive name search that keeps matching
+entities' parents visible (dimmed), collapsible parents (state kept per
+entity for the editor session), alternating row shading with hover,
+selection and drop indicators, in-place rename (double-click or F2),
+right-click menus, arrow-key navigation, and drag and drop to reorder,
+reparent or move to the scene root. Drops go through the new
+`move_entity` command (undoable, also in batches): cycles and parenting a
+rigidbody are refused, world position is kept by default, and the order
+is the scene file's entity order. Only visible rows are laid out.
+
+Verified on Linux (Xvfb, lavapipe, debug editor on a copy of
+`examples/room`): search, collapse, drag into a parent, a refused drop
+(red), rename, and undo of a move; unit tests cover rows, search, drop
+resolution and the command's revert. Not yet verified on Windows 11.
 
 ## Project settings (2026-11-05, v0.3.0)
 

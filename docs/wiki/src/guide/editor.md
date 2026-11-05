@@ -24,7 +24,7 @@ whose lock is held by a hung editor (see [Project lock](#project-lock)).
 | --- | --- |
 | Menu bar | **File**, **Edit**, **Create**, **Game**, **Build**, **Window** and **Help** |
 | Toolbar | The transform tools, snapping, view options, **Play**/**Stop** and the cog for project settings (see [The toolbar](#the-toolbar)) |
-| Hierarchy | Every entity in the scene, children indented under parents. Click to select |
+| Hierarchy | Every entity in the scene as a tree: search, collapse, drag to reorder and reparent (see [The hierarchy](#the-hierarchy)) |
 | Viewport | The scene rendered with its own retro style, with the selection gizmo and optional collider wireframes |
 | Inspector | The selected entity's components |
 | Scene settings | The scene's style, lighting and start camera |
@@ -48,6 +48,29 @@ Every panel is a tab and can be rearranged:
 The arrangement and the toolbar settings are remembered between sessions and
 apply to every project. They are stored in `editor_layout.json` in the
 engine's data folder; deleting it restores the defaults.
+
+## The hierarchy
+
+| Input | Action |
+| --- | --- |
+| Type in **Search by name…** | Shows only entities whose name contains the text (upper and lower case are the same). Their parents stay visible, dimmed, so you can see where each match sits. **×** or `Esc` clears the search |
+| Click the arrow beside a parent | Collapses or expands its children. The editor remembers this for each entity until it closes |
+| Click a row | Selects the entity. Selecting in the viewport opens the parents and scrolls the hierarchy to it |
+| Drag a row onto the top or bottom edge of another row | Moves the entity before or after it, under the same parent |
+| Drag a row onto the middle of another row | Makes it a child of that entity (last among its children) |
+| Drag a row into the empty space below the list | Moves it to the end of the scene root |
+| Double-click a row, or `F2` | Renames in place. `Enter` or clicking away keeps the name, `Esc` cancels |
+| Right-click a row | Rename, Duplicate, Delete, Create child, Move to scene root, Expand all, Collapse all |
+| Right-click empty space | Create an empty entity or a primitive |
+| `↑` `↓` with the pointer over the panel | Select the row above or below |
+| `←` `→` | Collapse or expand the selected entity (`←` on a closed or childless row selects its parent) |
+
+While you drag, a copper line or outline shows where the entity will go.
+Red means the drop is not allowed: an entity cannot go under itself or its
+own children, and entities with a rigidbody must stay at the scene root.
+Moving keeps the entity where it is in the world when the inspector's
+**keep world position** is ticked (the default). Every move is one undo
+step, and the order you see is the order saved in the scene file.
 
 ## The toolbar
 
