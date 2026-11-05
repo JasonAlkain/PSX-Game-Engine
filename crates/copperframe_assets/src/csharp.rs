@@ -543,22 +543,32 @@ pub fn parse_errors(project_root: &Path, output: &str) -> Vec<ScriptDiagnostic> 
             None => (place, None),
         };
         let path = Path::new(path.trim());
-        let file = path
-            .strip_prefix(&root)
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| {
-                if path.as_os_str().is_empty() || path.ends_with(PROJECT_FILE) {
-                    SCRIPTS_DIR.to_owned()
-                } else {
-                    path.display().to_string()
-                }
-            });
+        let file = project_relative(&root, path).unwrap_or_else(|| {
+            if path.as_os_str().is_empty() || path.ends_with(PROJECT_FILE) {
+                SCRIPTS_DIR.to_owned()
+            } else {
+                path.display().to_string()
+            }
+        });
         let d = problem(&file, line_no, message);
         if !out.contains(&d) {
             out.push(d);
         }
     }
     out
+}
+
+/// `path` relative to the project, with `/`. Compares the paths as given
+/// and then resolved, because the compiler may print another spelling of
+/// the same folder (Windows short names such as `RUNNER~1`, letter case).
+fn project_relative(root: &Path, path: &Path) -> Option<String> {
+    let rel = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    if let Ok(p) = path.strip_prefix(root) {
+        return Some(rel(p));
+    }
+    let root = std::fs::canonicalize(root).ok()?;
+    let path = std::fs::canonicalize(path).ok()?;
+    path.strip_prefix(&root).ok().map(rel)
 }
 
 /// Exclusive use of the build folder while `dotnet build` runs.
@@ -628,6 +638,27 @@ mod tests {
         assert_eq!(d[0].line, Some(7));
         assert_eq!(d[0].message, "CS1002: ; expected");
         assert_eq!(d[1].message, "MSB1009: Project file does not exist.");
+    }
+
+    /// The compiler may spell the project folder differently from the
+    /// engine (Windows short names); a symlink stands in for that here.
+    #[cfg(unix)]
+    #[test]
+    fn compiler_paths_through_another_spelling_of_the_folder_are_relative() {
+        let base = std::env::temp_dir().join(format!("cf_cs_alias_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let real = base.join("real");
+        std::fs::create_dir_all(real.join("scripts")).unwrap();
+        std::fs::write(real.join("scripts/Door.cs"), "").unwrap();
+        let alias = base.join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        let out = format!(
+            "{}(3,1): error CS0029: bad\n",
+            real.join("scripts/Door.cs").display()
+        );
+        let d = parse_errors(&alias, &out);
+        assert_eq!(d[0].file, "scripts/Door.cs", "{d:?}");
+        std::fs::remove_dir_all(&base).unwrap();
     }
 
     #[test]
