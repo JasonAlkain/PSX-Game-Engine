@@ -35,7 +35,7 @@ pub const SCENE_FORMAT: &str = "psx_scene";
 /// - 6: moving bodies get their own `rigidbody` component; the collider's
 ///   `body` and `mass` fields move there (see [`migrate_rigidbodies`]), and
 ///   colliders gain `restitution`.
-pub const SCENE_VERSION: u32 = 6;
+pub const SCENE_VERSION: u32 = 7;
 /// Conventional file extension.
 pub const SCENE_EXTENSION: &str = "scene.json";
 
@@ -122,7 +122,8 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
     }
     // Migrations from older versions go here. 1 -> 2 -> 3 -> 4 -> 5 only added
     // optional fields (with defaults), so older documents deserialise
-    // unchanged; 5 -> 6 moves body data off colliders.
+    // unchanged; 5 -> 6 moves body data off colliders; 6 -> 7 adds
+    // `settings.look` (missing = the scene's own style, as before).
     let mut scene_value = value
         .get("scene")
         .cloned()
@@ -333,6 +334,27 @@ mod tests {
         assert!(scene.entities[0].behaviors.is_empty());
         let text = scene_to_json(&scene, p).unwrap();
         assert!(text.contains(&current_version()));
+    }
+
+    #[test]
+    fn version_6_files_keep_their_own_look() {
+        let p = Path::new("v6.scene.json");
+        // The Lever Room as committed with scene version 6 (v0.5.0).
+        let v6 = include_str!("../fixtures/v6_room.scene.json");
+        assert!(v6.contains("\"version\": 6") && !v6.contains("\"look\""));
+        let scene = parse_scene(v6, p).unwrap();
+        assert_eq!(scene.settings.look, LookSource::Scene);
+        let text = scene_to_json(&scene, p).unwrap();
+        assert!(text.contains(&current_version()) && text.contains("\"look\": \"scene\""));
+        let mut again = parse_scene(&text, p).unwrap();
+        assert_eq!(again, scene);
+        again.settings.look = LookSource::Project;
+        let text = scene_to_json(&again, p).unwrap();
+        assert!(text.contains("\"look\": \"project\""));
+        assert_eq!(
+            parse_scene(&text, p).unwrap().settings.look,
+            LookSource::Project
+        );
     }
 
     #[test]

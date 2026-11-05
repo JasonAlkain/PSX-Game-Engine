@@ -20,8 +20,8 @@ so existing projects keep loading.
 
 | Format | Current | File | Contents |
 | --- | --- | --- | --- |
-| `psx_project` | 2 | `project.json` | `name`, `startup_scene`; optional `display {width, height, fullscreen, vsync}`, `style {default, player_can_change}`, `build {export_dir, check_after_export, check_script}`, `physics {gravity}` (the [Project settings](../guide/editor.md#project-settings) panel; see also [Physics](../guide/physics.md)) |
-| `psx_scene` | 6 | `scenes/*.scene.json` | ID, name, revision, settings, entities. v1 to v5 load; v5 and older bodies move from the collider to a `rigidbody`. See [Scenes](../guide/scenes.md) |
+| `psx_project` | 3 | `project.json` | `name`, `startup_scene`; optional `display {width, height, fullscreen, vsync}`, `style {default, player_can_change, look}` (`look` is the project look, a retro style), `build {export_dir, check_after_export, check_script}`, `physics {gravity}` (the [Project settings](../guide/editor.md#project-settings) panel; see also [Physics](../guide/physics.md)) |
+| `psx_scene` | 7 | `scenes/*.scene.json` | ID, name, revision, settings (`look`, `style`, `lighting`, `camera`), entities. v1 to v6 load; v5 and older bodies move from the collider to a `rigidbody`; v6 and older keep their own look. See [Scenes](../guide/scenes.md) |
 | `psx_asset_meta` | 1 | `assets/**/<file>.meta.json` | Asset `id`, `importer` (`gltf`, `texture`, `audio`), `settings` (`scale`, `max_texture_size`). See [Asset pipeline](../guide/assets.md) |
 | `psx_input` | 1 | `input.json` (optional) | Action → bindings. See [Input](../guide/player.md#input) |
 | `psx_style` | 2 | `psx_style.json` (sandbox), and inside every scene | The retro style. v1 loads with PS1 values for the newer sections. See [Style](../guide/style.md) |

@@ -109,7 +109,12 @@ pub fn show(
     let rect = ui.max_rect();
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let ppp = ui.ctx().pixels_per_point();
-    let style = state.prefs.look.apply(&session.scene.settings.style);
+    let style = state.prefs.look.apply(
+        &state
+            .project_settings
+            .style_settings(session)
+            .scene_style(&session.scene.settings),
+    );
     let geometry = ViewportGeometry::new(to_pixels(rect, ppp), &style, state.prefs.frame)?;
     let view_proj = camera.camera.view_projection(geometry.aspect());
     let to_px = |p: Pos2| Vec2::new(p.x * ppp, p.y * ppp);

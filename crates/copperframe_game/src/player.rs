@@ -622,7 +622,7 @@ impl Running {
                 let lights = self.sim.lights(alpha);
                 let shadows = self.sim.shadows(alpha);
                 (
-                    look.apply(&s.settings.style),
+                    look.apply(&self.sim.project().file.style.scene_style(&s.settings)),
                     scene_lighting(
                         &s.settings.lighting,
                         lights.iter().map(|(m, l)| (*m, l)),

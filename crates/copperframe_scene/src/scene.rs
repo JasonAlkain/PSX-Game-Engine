@@ -47,7 +47,14 @@ pub struct Scene {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SceneSettings {
-    /// Retro style used when this scene is shown.
+    /// Where the console look (resolution, wobble, texture filtering,
+    /// shading...) comes from. Since scene version 7; older scenes keep
+    /// their own.
+    #[serde(default)]
+    pub look: LookSource,
+    /// Retro style used when this scene is shown. With
+    /// [`LookSource::Project`] only its fog and atmosphere (background)
+    /// are used; the rest comes from the project.
     pub style: RetroStyle,
     #[serde(default)]
     pub lighting: SceneLighting,
@@ -58,9 +65,31 @@ pub struct SceneSettings {
 impl Default for SceneSettings {
     fn default() -> Self {
         Self {
+            look: LookSource::Scene,
             style: RetroStyle::ps1(),
             lighting: SceneLighting::default(),
             camera: CameraStart::default(),
+        }
+    }
+}
+
+/// Where a scene's console look comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LookSource {
+    /// The scene's own `style` (every scene before version 7).
+    #[default]
+    Scene,
+    /// The project's look (`project.json` `style.look`), with the scene's
+    /// own fog and background.
+    Project,
+}
+
+impl LookSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            LookSource::Scene => "This scene's own",
+            LookSource::Project => "Project look",
         }
     }
 }

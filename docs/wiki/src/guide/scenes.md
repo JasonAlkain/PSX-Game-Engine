@@ -150,7 +150,8 @@ clips with `Ctx::play_animation`. Requires a model mesh with a skin.
 
 | Setting | Meaning |
 | --- | --- |
-| `style` | The scene's retro style. See [PS1 and PS2 style settings](style.md) |
+| `look` | `project` (the project's look from `project.json` `style.look`, with this scene's fog and atmosphere) or `scene` (the scene's own `style`). Missing in scenes before version 7, which means `scene` |
+| `style` | The scene's retro style. See [PS1 and PS2 style settings](style.md). With `look: project` only its `fog` and `atmosphere` are used |
 | `lighting` | Directional light `direction` and `color`, and `ambient` colour (linear) |
 | `camera` | Start camera: `position`, `yaw_deg`, `pitch_deg`, `fov_deg` |
 

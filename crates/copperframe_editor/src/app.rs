@@ -623,7 +623,14 @@ impl Running {
         let style = self
             .workspace
             .as_ref()
-            .map(|ws| ws.ui.prefs.look.apply(&ws.session.scene.settings.style))
+            .map(|ws| {
+                ws.ui.prefs.look.apply(
+                    &ws.ui
+                        .project_settings
+                        .style_settings(&ws.session)
+                        .scene_style(&ws.session.scene.settings),
+                )
+            })
             .unwrap_or_default();
         let geometry = output
             .viewport

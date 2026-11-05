@@ -53,9 +53,9 @@ editor and the player's title screen open with a short Copperframe splash
 
 | Format | Current | Older versions | What changed | What you do |
 | --- | --- | --- | --- | --- |
-| `psx_project` (`project.json`) | 2 | 1 | v2 (Project settings): optional `display`, `style`, `build` and `physics` sections | Nothing. A v1 file loads with the defaults (1280 × 960 window, vsync on, each scene's own look, export to `dist/<name>` with a start check, gravity 0, −9.81, 0). The editor writes v2 the next time project settings or the startup scene are saved, which older engine builds refuse to open |
+| `psx_project` (`project.json`) | 3 | 1, 2 | v2 (Project settings): optional `display`, `style`, `build` and `physics` sections. v3 (0.8): optional `style.look`, the project look | Nothing. A v1 file loads with the defaults (1280 × 960 window, vsync on, each scene's own look, export to `dist/<name>` with a start check, gravity 0, −9.81, 0); a v1 or v2 file gets the PS1 preset as the project look, which only scenes set to use it see. The editor writes v3 the next time project settings or the start scene are saved, which older engine builds refuse to open |
 | `psx_asset_meta` (`*.meta.json`) | 1 | — | — | — |
-| `psx_scene` (`scenes/*.scene.json`) | 6 | 1, 2, 3, 4, 5 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources. v5: optional `component_order` on entities (inspector order) | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, primitives without `tile_size` keep one texture per face, and components without `component_order` are listed in the default order. To tile an existing primitive, tick **Tile texture** in the inspector. v6: moving bodies get their own `rigidbody` component; the collider's `body` and `mass` move there (a `dynamic` collider becomes a rigidbody, a `kinematic` one a rigidbody with `kinematic: true`), and colliders gain `restitution`. This happens on load. Saving writes v6, which older engine builds refuse to open |
+| `psx_scene` (`scenes/*.scene.json`) | 7 | 1, 2, 3, 4, 5, 6 | v2 (M4): optional `collider`, `audio`, `behaviors`. v3 (M5): optional `light`, `animator`, `shadow`, and the style inside the scene gains `textures`, `shading`, `shadows`. v4: optional `tile_size` on primitive mesh sources. v5: optional `component_order` on entities (inspector order) | Nothing. Older scenes load unchanged and look the same: missing style sections get the PS1 values, primitives without `tile_size` keep one texture per face, and components without `component_order` are listed in the default order. To tile an existing primitive, tick **Tile texture** in the inspector. v6: moving bodies get their own `rigidbody` component; the collider's `body` and `mass` move there (a `dynamic` collider becomes a rigidbody, a `kinematic` one a rigidbody with `kinematic: true`), and colliders gain `restitution`. This happens on load. v7 (0.8): `settings.look` (`scene` or `project`); older scenes load as `scene`, so they look exactly as before. Switch a scene in Scene settings, or all of them from Project settings > Look. Saving writes v7, which older engine builds refuse to open |
 | `psx_style` (`psx_style.json`, scene style) | 2 | 1 | `textures {filter, mipmaps}`, `shading {per_pixel, local_lights}`, `shadows {enabled, opacity}` | Nothing; v1 gets PS1 values. Pick the PS2 preset in the editor or sandbox to opt in |
 | `psx_command_batch` | 1 | — | M5 added the ops `set_light`, `set_animator`, `set_shadow`; 0.4 added `set_component_order`; 0.5 added `set_rigidbody` and removed `body`/`mass` from `set_collider` | Batches that set `"body"` or `"mass"` on a collider no longer parse: delete `"body": "static"`, and replace `dynamic`/`kinematic` with a following `set_rigidbody` op (`{}` or `{"kinematic": true}`, with `mass` moved there) |
 | `psx_input` (`input.json`) | 1 | — | — | — |
@@ -71,6 +71,8 @@ Fixtures that pin older versions, each loaded by a test:
 `crates/copperframe_scene/fixtures/v2_room.scene.json` (scene v2, Milestone 4),
 `crates/copperframe_scene/fixtures/v3_room.scene.json` (scene v3, Milestone 5),
 `crates/copperframe_scene/fixtures/v4_room.scene.json` (scene v4, release 0.1),
+`crates/copperframe_scene/fixtures/v6_room.scene.json` (scene v6, release 0.5),
+`crates/copperframe_assets/fixtures/v2.project.json` (project v2),
 `crates/copperframe_core/fixtures/v1.style.json` (style v1),
 `crates/copperframe_assets/fixtures/v1.project.json` (project v1),
 `crates/copperframe_game/fixtures/m4_settings.json` (player settings without
@@ -87,6 +89,17 @@ cooked cache yet), so an importer change takes effect without any action.
 | 2 (M5) | glTF skins and animation clips. Before, skins and animations were ignored with a warning and the mesh was drawn in its node pose; now a skinned mesh is drawn from its bind pose through the skeleton (the rest pose), which for most exported files is the same shape |
 
 ## Game code (Rust API)
+
+### Project look (0.8)
+
+`SceneSettings` has a new `look: LookSource` field (add `look:
+LookSource::Scene` to a struct literal, or use `..Default::default()`), and
+`Command::SetSettings` a new `look: Option<LookSource>` field. A scene's
+`settings.style` is no longer always what it renders with: use
+`project.file.style.scene_style(&scene.settings)` (or
+`Simulation::project()` in game code) for the authored style, then
+`GraphicsStyle::apply` for the player's choice. `StyleSettings` gained
+`look` and is no longer `Eq`.
 
 ### Project settings
 

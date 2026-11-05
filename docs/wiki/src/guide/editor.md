@@ -257,9 +257,16 @@ See [Scenes, entities and components](scenes.md) for what every field means.
 
 The **Scene settings** panel holds what applies to the whole scene:
 
-- the style: **PS1**, **PS2** and **Clean** preset buttons (the label shows
-  *Custom* once you change something), then every effect as a switch with
-  its value. See [PS1 and PS2 style settings](style.md);
+- **Look**: **Project look** uses the console look set once for the whole
+  game in Project settings > Look (**Edit the project look…** opens it), so
+  every scene that uses it changes together. **This scene's own** gives the
+  scene its own **PS1**, **PS2** and **Clean** presets and every effect as a
+  switch with its value (see [PS1 and PS2 style settings](style.md)).
+  Switching either way keeps what is on screen: the current values are
+  copied across. New scenes use the project look; scenes made before 0.8
+  keep their own until you switch them;
+- **Atmosphere**: fog and background colour, which always belong to the
+  scene, whichever look it uses;
 - the directional light's direction, colour and the ambient level;
 - **Use current view as start camera**, which stores the editor view as
   the scene's start camera: where the editor view opens next time, and the
@@ -281,7 +288,7 @@ the scene's undo history. Play and Export use the saved values.
 | --- | --- |
 | General | **Name** (hub, status bar, default export folder), **Start scene** (the scene the game opens with; the same as **File > Set as Startup Scene**), and the project folder with **Open** |
 | Window | **Window size** of the game in points, with presets (640 × 480 up to 1920 × 1080), and whether a new player starts **fullscreen** and with **vertical sync** |
-| Look | **Default look**: *As authored* (each scene's own style), *PS1* or *PS2*, and whether **players can switch** between them in the game's settings screen. A preset keeps each scene's fog and background colour |
+| Look | **Default look**: *As authored* (each scene's look), *PS1* or *PS2*, and whether **players can switch** between them in the game's settings screen. **Project look**: the console look (presets and every effect) of all scenes set to *Project look*; edits show in the viewport before you save. **Copy from the open scene** takes the open scene's look. **Scenes** lists the scenes that still have their own look, and **Make all use the project look…** switches them (after asking; their fog, background and lighting are kept). Save the project settings first |
 | Input | The keys each action starts with. Click a key to unbind it, **+ key** to add one (a key used by another action moves here, and the panel says so), add your own actions by name for game code to read, or **Reset to engine defaults**. Players can still remap keys in the game |
 | Build | The **Export folder** (relative to the project or a full path; empty means `dist/<name>`), whether to **check the exported game starts**, and **Check with** an idle run or one of the project's test scripts |
 

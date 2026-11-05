@@ -42,7 +42,7 @@ pub fn light_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &Ent
         );
         done |= finished(&r1) || finished(&r2);
     });
-    if session.scene.settings.style.shading.local_lights {
+    if session.scene_style().shading.local_lights {
         ui.label(egui::RichText::new("At most 8 lights nearest the camera are used.").small());
     } else {
         ui.label(
@@ -85,7 +85,7 @@ pub fn shadow_editor(ui: &mut egui::Ui, session: &mut EditorSession, entity: &En
             done |= finished(&r);
         }
     });
-    if !session.scene.settings.style.shadows.enabled {
+    if !session.scene_style().shadows.enabled {
         ui.label(
             egui::RichText::new("The scene style has blob shadows off; this shadow is not drawn.")
                 .small(),

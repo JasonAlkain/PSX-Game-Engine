@@ -7,6 +7,7 @@
 //! editor and `copperframe export` read the build section.
 
 use copperframe_core::RetroStyle;
+use copperframe_scene::{LookSource, SceneSettings};
 use serde::{Deserialize, Serialize};
 
 /// The game window, and the defaults a player starts with until they change
@@ -80,7 +81,7 @@ impl GraphicsStyle {
 }
 
 /// The game's look.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StyleSettings {
     /// The look players start with.
@@ -88,6 +89,10 @@ pub struct StyleSettings {
     /// Whether the game's settings screen offers the PS1/PS2 choice. When
     /// false, the game always renders with `default`.
     pub player_can_change: bool,
+    /// The project look (since project version 3): the console settings
+    /// every scene set to [`LookSource::Project`] renders with. Its fog and
+    /// atmosphere are not used; those belong to each scene.
+    pub look: RetroStyle,
 }
 
 impl Default for StyleSettings {
@@ -95,6 +100,24 @@ impl Default for StyleSettings {
         Self {
             default: GraphicsStyle::Scene,
             player_can_change: true,
+            look: RetroStyle::ps1(),
+        }
+    }
+}
+
+impl StyleSettings {
+    /// The style a scene is authored with: its own, or the project look
+    /// with the scene's fog and atmosphere. [`GraphicsStyle::apply`] then
+    /// applies a player's PS1/PS2 choice on top.
+    pub fn scene_style(&self, settings: &SceneSettings) -> RetroStyle {
+        match settings.look {
+            LookSource::Scene => settings.style.clone(),
+            LookSource::Project => {
+                let mut s = self.look.clone();
+                s.fog = settings.style.fog;
+                s.atmosphere = settings.style.atmosphere;
+                s
+            }
         }
     }
 }
@@ -192,6 +215,26 @@ mod tests {
         assert_eq!(ps2.fog, authored.fog);
         assert_eq!(ps2.textures, RetroStyle::ps2().textures);
         assert_eq!(GraphicsStyle::Scene.apply(&authored), authored);
+    }
+
+    #[test]
+    fn scenes_take_the_project_look_but_keep_their_fog_and_background() {
+        let project = StyleSettings {
+            look: RetroStyle::ps2(),
+            ..Default::default()
+        };
+        let mut scene = SceneSettings::default();
+        scene.style.fog.enabled = true;
+        scene.style.fog.start = 4.0;
+        scene.style.atmosphere.background = [10, 20, 30];
+        // Older scenes keep their own look.
+        assert_eq!(scene.look, LookSource::Scene);
+        assert_eq!(project.scene_style(&scene), scene.style);
+        scene.look = LookSource::Project;
+        let s = project.scene_style(&scene);
+        assert_eq!(s.textures, RetroStyle::ps2().textures);
+        assert_eq!(s.fog, scene.style.fog);
+        assert_eq!(s.atmosphere, scene.style.atmosphere);
     }
 
     #[test]
