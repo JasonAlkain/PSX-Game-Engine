@@ -96,7 +96,16 @@ has loaded, and when a step finishes:
 ```
 
 `state` is `running`, `paused`, `stepping` (a step is still running) or
-`quitting`; `tick` counts fixed ticks since the game started. A line that
+`quitting`; `tick` counts fixed ticks since the game started.
+
+Each script problem (a script that does not load, or a callback that
+failed) is also written once as its own line, for the editor's Problems
+panel:
+
+```text
+@copperframe {"format":"copperframe_script_problem","version":1,"problem":{"file":"scripts/door.lua","line":7,"kind":"lua.door","entity":"Door","callback":"on_message","message":"attempt to perform arithmetic on a nil value (local 'y')","tick":212}}
+```
+ A line that
 is not a command gets a status with an `error` field and is otherwise
 ignored. When stdin ends (the editor closed it or exited), the game closes.
 

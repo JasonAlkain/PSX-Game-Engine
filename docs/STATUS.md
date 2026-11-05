@@ -1,6 +1,47 @@
 # Status
 
-Last updated: 2026-11-05 (Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (scripts in the editor: Problems panel, Scripting settings, New Lua script; Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Scripts in the editor (2026-11-05, v0.12.0)
+
+The editor works with Lua scripts directly:
+
+- A **Problems** panel lists scripts that do not load (from the game's
+  schema) and errors raised during Play (sent by the game on stdout as
+  `copperframe_script_problem` lines), with the file, line, entity,
+  callback and tick, the lines around the error read from the file, and
+  **Open**. It opens by itself when a new problem appears; the status bar
+  counts them.
+- **New Lua script…** (Game menu, Add component > Behaviours > Scripts,
+  Project settings > Scripting) checks the name, writes a template to
+  `scripts/`, adds the behaviour to the selected entity (one undo step)
+  and opens the file in the system's editor for `.lua`.
+- **Project settings > Scripting** switches Lua on or off and lists the
+  scripts with their kinds and problems. Saving a change reads the
+  behaviour kinds again.
+- The folder watcher includes `scripts/`: saving a script updates the
+  inspector and Add component without **Reload behaviour kinds**, and the
+  editor reads the kinds at start when the project has scripts.
+- Lua behaviour cards show the file and **Edit script**.
+
+Fixed: the editor (and `copperframe schema --project`) did not list Lua
+kinds for projects without a `game/` crate, because the stock player was
+asked for its schema without `--project`. Fixed: the message for a script
+with an invalid name contained runs of spaces.
+
+Still to do: opening a script at the error line (the system handler opens
+the file; editors differ in how to pass a line), reloading scripts while
+the game runs, and C# (next: .NET hosted in the game process).
+
+Verified on Linux under Xvfb with a Lua-only project: the Problems panel
+opened at start with a syntax error (line 3 excerpt), Play added a runtime
+error at tick 90 with its excerpt, New Lua script `puzzles/door` wrote
+`scripts/puzzles/door.lua`, attached `lua.puzzles.door` to the selected
+entity and the watcher re-read the kinds; the Scripting page listed the
+three scripts. Unit tests cover name checks, the template, script listing,
+diagnostics serialisation, the problem line protocol and the panel's
+load/runtime bookkeeping. Opening files with the system handler was not
+checked (the container has none). Not yet checked on Windows 11.
 
 ## Lua gameplay scripting (2026-11-05, v0.11.0)
 

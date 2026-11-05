@@ -38,6 +38,7 @@ separators, and may not point outside the project.
 | `psx_run_report` | 1 | Standard output of headless runs, or `--report` | Ticks, outcome, events, warnings, `diagnostics` (script problems: `file`, `line`, `kind`, `entity`, `callback`, `message`, `tick`), `passed`, `failures` |
 | `psx_game_schema` | 1 | Standard output of `--schema`; cached in `.psx/game_schema.json` | The behaviour kinds a game registers (including the project's Lua scripts), with typed fields; `problems` lists scripts that did not load |
 | `psx_bench` | 1 | Standard output of `--bench`, or `--report` | Adapter, sizes, and tick/frame timing per style |
+| `copperframe_script_problem` | 1 | Standard output of a game run with `--control stdin`, after `@copperframe ` | One script problem for the editor's Problems panel: `problem` with `file`, `line`, `kind`, `entity`, `callback`, `message`, `tick`. See [Game executable options](game-options.md#editor-control---control-stdin) |
 | `copperframe_play_status` | 1 | Standard output of a game run with `--control stdin`, one line each, after `@copperframe ` | Run state (`running`, `paused`, `stepping`, `quitting`), tick, optional `error`. See [Game executable options](game-options.md#editor-control---control-stdin) |
 | `psx_export` | 1 | `export.json` in an export folder | Marks a folder `copperframe build --replace` may overwrite |
 

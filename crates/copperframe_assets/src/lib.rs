@@ -13,6 +13,8 @@
 //! - [`export`]: host-platform export of a game and its data.
 //! - [`play_control`]: the editor's Pause/Resume/Step line protocol with a
 //!   running game.
+//! - [`scripts`]: gameplay script files, their behaviour kinds and
+//!   [`scripts::ScriptDiagnostic`].
 //! - [`template`]: new projects from templates, and their Rust game crate.
 //!
 //! No window or GPU dependencies.
@@ -27,6 +29,7 @@ pub mod meta;
 pub mod play_control;
 pub mod project;
 pub mod project_settings;
+pub mod scripts;
 pub mod template;
 
 pub use import::audio::{AudioFormat, ImportedAudio, import_audio};

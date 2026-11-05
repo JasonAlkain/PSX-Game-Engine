@@ -107,6 +107,7 @@ impl Workspace {
             &[
                 copperframe_assets::project::ASSETS_DIR,
                 copperframe_assets::project::SCENES_DIR,
+                copperframe_assets::scripts::SCRIPTS_DIR,
             ],
             move || {
                 let _ = proxy.send_event(());
@@ -502,8 +503,20 @@ impl Running {
                 )),
             }
         }
-        for id in reimport {
-            self.reimport(id);
+        // Scripts are behaviour kinds: read them again so the inspector and
+        // Add component match the files.
+        let scripts_prefix = format!("{}/", copperframe_assets::scripts::SCRIPTS_DIR);
+        if ws.session.project.file.scripting.lua
+            && changes
+                .all()
+                .any(|p| p.starts_with(&scripts_prefix) && p.ends_with(".lua"))
+        {
+            ws.session
+                .info("scripts changed; reading the behaviour kinds again");
+            ws.tools.refresh_schema(&ws.session);
+            for id in reimport {
+                self.reimport(id);
+            }
         }
     }
 

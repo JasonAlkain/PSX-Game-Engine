@@ -1,6 +1,7 @@
-//! Watching the project's `assets/` and `scenes/` folders for changes made
-//! by other programs (a paint program saving a texture, Blender exporting a
-//! model, a script editing a scene).
+//! Watching the project's `assets/`, `scenes/` and `scripts/` folders for
+//! changes made by other programs (a paint program saving a texture,
+//! Blender exporting a model, a text editor saving a Lua script, a tool
+//! editing a scene).
 //!
 //! A background thread compares a snapshot of every file's size and
 //! modification time once per [`POLL`]. A change is reported only once the

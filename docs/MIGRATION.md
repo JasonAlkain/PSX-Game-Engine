@@ -66,6 +66,7 @@ editor and the player's title screen open with a short Copperframe splash
 | `psx_export` (`export.json`) | 1 | — | — | — |
 | `psx_bench` (`--bench` report) | 1 | — | New in M6 | — |
 | `copperframe_play_status` (`--control stdin` replies) | 1 | — | New in 0.10 | — |
+| `copperframe_script_problem` (`--control stdin` script problems) | 1 | — | New in 0.12. Shares the `@copperframe ` prefix with play status lines; a 0.10 or 0.11 editor shows these lines as log text | — |
 
 Fixtures that pin older versions, each loaded by a test:
 `crates/copperframe_scene/fixtures/v1_room.scene.json` (scene v1, Milestone 3),
@@ -91,6 +92,19 @@ cooked cache yet), so an importer change takes effect without any action.
 | 2 (M5) | glTF skins and animation clips. Before, skins and animations were ignored with a warning and the mesh was drawn in its node pose; now a skinned mesh is drawn from its bind pose through the skeleton (the rest pose), which for most exported files is the same shape |
 
 ## Game code (Rust API)
+
+### Scripts in the editor (0.12)
+
+`ScriptDiagnostic` moved to `copperframe_assets::scripts` (with
+`Deserialize`, `location()` and `is_runtime()`); `copperframe_game`
+re-exports it under the same path, so code that names
+`copperframe_game::ScriptDiagnostic` needs no change.
+`copperframe_game::lua::kind_for` and `KIND_PREFIX` are re-exports of
+`copperframe_assets::scripts::lua_kind_for` and `LUA_KIND_PREFIX`.
+`GameTarget::schema` now takes the project root and passes `--project`, so
+the stock player lists the project's Lua kinds too (before, the editor and
+`copperframe schema --project` missed them for projects without a `game/`
+crate). Rust game code needs no change.
 
 ### Lua scripting (0.11)
 

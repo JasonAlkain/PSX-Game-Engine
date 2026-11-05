@@ -81,6 +81,12 @@ it, or click **Open anyway** on the hub if it is hung.
 Reload behaviour kinds** (or press Play), which rebuilds the game and reads
 its schema. Build errors appear in the Console.
 
+**A Lua script is not in Add component, or its behaviour stopped working.**
+Open **Window > Problems**. A script that does not load (a syntax error, a
+bad field, a file name with capitals or dashes) is listed there with the
+line, and so is a script that raised an error during the last Play. Fix the
+file and save it; the editor reads the scripts again by itself.
+
 **Changed an asset file but the editor shows the old one.** The editor
 reimports changed files that are in the scene within a second or two of
 the last write. If a program keeps the file open or writes it somewhere
