@@ -51,6 +51,9 @@ gltf = { version = "1.4.1", default-features = false, features = ["import", "uti
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 base64 = "0.22"
 
+# Canonical paths without the Windows verbatim prefix (cargo rejects it in manifests).
+dunce = "1.0"
+
 # Gameplay runtime (Milestone 4). rapier3d uses glam 0.33 internally (via
 # glamx); conversions happen in copperframe_game::physics only.
 hecs = "0.11.2"

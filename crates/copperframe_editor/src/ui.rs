@@ -431,7 +431,7 @@ fn file_menu(
     {
         state.request(session, Action::OpenProject(dir), actions);
     }
-    let current = std::fs::canonicalize(&session.project.root).ok();
+    let current = dunce::canonicalize(&session.project.root).ok();
     let others: Vec<&RecentProject> = recent
         .iter()
         .filter(|p| Some(&p.path) != current.as_ref())

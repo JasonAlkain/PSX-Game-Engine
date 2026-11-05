@@ -23,6 +23,11 @@ install` in the repository; the version comes from `rust-toolchain.toml`.
 made by `copperframe new` depend on the engine checkout by absolute path.
 Edit the `path = …` entries in `game/Cargo.toml` to the new location.
 
+**Windows: `invalid path url //?/D:\…` when a game builds.** Earlier versions
+wrote this form of path into `game/Cargo.toml`. The editor and the
+`copperframe` tool now repair the file the next time they run the game, and
+new projects no longer get it, so updating the engine is enough.
+
 **Upgrading a project from "PSX Engine".** Change `psx_game` to
 `copperframe_game` in `game/Cargo.toml` and the sources. Data files need no
 change. See [MIGRATION.md](https://github.com/JasonAlkain/PSX-Game-Engine/blob/main/docs/MIGRATION.md#rename-to-copperframe).

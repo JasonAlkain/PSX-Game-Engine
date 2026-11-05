@@ -42,10 +42,15 @@ pub struct RecentProjects {
 impl RecentProjects {
     /// Reads the list; a missing or unreadable file is an empty list.
     pub fn load(file: &Path) -> Self {
-        std::fs::read_to_string(file)
+        let mut recent: Self = std::fs::read_to_string(file)
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Lists written by older versions hold Windows verbatim paths.
+        for p in &mut recent.projects {
+            p.path = dunce::simplified(&p.path).to_path_buf();
+        }
+        recent
     }
 
     pub fn save(&self, file: &Path) -> Result<(), String> {
@@ -78,7 +83,7 @@ impl RecentProjects {
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path)
+    dunce::canonicalize(path)
         .or_else(|_| std::path::absolute(path))
         .unwrap_or_else(|_| path.to_path_buf())
 }
