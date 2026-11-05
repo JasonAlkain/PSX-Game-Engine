@@ -175,6 +175,20 @@ impl Entity {
         {
             out.push(format!("material: {p}"));
         }
+        if let Some(MeshComponent {
+            source:
+                MeshSource::Primitive {
+                    tile_size: Some(size),
+                    ..
+                },
+            ..
+        }) = &self.mesh
+            && !(MIN_TILE_SIZE..=MAX_TILE_SIZE).contains(size)
+        {
+            out.push(format!(
+                "tile_size must be between {MIN_TILE_SIZE} and {MAX_TILE_SIZE} metres"
+            ));
+        }
         if let Some(c) = &self.collider {
             if let Some(p) = c.problem() {
                 out.push(format!("collider: {p}"));
@@ -242,6 +256,11 @@ pub enum MeshSource {
         shape: PrimitiveShape,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         texture: Option<AssetId>,
+        /// Metres one repeat of the texture covers on the entity's faces, so scaling
+        /// the entity shows more of the texture rather than stretching it. Without
+        /// it the texture covers each face once. Spheres ignore it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tile_size: Option<f32>,
     },
     /// Every mesh of an imported model asset (glTF/GLB).
     Model { asset: AssetId },
@@ -272,7 +291,18 @@ pub enum PrimitiveShape {
     Quad,
 }
 
+/// Tile size new primitives start with: a unit cube looks as it always did, and
+/// scaling it up repeats the texture.
+pub const DEFAULT_TILE_SIZE: f32 = 1.0;
+pub const MIN_TILE_SIZE: f32 = 0.01;
+pub const MAX_TILE_SIZE: f32 = 1000.0;
+
 impl PrimitiveShape {
+    /// Whether a primitive's `tile_size` applies: flat faces only.
+    pub fn tiles(self) -> bool {
+        self != PrimitiveShape::Sphere
+    }
+
     pub const ALL: [PrimitiveShape; 4] = [
         PrimitiveShape::Cube,
         PrimitiveShape::Plane,
@@ -659,6 +689,7 @@ mod tests {
             source: MeshSource::Primitive {
                 shape: PrimitiveShape::Cube,
                 texture: None,
+                tile_size: None,
             },
             material: MaterialOverride {
                 alpha: Some(AlphaSetting::Cutout { threshold: 2.0 }),

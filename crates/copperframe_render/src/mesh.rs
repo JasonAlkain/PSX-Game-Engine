@@ -131,6 +131,14 @@ impl MeshData {
     /// maps the full texture. Faces are tinted slightly so orientation is easy
     /// to read in the test scene.
     pub fn cube(size: f32) -> Self {
+        Self::cube_divided(size, 1)
+    }
+
+    /// [`Self::cube`] with each face split into `divisions`×`divisions`
+    /// quads. Retro hardware relied on tessellation to limit affine warping:
+    /// one quad stretched across a whole wall bends its texture badly.
+    pub fn cube_divided(size: f32, divisions: u32) -> Self {
+        let n = divisions.max(1);
         let h = size * 0.5;
         // (normal, right, up, tint): the face's outward normal and the two axes
         // spanning it, chosen so right x up == normal (counter-clockwise front).
@@ -176,26 +184,31 @@ impl MeshData {
         let mut mesh = MeshData::default();
         for (normal, right, up, color) in faces {
             let base = mesh.vertices.len() as u32;
-            // Corners: bottom-left, bottom-right, top-right, top-left.
-            for (sx, sy, uv) in [
-                (-1.0, -1.0, [0.0, 1.0]),
-                (1.0, -1.0, [1.0, 1.0]),
-                (1.0, 1.0, [1.0, 0.0]),
-                (-1.0, 1.0, [0.0, 0.0]),
-            ] {
-                let position =
-                    std::array::from_fn(|i| (normal[i] + sx * right[i] + sy * up[i]) * h);
-                mesh.vertices.push(Vertex {
-                    position,
-                    normal,
-                    uv,
-                    color,
-                    joints: [0; 4],
-                    weights: [0.0; 4],
-                });
+            // A grid from the bottom-left corner, row by row upward.
+            for j in 0..=n {
+                for i in 0..=n {
+                    let (fx, fy) = (i as f32 / n as f32, j as f32 / n as f32);
+                    let (sx, sy) = (fx * 2.0 - 1.0, fy * 2.0 - 1.0);
+                    let position =
+                        std::array::from_fn(|k| (normal[k] + sx * right[k] + sy * up[k]) * h);
+                    mesh.vertices.push(Vertex {
+                        position,
+                        normal,
+                        uv: [fx, 1.0 - fy],
+                        color,
+                        joints: [0; 4],
+                        weights: [0.0; 4],
+                    });
+                }
             }
-            mesh.indices
-                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            let row = n + 1;
+            for j in 0..n {
+                for i in 0..n {
+                    let a = base + j * row + i;
+                    let (b, c, d) = (a + 1, a + row + 1, a + row);
+                    mesh.indices.extend_from_slice(&[a, b, c, a, c, d]);
+                }
+            }
         }
         mesh
     }
@@ -205,26 +218,36 @@ impl MeshData {
     /// Rectangle in the XY plane centred on the origin, facing +Z, with UVs
     /// covering the texture once (top-left = (0, 0)).
     pub fn quad(width: f32, height: f32) -> Self {
-        let (w, h) = (width * 0.5, height * 0.5);
-        let n = [0.0, 0.0, 1.0];
-        let c = [1.0; 4];
-        let v = |x: f32, y: f32, u: f32, v: f32| Vertex {
-            position: [x, y, 0.0],
-            normal: n,
-            uv: [u, v],
-            color: c,
-            joints: [0; 4],
-            weights: [0.0; 4],
-        };
-        MeshData {
-            vertices: vec![
-                v(-w, -h, 0.0, 1.0),
-                v(w, -h, 1.0, 1.0),
-                v(w, h, 1.0, 0.0),
-                v(-w, h, 0.0, 0.0),
-            ],
-            indices: vec![0, 1, 2, 0, 2, 3],
+        Self::quad_divided(width, height, 1)
+    }
+
+    /// [`Self::quad`] split into `divisions`×`divisions` quads, which limits
+    /// affine warping (see [`Self::cube_divided`]).
+    pub fn quad_divided(width: f32, height: f32, divisions: u32) -> Self {
+        let n = divisions.max(1);
+        let mut mesh = MeshData::default();
+        for j in 0..=n {
+            for i in 0..=n {
+                let (fx, fy) = (i as f32 / n as f32, j as f32 / n as f32);
+                mesh.vertices.push(Vertex {
+                    position: [(fx - 0.5) * width, (fy - 0.5) * height, 0.0],
+                    normal: [0.0, 0.0, 1.0],
+                    uv: [fx, 1.0 - fy],
+                    color: [1.0; 4],
+                    joints: [0; 4],
+                    weights: [0.0; 4],
+                });
+            }
         }
+        let row = n + 1;
+        for j in 0..n {
+            for i in 0..n {
+                let a = j * row + i;
+                let (b, c, d) = (a + 1, a + row + 1, a + row);
+                mesh.indices.extend_from_slice(&[a, b, c, a, c, d]);
+            }
+        }
+        mesh
     }
 
     /// Horizontal grid in the XZ plane centred on the origin, facing +Y,
@@ -342,6 +365,40 @@ mod tests {
         assert_eq!(cube.vertices.len(), 24);
         assert_eq!(cube.indices.len(), 36);
         assert_eq!(cube.validate(), Ok(()));
+    }
+
+    #[test]
+    fn divided_shapes_keep_their_size_uvs_and_facing() {
+        let cube = MeshData::cube_divided(1.0, 4);
+        assert_eq!(cube.vertices.len(), 6 * 25);
+        assert_eq!(cube.indices.len(), 6 * 16 * 6);
+        assert_eq!(cube.validate(), Ok(()));
+        let quad = MeshData::quad_divided(2.0, 1.0, 4);
+        assert_eq!(quad.vertices.len(), 25);
+        assert_eq!(quad.indices.len(), 16 * 6);
+        assert_eq!(quad.validate(), Ok(()));
+        for mesh in [cube, quad] {
+            let uv = |pick: fn(f32, f32) -> f32, i: usize| {
+                mesh.vertices.iter().map(|v| v.uv[i]).fold(0.5, pick)
+            };
+            assert_eq!((uv(f32::min, 0), uv(f32::max, 0)), (0.0, 1.0));
+            assert_eq!((uv(f32::min, 1), uv(f32::max, 1)), (0.0, 1.0));
+            for tri in mesh.indices.chunks(3) {
+                let [a, b, c] =
+                    [0, 1, 2].map(|i| Vec3::from(mesh.vertices[tri[i] as usize].position));
+                let geometric = (b - a).cross(c - a).normalize();
+                let authored = Vec3::from(mesh.vertices[tri[0] as usize].normal);
+                assert!(geometric.dot(authored) > 0.99);
+            }
+        }
+        // A quad's top-left corner still maps to the texture's (0, 0).
+        let quad = MeshData::quad_divided(2.0, 2.0, 2);
+        let top_left = quad
+            .vertices
+            .iter()
+            .find(|v| v.position[0] == -1.0 && v.position[1] == 1.0)
+            .unwrap();
+        assert_eq!(top_left.uv, [0.0, 0.0]);
     }
 
     #[test]

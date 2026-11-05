@@ -40,6 +40,8 @@ pollster = "1.0"
 egui = { version = "0.37.0", features = ["default_fonts"] }
 egui-wgpu = { version = "0.37.0", default-features = false }
 egui-winit = { version = "0.37.0", default-features = false, features = ["clipboard", "links", "wayland", "x11"] }
+# Dockable editor panels. egui_dock has no release for egui 0.37 yet.
+egui_tiles = { version = "0.18.0", features = ["serde"] }
 
 # Project data: style settings (Milestone 2), scenes, project and asset metadata (Milestone 3)
 serde = { version = "1.0", features = ["derive"] }
@@ -50,6 +52,9 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 gltf = { version = "1.4.1", default-features = false, features = ["import", "utils", "names", "KHR_materials_unlit"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 base64 = "0.22"
+
+# Canonical paths without the Windows verbatim prefix (cargo rejects it in manifests).
+dunce = "1.0"
 
 # Gameplay runtime (Milestone 4). rapier3d uses glam 0.33 internally (via
 # glamx); conversions happen in copperframe_game::physics only.

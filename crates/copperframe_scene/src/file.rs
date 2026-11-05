@@ -28,7 +28,9 @@ pub const SCENE_FORMAT: &str = "psx_scene";
 ///   and the style's `textures`, `shading` and `shadows` sections (style
 ///   version 2; missing sections get the PS1 values). Older files load
 ///   unchanged.
-pub const SCENE_VERSION: u32 = 3;
+/// - 4: adds the optional `tile_size` on primitive mesh sources. Older files
+///   load unchanged and keep their textures covering each face once.
+pub const SCENE_VERSION: u32 = 4;
 /// Conventional file extension.
 pub const SCENE_EXTENSION: &str = "scene.json";
 
@@ -113,7 +115,7 @@ pub fn parse_scene(text: &str, path: &Path) -> Result<Scene, SceneFileError> {
             source: serde::de::Error::custom(format!("unknown top-level field `{extra}`")),
         });
     }
-    // Migrations from older versions go here. 1 -> 2 -> 3 only added
+    // Migrations from older versions go here. 1 -> 2 -> 3 -> 4 only added
     // optional fields (with defaults), so older documents deserialise
     // unchanged.
     let scene_value = value
@@ -194,6 +196,7 @@ mod tests {
             source: MeshSource::Primitive {
                 shape: PrimitiveShape::Plane,
                 texture: Some(AssetId::new()),
+                tile_size: None,
             },
             material: MaterialOverride::default(),
         });
@@ -233,12 +236,12 @@ mod tests {
     fn rejects_future_versions_wrong_format_and_unknown_fields() {
         let p = Path::new("x");
         let text = scene_to_json(&sample(), p).unwrap();
-        let future = text.replace("\"version\": 3", "\"version\": 99");
+        let future = text.replace("\"version\": 4", "\"version\": 99");
         assert!(matches!(
             parse_scene(&future, p),
             Err(SceneFileError::UnsupportedVersion { found: 99, .. })
         ));
-        let zero = text.replace("\"version\": 3", "\"version\": 0");
+        let zero = text.replace("\"version\": 4", "\"version\": 0");
         assert!(matches!(
             parse_scene(&zero, p),
             Err(SceneFileError::UnsupportedVersion { found: 0, .. })
@@ -273,7 +276,7 @@ mod tests {
         assert!(scene.entities[0].collider.is_none());
         assert!(scene.entities[0].behaviors.is_empty());
         let text = scene_to_json(&scene, p).unwrap();
-        assert!(text.contains("\"version\": 3"));
+        assert!(text.contains("\"version\": 4"));
     }
 
     #[test]
@@ -290,8 +293,47 @@ mod tests {
         assert!(scene.entities.iter().any(|e| !e.behaviors.is_empty()));
         assert!(scene.entities.iter().all(|e| e.light.is_none()));
         let text = scene_to_json(&scene, p).unwrap();
-        assert!(text.contains("\"version\": 3"));
+        assert!(text.contains("\"version\": 4"));
         assert_eq!(parse_scene(&text, p).unwrap(), scene);
+    }
+
+    #[test]
+    fn version_3_files_load_without_tiling() {
+        let p = Path::new("v3.scene.json");
+        // The Lever Room as committed with scene version 3 (Milestone 5).
+        let v3 = include_str!("../fixtures/v3_room.scene.json");
+        assert!(v3.contains("\"version\": 3") && !v3.contains("tile_size"));
+        let scene = match parse_scene(v3, p) {
+            Ok(scene) => scene,
+            Err(err) => panic!("version 3 fixture no longer loads: {err}"),
+        };
+        let text = scene_to_json(&scene, p).unwrap();
+        assert!(text.contains("\"version\": 4") && !text.contains("tile_size"));
+        assert_eq!(parse_scene(&text, p).unwrap(), scene);
+    }
+
+    #[test]
+    fn tile_sizes_round_trip_and_bad_ones_are_rejected() {
+        let p = Path::new("tile.scene.json");
+        let mut scene = sample();
+        let set = |scene: &mut Scene, size: f32| {
+            scene.entities[0].mesh = Some(MeshComponent {
+                source: MeshSource::Primitive {
+                    shape: PrimitiveShape::Plane,
+                    texture: None,
+                    tile_size: Some(size),
+                },
+                material: Default::default(),
+            });
+        };
+        set(&mut scene, 2.5);
+        let text = scene_to_json(&scene, p).unwrap();
+        assert!(text.contains("\"tile_size\": 2.5"));
+        assert_eq!(parse_scene(&text, p).unwrap(), scene);
+        for bad in [0.0, -1.0, f32::NAN, 1.0e6] {
+            set(&mut scene, bad);
+            assert!(!scene.problems().is_empty(), "{bad}");
+        }
     }
 
     #[test]

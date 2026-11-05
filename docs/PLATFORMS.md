@@ -67,7 +67,7 @@ monitor setup).
    a Starter project with and without Rust game code, and a Lever Room
    project; each opens straight away and appears under Recent projects on
    the next start. Copy a PNG into the project's `assets` folder from
-   Explorer and confirm it appears in the Assets tab within about two
+   Explorer and confirm it appears in the Assets panel within about two
    seconds; edit a texture used in the scene in Paint, save, and confirm the
    viewport updates. Build > Validate, Run Test Script and Export Game show
    results; **Open folder** opens Explorer. File > Close Project returns to

@@ -114,6 +114,7 @@ impl Project {
             source: MeshSource::Primitive {
                 shape: PrimitiveShape::Plane,
                 texture: None,
+                tile_size: Some(2.0),
             },
             material: Default::default(),
         });
@@ -132,6 +133,7 @@ impl Project {
             source: MeshSource::Primitive {
                 shape: PrimitiveShape::Cube,
                 texture: None,
+                tile_size: Some(copperframe_scene::DEFAULT_TILE_SIZE),
             },
             material: Default::default(),
         });
@@ -967,6 +969,7 @@ mod tests {
             source: MeshSource::Primitive {
                 shape: PrimitiveShape::Cube,
                 texture: Some(meta.id),
+                tile_size: None,
             },
             material: Default::default(),
         });

@@ -94,6 +94,12 @@ impl Workspace {
         let camera = EditorCamera::from_start(&session.scene.settings.camera);
         let tools = GameTools::new(&mut session);
         let mut ui = UiState::default();
+        if let Some((dock, prefs)) =
+            crate::dock::layout_path().and_then(|p| crate::dock::load_layout(&p))
+        {
+            ui.dock = dock;
+            ui.prefs = prefs;
+        }
         ui.reporting.check_for_crashes();
         let proxy = proxy.clone();
         let watcher = Watcher::start(
@@ -113,6 +119,18 @@ impl Workspace {
             camera,
             watcher,
         })
+    }
+}
+
+impl Drop for Workspace {
+    /// Remembers the panel layout and toolbar settings for next time.
+    fn drop(&mut self) {
+        let Some(path) = crate::dock::layout_path() else {
+            return;
+        };
+        if let Err(e) = crate::dock::save_layout(&self.ui.dock, &self.ui.prefs, &path) {
+            tracing::warn!("could not save the editor layout: {e}");
+        }
     }
 }
 
@@ -183,6 +201,7 @@ impl Running {
         let resources = SceneResources::new(&renderer, &gpu.device, &gpu.queue);
 
         let egui_ctx = egui::Context::default();
+        crate::theme::apply(&egui_ctx);
         let max_texture = gpu.device.limits().max_texture_dimension_2d as usize;
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(),
@@ -369,6 +388,7 @@ impl Running {
                 }
                 ws.camera = EditorCamera::from_start(&ws.session.scene.settings.camera);
                 ws.ui.disk_changed = None;
+                ws.ui.assets.clear_thumbnails();
             }
         }
     }
@@ -377,6 +397,7 @@ impl Running {
         let Some(ws) = self.workspace.as_mut() else {
             return;
         };
+        ws.ui.assets.clear_thumbnails();
         // Pick up edited sidecar settings too.
         ws.session.db = copperframe_assets::AssetDatabase::scan(&ws.session.project);
         match self.resources.load(
@@ -414,6 +435,7 @@ impl Running {
 
         let mut reimport = Vec::new();
         if asset_changes {
+            ws.ui.assets.clear_thumbnails();
             let before = ws.session.db.entries.len();
             ws.session.rescan_assets();
             // Sidecars the rescan wrote are the editor's own change.
@@ -585,12 +607,15 @@ impl Running {
         let style = self
             .workspace
             .as_ref()
-            .map(|ws| ws.session.scene.settings.style.clone())
+            .map(|ws| ws.ui.prefs.look.apply(&ws.session.scene.settings.style))
             .unwrap_or_default();
         let geometry = output
             .viewport
             .filter(|_| self.workspace.is_some())
-            .and_then(|panel| ViewportGeometry::new(panel, &style));
+            .and_then(|panel| {
+                let frame = self.workspace.as_ref()?.ui.prefs.frame;
+                ViewportGeometry::new(panel, &style, frame)
+            });
         let mut stats = (0usize, 0u64);
         let view_ok = geometry.is_some_and(|g| {
             self.renderer

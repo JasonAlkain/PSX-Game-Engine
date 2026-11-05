@@ -64,6 +64,8 @@ short benchmark) and on Windows, and builds this wiki.
 - **Reference images:** a visual change to the example room regenerates them
   with `COPPERFRAME_UPDATE_GOLDEN=1 cargo test -p copperframe_runtime --test
   scene_resources` and says why in the commit. Never loosen the tolerance.
+  They are only compared on Mesa llvmpipe, as on the Linux CI runner, so other
+  adapters neither check them nor should regenerate them.
 - **Logs** go to stderr; `--schema`, `--headless` and `--bench` print only
   JSON on stdout.
 - **Crash reports** never send anything: no SMTP credentials, API keys or

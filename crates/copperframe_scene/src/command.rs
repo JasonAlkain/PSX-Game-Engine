@@ -670,6 +670,7 @@ mod tests {
                     source: MeshSource::Primitive {
                         shape: PrimitiveShape::Cube,
                         texture: None,
+                        tile_size: None,
                     },
                     material: MaterialOverride::default(),
                 }),

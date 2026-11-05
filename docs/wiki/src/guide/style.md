@@ -5,7 +5,7 @@ setting in the scene's **style**. Each effect can be switched on and off
 independently and tuned. Styles are read every frame, so switching between
 PS1 and PS2 never reimports or re-uploads content.
 
-You edit the style in the editor's **Scene settings** (select nothing), in
+You edit the style in the editor's **Scene settings** panel, in
 the sandbox with keys, or in JSON. A player can also override it in the game's
 **Settings > Graphics style** (As authored, PS1 or PS2), which applies a
 preset's look while keeping the scene's own fog and atmosphere.

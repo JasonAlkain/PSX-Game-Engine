@@ -366,6 +366,7 @@ impl EditorSession {
             Some(MeshSource::Primitive {
                 shape,
                 texture: None,
+                tile_size: Some(copperframe_scene::DEFAULT_TILE_SIZE),
             }),
             position,
         );

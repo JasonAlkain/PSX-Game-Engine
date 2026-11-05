@@ -1270,6 +1270,7 @@ mod tests {
             source: MeshSource::Primitive {
                 shape: PrimitiveShape::Plane,
                 texture: None,
+                tile_size: None,
             },
             material: Default::default(),
         });

@@ -19,6 +19,8 @@ copperframe_runtime.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
 egui-winit.workspace = true
+egui_tiles.workspace = true
+image.workspace = true
 winit.workspace = true
 glam.workspace = true
 pollster.workspace = true
@@ -30,6 +32,7 @@ serde_json.workspace = true
 serde.workspace = true
 rfd.workspace = true
 directories.workspace = true
+dunce.workspace = true
 
 [dev-dependencies]
 copperframe_assets.workspace = true

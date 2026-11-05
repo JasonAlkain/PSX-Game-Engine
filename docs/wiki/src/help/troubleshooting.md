@@ -23,6 +23,11 @@ install` in the repository; the version comes from `rust-toolchain.toml`.
 made by `copperframe new` depend on the engine checkout by absolute path.
 Edit the `path = …` entries in `game/Cargo.toml` to the new location.
 
+**Windows: `invalid path url //?/D:\…` when a game builds.** Earlier versions
+wrote this form of path into `game/Cargo.toml`. The editor and the
+`copperframe` tool now repair the file the next time they run the game, and
+new projects no longer get it, so updating the engine is enough.
+
 **Upgrading a project from "PSX Engine".** Change `psx_game` to
 `copperframe_game` in `game/Cargo.toml` and the sources. Data files need no
 change. See [MIGRATION.md](https://github.com/JasonAlkain/PSX-Game-Engine/blob/main/docs/MIGRATION.md#rename-to-copperframe).
@@ -57,7 +62,7 @@ make the window a multiple of the internal resolution.
 ## Scenes and the editor
 
 **A magenta and black checker cube.** The entity's asset is missing or failed
-to import. Check the Assets tab and the Console; run **Build > Validate
+to import. Check the Assets panel and the Console; run **Build > Validate
 Project**.
 
 **`copperframe apply` exits with code 3.** Either the editor has the project
@@ -79,7 +84,7 @@ its schema. Build errors appear in the Console.
 **Changed an asset file but the editor shows the old one.** The editor
 reimports changed files that are in the scene within a second or two of
 the last write. If a program keeps the file open or writes it somewhere
-else first, click **Reimport** in the Assets tab.
+else first, click **Reimport** in the Assets panel.
 
 **"Rust is needed for this project".** The project has a `game/` crate
 and Rust is not installed. Install it from [rustup.rs](https://rustup.rs),

@@ -16,35 +16,91 @@ other than the project's startup scene. `--steal-lock` takes over a project
 whose lock is held by a hung editor (see [Project lock](#project-lock)).
 `--frames N` exits after N frames, for smoke tests.
 
-![The editor with The Lever Room open: hierarchy on the left, the viewport with a crate selected and its move gizmo, the inspector on the right showing the crate's mesh, material overrides, blob shadow and collider, and the Assets and Console tabs at the bottom](../images/editor_lever_room.png)
+![The editor with The Lever Room open: hierarchy on the left, the viewport filling its panel with a crate selected and its move gizmo, the toolbar above, the inspector and Scene settings tabs on the right, and the Assets browser and Console tabs at the bottom](../images/editor_lever_room.png)
 
 ## Layout
 
 | Area | What it does |
 | --- | --- |
-| Menu bar | **File**, **Edit**, **Create**, **Game**, **Build**, a **Play**/**Stop** button that is always visible, and **Help** |
-| Hierarchy (left) | Every entity in the scene, children indented under parents. Click to select |
-| Viewport (centre) | The scene rendered with its own retro style, with the selection gizmo and optional collider wireframes |
-| Inspector (right) | The selected entity's components, or **Scene settings** when nothing is selected |
-| Assets / Console (bottom) | The project's asset list, and the log (including a running game's output) |
+| Menu bar | **File**, **Edit**, **Create**, **Game**, **Build**, **Window** and **Help** |
+| Toolbar | The transform tools, snapping, view options and **Play**/**Stop** (see [The toolbar](#the-toolbar)) |
+| Hierarchy | Every entity in the scene, children indented under parents. Click to select |
+| Viewport | The scene rendered with its own retro style, with the selection gizmo and optional collider wireframes |
+| Inspector | The selected entity's components |
+| Scene settings | The scene's style, lighting and start camera |
+| Assets | The [asset browser](#the-assets-panel) |
+| Console | The log, including a running game's output |
 | Status bar | Project and scene name, revision, unsaved state, frame rate, draw and triangle counts, and "idle" when the editor is not redrawing |
+
+### Arranging panels
+
+Every panel is a tab and can be rearranged:
+
+- **Move** a panel by dragging its tab: onto another tab bar to join that
+  group, or to the edge of a panel to split it there.
+- **Resize** by dragging the border between panels.
+- **Close** with the × on its tab, or middle-click the tab.
+- **Window** lists every panel with a tick for whether it is open. Ticking a
+  closed panel brings it back where it was. **Window > Reset layout** puts
+  every panel back in its standard place.
+
+The arrangement and the toolbar settings are remembered between sessions and
+apply to every project. They are stored in `editor_layout.json` in the
+engine's data folder; deleting it restores the defaults.
+
+## The toolbar
+
+| Control | What it does |
+| --- | --- |
+| Move (`Q`), Rotate (`W`), Scale (`E`) | The transform tool the viewport's gizmo uses |
+| World / Local | Whether move and rotate use the world's axes or the selection's own. Scale always uses the selection's own |
+| Frame | Moves the camera so the selection fills the view (`F`) |
+| Grid snap, with its move, rotate and scale steps | Makes the tools work in steps. Moves land on multiples of the step. Hold `Ctrl` while dragging to flip it for that drag. The inspector's transform fields follow it too |
+| Vertex snap (or hold `V`) | See [Snapping](#snapping) |
+| Model snap | See [Snapping](#snapping) |
+| Fill panel / Game frame | **Fill panel** uses all of the viewport and shows more of the scene when the panel is wide. **Game frame** shows exactly what the game's window shows, with its bars |
+| Styled / Sharp | **Styled** draws the scene's own style. **Sharp** draws at full resolution with steady textures, for precise editing. It only changes the view: the scene's style and the game are not affected |
+| Grid | Metre lines on the ground plane, drawn over the scene |
+| Colliders | Collider wireframes |
+| Play / Stop | Runs the game (`F5`) |
 
 ## Viewport controls
 
 | Input | Action |
 | --- | --- |
 | Left click | Select the entity under the cursor; click empty space to clear |
-| Drag a gizmo arrow | Move the selection along X (red), Y (green) or Z (blue). With **Edit > Snap** on, moves in steps (0.25 m by default) |
+| Drag a gizmo arrow (Move) | Move the selection along X (red), Y (green) or Z (blue) |
+| Drag a ring (Rotate) | Turn the selection around that axis |
+| Drag a square (Scale) | Scale along the selection's own axis; drag the centre square to scale evenly |
 | Hold right mouse button | Look around; `W` `A` `S` `D` `E` `Q` fly while held, `Shift` is faster |
 | Mouse wheel | Move forward or back |
+| Drag a model from Assets | Places it on what is under the pointer, or on the ground |
 
-The gizmo only translates. Rotation and scale are edited as numbers in the
-inspector.
+A drag is one undo step.
+
+### Snapping
+
+- **Grid snap** works in steps, as above.
+- **Vertex snap** lines up two models exactly. Turn it on in the toolbar or
+  hold `V`: a square marks the selection's vertex nearest the pointer. Drag it,
+  and when the pointer comes near a vertex of another model, the selection
+  jumps so that the two vertices meet.
+- **Model snap** lines up models as you move them. While dragging a move arrow
+  along a world axis, the selection's edges and centre on that axis snap to
+  the edges and centres of other models when they come close. The model it
+  snapped to is outlined.
+
+These move entities in the editor. The **Vertex snapping** switch in Scene
+settings is unrelated: it is the PS1 wobble effect (see
+[PS1 and PS2 style settings](style.md)).
 
 ## Keyboard shortcuts
 
 | Keys | Action |
 | --- | --- |
+| `Q` / `W` / `E` | Move / Rotate / Scale tool (while the right mouse button is not held) |
+| `F` | Frame the selection |
+| Hold `V` | Vertex snap |
 | `Ctrl+S` | Save |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` or `Ctrl+Shift+Z` | Redo |
@@ -66,8 +122,7 @@ inspector.
   - Save; Reload from disk (discard changes); Quit.
 
   Anything that leaves the open scene asks first if it has unsaved changes.
-- **Edit**: Undo and Redo (the menu names the step), Duplicate, Delete,
-  **Show colliders** (wireframes) and **Snap** (gizmo steps).
+- **Edit**: Undo and Redo (the menu names the step), Duplicate and Delete.
 - **Create**: Empty, Cube, Plane, Sphere, Quad. New entities appear a few
   metres in front of the editor camera and are selected.
 - **Game**: Play/Stop and **Reload behaviour kinds** (rebuilds the game and
@@ -83,6 +138,7 @@ inspector.
     [Testing gameplay headless](testing.md).
   - **Advanced > Benchmark Scene**: a release build measured offscreen in
     three styles. See [Benchmarking](../reference/game-options.md#benchmarking).
+- **Window**: open or close each panel, and **Reset layout**.
 - **Help**: a summary of the controls and **Report a bug…** (see
   [Crash reports and logs](../help/crash-reports.md)).
 
@@ -95,7 +151,9 @@ With an entity selected, the inspector shows, top to bottom:
 - **Transform**: position (metres), rotation (Euler degrees, applied as
   yaw Y, then pitch X, then roll Z) and scale.
 - **Mesh**: a primitive shape with an optional texture, or an imported
-  model. **Material overrides** replace the model's own values:
+  model. **Tile texture** repeats a primitive's texture by its size in the
+  world, so scaling it does not stretch the texture; the value is the metres
+  one repeat covers. **Material overrides** replace the model's own values:
   *Tint*, *Alpha* (opaque, cutout with a threshold, or blend), and *Lit*,
   *Flat shading*, *Affine UVs* and *Double-sided*, each of which can be
   *source* (keep the model's value), *on* or *off*.
@@ -116,9 +174,9 @@ style has local lights turned off.
 
 See [Scenes, entities and components](scenes.md) for what every field means.
 
-### Scene settings
+## Scene settings
 
-With nothing selected the inspector shows **Scene settings**:
+The **Scene settings** panel holds what applies to the whole scene:
 
 - the style: **PS1**, **PS2** and **Clean** preset buttons (the label shows
   *Custom* once you change something), then every effect as a switch with
@@ -128,14 +186,24 @@ With nothing selected the inspector shows **Scene settings**:
   the scene's start camera: where the editor view opens next time, and the
   game's camera until a player or camera zone takes over.
 
-## Assets tab
+## The Assets panel
 
-Lists every file in `assets/` with its kind (model, texture, sound) and
-import status (*ok*, a warning count, *failed* or *missing*).
+A browser for `assets/`: folders on the left, a grid of tiles for the open
+folder on the right (textures show a thumbnail), and a strip along the bottom
+with the selected asset's path, any problem with it, and its actions.
 
-- New files are registered automatically (see below). **Rescan now** does
-  it at once, and **Show in folder** opens `assets/` in Explorer.
-- **Add to scene** (models) creates an entity using the model.
+- Click a folder, a part of the path above the grid, or double-click a folder
+  tile to open it.
+- **Search** looks through the open folder and everything below it. **All**,
+  **Models**, **Textures** and **Sounds** filter by kind, and the slider sets
+  the tile size.
+- A dot on a tile marks an asset with a problem: yellow for import warnings,
+  red for a failed import or a missing file. The strip says what is wrong.
+- New files are registered automatically (see below). **Rescan** does it at
+  once, and **Show in folder** opens the folder in Explorer.
+- **Add to scene** (models) creates an entity using the model in front of the
+  camera. Double-clicking the tile does the same, and dragging the tile into
+  the viewport places it where you drop it.
 - **Reimport** (models and textures) reads the file again after you changed
   it. If the new import fails, the last good version stays on screen and
   the error appears in the console.

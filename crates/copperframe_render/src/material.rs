@@ -41,6 +41,9 @@ pub struct Material {
     /// Linear RGB added after lighting (glTF emissive factor). Not lit, but
     /// fogged like everything else.
     pub emissive: [f32; 3],
+    /// Texture repeats along the mesh's local X, Y and Z, applied to each flat
+    /// face by its normal. For unit primitives scaled up in a scene.
+    pub uv_tile: Option<[f32; 3]>,
 }
 
 impl Default for Material {
@@ -53,6 +56,7 @@ impl Default for Material {
             allow_affine: true,
             double_sided: false,
             emissive: [0.0; 3],
+            uv_tile: None,
         }
     }
 }

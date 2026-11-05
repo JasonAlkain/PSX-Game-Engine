@@ -55,6 +55,8 @@ struct DrawUniforms {
     emissive: vec4<f32>,
     // x: 1.0 when this draw is skinned with the bound joint palette.
     skin: vec4<f32>,
+    // xyz: texture repeats along local X, Y, Z. w: 1.0 = apply them.
+    uv_tile: vec4<f32>,
 };
 
 struct JointPalette {
@@ -163,6 +165,21 @@ fn blob_shadow(n: vec3<f32>, p: vec3<f32>) -> f32 {
     return shadow;
 }
 
+// Scales a flat face's UVs by the repeats along the two axes it spans.
+fn tiled_uv(uv: vec2<f32>, normal: vec3<f32>) -> vec2<f32> {
+    if draw.uv_tile.w < 0.5 {
+        return uv;
+    }
+    let n = abs(normal);
+    if n.x > 0.5 {
+        return uv * draw.uv_tile.zy;
+    }
+    if n.y > 0.5 {
+        return uv * draw.uv_tile.xz;
+    }
+    return uv * draw.uv_tile.xy;
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var local_position = vec4<f32>(in.position, 1.0);
@@ -187,8 +204,9 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     var out: VertexOutput;
     out.clip_position = snap_vertex(frame.view_proj * world);
-    out.uv_perspective = in.uv;
-    out.uv_affine = in.uv;
+    let uv = tiled_uv(in.uv, in.normal);
+    out.uv_perspective = uv;
+    out.uv_affine = uv;
     out.color_smooth = color;
     out.color_flat = color;
     out.world_position = world.xyz;

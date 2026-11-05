@@ -18,7 +18,9 @@ use crate::project::{ASSETS_DIR, PROJECT_FILE, Project, SCENES_DIR};
 /// (a downloaded build has none).
 pub fn engine_root() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let root = std::fs::canonicalize(root).ok()?;
+    // Not `std::fs::canonicalize`: on Windows it returns a verbatim `\\?\`
+    // path, which cargo rejects once written into a game crate's manifest.
+    let root = dunce::canonicalize(root).ok()?;
     crate::game::is_engine_root(&root).then_some(root)
 }
 
@@ -475,6 +477,10 @@ mod tests {
         assert!(lib.contains("struct LeverRoom"));
         let manifest = std::fs::read_to_string(dir.join("game/Cargo.toml")).unwrap();
         assert!(manifest.contains("name = \"my_game\""));
+        assert!(
+            !manifest.contains("//?/"),
+            "cargo rejects verbatim paths: {manifest}"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

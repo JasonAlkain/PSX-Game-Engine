@@ -59,6 +59,7 @@ pub struct DrawUniforms {
     pub params: [f32; 4],
     pub emissive: [f32; 4],
     pub skin: [f32; 4],
+    pub uv_tile: [f32; 4],
 }
 
 /// One skinned draw's joints. Must match `JointPalette` in
@@ -252,6 +253,10 @@ impl DrawUniforms {
                 0.0,
             ],
             skin: [0.0; 4],
+            uv_tile: match material.uv_tile {
+                Some([x, y, z]) => [x, y, z, 1.0],
+                None => [1.0, 1.0, 1.0, 0.0],
+            },
         }
     }
 }
@@ -1140,6 +1145,7 @@ mod tests {
                 ("params", offset_of!(DrawUniforms, params)),
                 ("emissive", offset_of!(DrawUniforms, emissive)),
                 ("skin", offset_of!(DrawUniforms, skin)),
+                ("uv_tile", offset_of!(DrawUniforms, uv_tile)),
             ],
         );
         check_layout(

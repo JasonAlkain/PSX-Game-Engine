@@ -29,7 +29,8 @@ pub use components::{
 pub use file::{SceneFileError, load_scene, parse_scene, save_scene, scene_to_json};
 pub use history::History;
 pub use scene::{
-    AlphaSetting, CameraStart, Entity, MaterialOverride, MeshComponent, MeshSource, PrimitiveShape,
-    Scene, SceneLighting, SceneProblem, SceneSettings,
+    AlphaSetting, CameraStart, DEFAULT_TILE_SIZE, Entity, MAX_TILE_SIZE, MIN_TILE_SIZE,
+    MaterialOverride, MeshComponent, MeshSource, PrimitiveShape, Scene, SceneLighting,
+    SceneProblem, SceneSettings,
 };
 pub use transform::{Transform, euler_deg_to_quat, quat_to_euler_deg};

@@ -36,6 +36,7 @@ impl GameTarget {
     pub fn for_project(project: &Project) -> Result<GameTarget, String> {
         let manifest = project.root.join(GAME_DIR).join("Cargo.toml");
         if manifest.is_file() {
+            repair_manifest_paths(&manifest);
             let manifest = std::path::absolute(&manifest).map_err(|e| e.to_string())?;
             return Ok(GameTarget::Crate { manifest });
         }
@@ -364,4 +365,57 @@ pub fn write_schema_cache(project: &Project, schema: &serde_json::Value) -> Resu
 /// Whether `dir` looks like the engine source tree (for `copperframe new`).
 pub fn is_engine_root(dir: &Path) -> bool {
     dir.join("crates/copperframe_game/Cargo.toml").is_file()
+}
+
+/// Removes the Windows verbatim prefix from the paths in a game crate's
+/// manifest. Earlier versions wrote `//?/D:/...` on Windows, which cargo
+/// refuses to parse, so projects created by them could not build. Failures
+/// are left for cargo to report.
+fn repair_manifest_paths(manifest: &Path) {
+    let Ok(text) = std::fs::read_to_string(manifest) else {
+        return;
+    };
+    if let Some(fixed) = without_verbatim_paths(&text) {
+        let _ = copperframe_core::fsutil::atomic_write(manifest, fixed.as_bytes());
+    }
+}
+
+/// The manifest text with verbatim path prefixes removed, if it has any.
+fn without_verbatim_paths(text: &str) -> Option<String> {
+    text.contains("'//?/")
+        .then(|| text.replace("'//?/UNC/", "'//").replace("'//?/", "'"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verbatim_manifest_paths_are_repaired() {
+        let broken = "a = { path = '//?/D:/Game Engines/x/crates/a' }\n\
+                      b = { path = '//?/UNC/server/share/crates/b' }\n";
+        assert_eq!(
+            without_verbatim_paths(broken).unwrap(),
+            "a = { path = 'D:/Game Engines/x/crates/a' }\n\
+             b = { path = '//server/share/crates/b' }\n"
+        );
+        assert_eq!(without_verbatim_paths("a = { path = 'D:/x' }\n"), None);
+    }
+
+    #[test]
+    fn finding_the_game_crate_repairs_its_manifest() {
+        let dir = std::env::temp_dir().join(format!("cf_repair_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let project = Project::create(&dir, "Repair").unwrap();
+        let manifest = dir.join(GAME_DIR).join("Cargo.toml");
+        std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        std::fs::write(&manifest, "a = { path = '//?/D:/x' }\n").unwrap();
+        GameTarget::for_project(&project).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&manifest).unwrap(),
+            "a = { path = 'D:/x' }\n"
+        );
+        drop(project);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
