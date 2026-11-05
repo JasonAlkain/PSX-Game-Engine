@@ -186,7 +186,12 @@ impl FrameUniforms {
                 },
             ],
             options: [0.0; 4],
-            shadow_params: [style.shadows.opacity.clamp(0.0, 1.0), 0.0, 0.0, 0.0],
+            shadow_params: [
+                style.shadows.opacity.clamp(0.0, 1.0),
+                affine_correction(style),
+                0.0,
+                0.0,
+            ],
             lights: [[0.0; 4]; 2 * MAX_LOCAL_LIGHTS],
             blobs: [[0.0; 4]; MAX_BLOB_SHADOWS],
         }
@@ -222,6 +227,18 @@ impl FrameUniforms {
             blobs.len() as f32,
         ];
         self
+    }
+}
+
+/// The affine correction distance the shader uses. Never zero, so the
+/// shader can divide by it; a tiny value is indistinguishable from pure
+/// affine mapping.
+fn affine_correction(style: &RetroStyle) -> f32 {
+    let d = style.affine_uv.correction_distance;
+    if d.is_finite() {
+        d.clamp(1.0e-4, 1000.0)
+    } else {
+        1.0e-4
     }
 }
 
@@ -1193,7 +1210,7 @@ mod tests {
     }
 
     #[test]
-    fn affine_varying_uses_linear_interpolation() {
+    fn affine_varying_is_depth_weighted() {
         let module = parse(SCENE_SHADER);
         let vs = module
             .entry_points
@@ -1214,7 +1231,9 @@ mod tests {
                 _ => panic!("{name} has no location"),
             }
         };
-        assert_eq!(interp("uv_affine"), Some(naga::Interpolation::Linear));
+        // Affine mapping comes from the weights in `affine_weight`, so the
+        // varying itself is perspective-interpolated (and clipped correctly).
+        assert_eq!(interp("uv_affine"), Some(naga::Interpolation::Perspective));
         assert_eq!(
             interp("uv_perspective"),
             Some(naga::Interpolation::Perspective)
@@ -1229,6 +1248,7 @@ mod tests {
         let u = FrameUniforms::new(&cam, &Lighting::default(), &style, (320, 240));
         assert_eq!(u.snap, [320.0, 240.0, 1.0, 1.0]);
         assert_eq!(u.options[0], 1.0);
+        assert_eq!(u.shadow_params[1], 2.0);
         assert_eq!(u.fog_color[3], 1.0);
         style.vertex_snap.enabled = false;
         style.affine_uv.enabled = false;

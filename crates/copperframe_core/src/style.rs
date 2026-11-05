@@ -174,6 +174,23 @@ pub struct VertexSnap {
 #[serde(deny_unknown_fields)]
 pub struct AffineUv {
     pub enabled: bool,
+    /// Distance from the camera, in metres, inside which affine warping is
+    /// corrected. Triangles entirely beyond it warp like the PS1; vertices
+    /// closer than it are perspective-correct, so walking up to a large
+    /// polygon no longer swims the texture across it. 0.0 warps everywhere,
+    /// as raw PS1 hardware did with untessellated polygons.
+    #[serde(default = "AffineUv::default_correction_distance")]
+    pub correction_distance: f32,
+}
+
+impl AffineUv {
+    /// The correction distance used by the presets and by older files that
+    /// predate the setting.
+    pub const DEFAULT_CORRECTION_DISTANCE: f32 = 2.0;
+
+    fn default_correction_distance() -> f32 {
+        Self::DEFAULT_CORRECTION_DISTANCE
+    }
 }
 
 /// Quantise output colour to `bits` per RGB channel (in sRGB-encoded space).
@@ -257,7 +274,10 @@ impl RetroStyle {
                 grid: 1.0,
                 strength: 1.0,
             },
-            affine_uv: AffineUv { enabled: true },
+            affine_uv: AffineUv {
+                enabled: true,
+                correction_distance: AffineUv::DEFAULT_CORRECTION_DISTANCE,
+            },
             color_reduction: ColorReduction {
                 enabled: true,
                 bits: 5,
@@ -372,6 +392,13 @@ impl RetroStyle {
             if !(v.is_finite() && (0.0..=1.0).contains(&v)) {
                 return invalid(field, format!("{v} is outside 0..=1"));
             }
+        }
+        let d = self.affine_uv.correction_distance;
+        if !(d.is_finite() && (0.0..=1000.0).contains(&d)) {
+            return invalid(
+                "affine_uv.correction_distance",
+                format!("{d} is outside 0..=1000"),
+            );
         }
         let bits = self.color_reduction.bits;
         if !(1..=8).contains(&bits) {

@@ -32,7 +32,8 @@ struct FrameUniforms {
     // x: 1.0 when affine UVs are enabled for this view, y: 1.0 for
     // per-pixel lighting, z: local light count, w: blob shadow count.
     options: vec4<f32>,
-    // x: blob shadow opacity. yzw unused.
+    // x: blob shadow opacity. y: affine correction distance in metres
+    // (always > 0). zw unused.
     shadow_params: vec4<f32>,
     // Point lights, two entries each: (position.xyz, range) and
     // (linear colour × intensity, unused).
@@ -82,8 +83,9 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     // Perspective-correct UVs (default interpolation).
     @location(0) uv_perspective: vec2<f32>,
-    // The same UVs interpolated linearly in screen space (affine mapping).
-    @location(1) @interpolate(linear) uv_affine: vec2<f32>,
+    // The same UVs for affine mapping: (uv * k, k), perspective-interpolated,
+    // divided in the fragment shader. See `affine_weight`.
+    @location(1) uv_affine: vec3<f32>,
     @location(2) color_smooth: vec4<f32>,
     // Lighting from the provoking (first) vertex: flat shading.
     @location(3) @interpolate(flat) color_flat: vec4<f32>,
@@ -180,6 +182,18 @@ fn tiled_uv(uv: vec2<f32>, normal: vec3<f32>) -> vec2<f32> {
     return uv * draw.uv_tile.xy;
 }
 
+// Weight that turns perspective-correct interpolation into PS1-style affine
+// interpolation beyond the correction distance D. Interpolating (uv * k, k)
+// with perspective correction and dividing gives sum(l * uv / w') /
+// sum(l / w') with w' = w / k = min(w, D): vertices nearer than D are
+// weighted by their true depth (perspective-correct), vertices beyond it all
+// share depth D (affine). Large polygons far away keep the PS1 swim, while a
+// polygon the camera is right up against no longer warps without bound.
+// k is 1 on and behind the camera plane, so near-plane clipping stays sane.
+fn affine_weight(w: f32) -> f32 {
+    return max(1.0, w / frame.shadow_params.y);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var local_position = vec4<f32>(in.position, 1.0);
@@ -206,7 +220,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.clip_position = snap_vertex(frame.view_proj * world);
     let uv = tiled_uv(in.uv, in.normal);
     out.uv_perspective = uv;
-    out.uv_affine = uv;
+    let k = affine_weight(out.clip_position.w);
+    out.uv_affine = vec3<f32>(uv * k, k);
     out.color_smooth = color;
     out.color_flat = color;
     out.world_position = world.xyz;
@@ -220,7 +235,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // they come before any branch.
     let face = normalize(cross(dpdx(in.world_position), dpdy(in.world_position)));
     let affine = frame.options.x > 0.5 && draw.params.w > 0.5;
-    let uv = select(in.uv_perspective, in.uv_affine, affine);
+    let uv = select(in.uv_perspective, in.uv_affine.xy / in.uv_affine.z, affine);
     let texel = textureSample(base_texture, base_sampler, uv);
 
     let flat_shading = draw.params.z > 0.5;

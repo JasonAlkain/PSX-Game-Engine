@@ -278,10 +278,33 @@ fn affine_uvs_interpolate_in_screen_space() {
     style.atmosphere.background = [0, 0, 255];
     let perspective = h.render(&style, &cam, &[floor_at(true)], size, size, None);
     style.affine_uv.enabled = true;
+    // No correction: classic PS1 affine mapping everywhere.
+    style.affine_uv.correction_distance = 0.0;
     let affine = h.render(&style, &cam, &[floor_at(true)], size, size, None);
     let opted_out = h.render(&style, &cam, &[floor_at(false)], size, size, None);
+    // Correction beyond the whole floor: affine is on but nothing warps.
+    style.affine_uv.correction_distance = 100.0;
+    let corrected = h.render(&style, &cam, &[floor_at(true)], size, size, None);
+    // Part way: the near end is weighted by its true depth, the far end by
+    // the correction distance, so the boundary sits where
+    // s / w1' = (1 - s) / w0' with w' = min(w, D).
+    let d = 3.0;
+    style.affine_uv.correction_distance = d;
+    let partial = h.render(&style, &cam, &[floor_at(true)], size, size, None);
     perspective.save_ppm("uv_perspective.ppm");
     affine.save_ppm("uv_affine.ppm");
+    partial.save_ppm("uv_affine_corrected.ppm");
+
+    let depth = |p: Vec3| (cam.view_projection(1.0) * p.extend(1.0)).w;
+    let w0 = depth(Vec3::new(0.0, -1.0, -1.0)).min(d);
+    let w1 = depth(Vec3::new(0.0, -1.0, -9.0)).min(d);
+    let s = w1 / (w0 + w1);
+    let partial_expected = near + (far - near) * s;
+    assert!(
+        (partial_expected - affine_expected).abs() > 3.0
+            && (partial_expected - perspective_expected).abs() > 3.0,
+        "the partial case must be distinguishable from both ends"
+    );
 
     let check = |name: &str, img: &Image, expected: f32| {
         let row = boundary_row(img) as f32;
@@ -293,6 +316,8 @@ fn affine_uvs_interpolate_in_screen_space() {
     check("perspective", &perspective, perspective_expected);
     check("affine", &affine, affine_expected);
     check("material opted out", &opted_out, perspective_expected);
+    check("fully corrected", &corrected, perspective_expected);
+    check("partly corrected", &partial, partial_expected);
 }
 
 /// Unlit quad filling the view with a horizontal black-to-white gradient.
