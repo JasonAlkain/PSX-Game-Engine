@@ -62,7 +62,7 @@ make the window a multiple of the internal resolution.
 ## Scenes and the editor
 
 **A magenta and black checker cube.** The entity's asset is missing or failed
-to import. Check the Assets tab and the Console; run **Build > Validate
+to import. Check the Assets panel and the Console; run **Build > Validate
 Project**.
 
 **`copperframe apply` exits with code 3.** Either the editor has the project
@@ -84,7 +84,7 @@ its schema. Build errors appear in the Console.
 **Changed an asset file but the editor shows the old one.** The editor
 reimports changed files that are in the scene within a second or two of
 the last write. If a program keeps the file open or writes it somewhere
-else first, click **Reimport** in the Assets tab.
+else first, click **Reimport** in the Assets panel.
 
 **"Rust is needed for this project".** The project has a `game/` crate
 and Rust is not installed. Install it from [rustup.rs](https://rustup.rs),

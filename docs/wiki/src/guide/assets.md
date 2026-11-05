@@ -114,7 +114,7 @@ audio source.
 ## When an import fails
 
 Importers never crash the editor. A broken or unsupported file shows as
-*failed* in the Assets tab with a message in the Console, and entities
+*failed* in the Assets panel with a message in the Console, and entities
 using it draw as a magenta and black checker cube so they stay visible and
 selectable. If a reimport fails after an earlier success, the last good
 version stays on screen.

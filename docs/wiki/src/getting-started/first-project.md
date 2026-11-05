@@ -49,7 +49,8 @@ player with the built-in behaviours only.
 The editor shows the scene in the PS1 style. Try:
 
 - **Create > Cube** to add another cube in front of the camera;
-- drag the coloured gizmo arrows to move it;
+- drag the coloured gizmo arrows to move it, or press `W` to rotate and `E` to
+  scale (`Q` goes back to moving);
 - hold the right mouse button and use `W` `A` `S` `D` `Q` `E` to fly;
 - press `Ctrl+S` to save.
 
@@ -92,7 +93,7 @@ See [Asset pipeline](../guide/assets.md).
 
 ## 6. Choose the look
 
-Select nothing to see **Scene settings** in the inspector. Click **PS1**,
+Open the **Scene settings** tab next to the inspector. Click **PS1**,
 **PS2** or **Clean**, or turn individual effects on and off. See
 [PS1 and PS2 style settings](../guide/style.md).
 

@@ -40,6 +40,8 @@ pollster = "1.0"
 egui = { version = "0.37.0", features = ["default_fonts"] }
 egui-wgpu = { version = "0.37.0", default-features = false }
 egui-winit = { version = "0.37.0", default-features = false, features = ["clipboard", "links", "wayland", "x11"] }
+# Dockable editor panels. egui_dock has no release for egui 0.37 yet.
+egui_tiles = { version = "0.18.0", features = ["serde"] }
 
 # Project data: style settings (Milestone 2), scenes, project and asset metadata (Milestone 3)
 serde = { version = "1.0", features = ["derive"] }

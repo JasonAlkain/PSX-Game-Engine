@@ -6,17 +6,31 @@
 //! `pixels_per_point` before calling into this module, so DPI scaling is
 //! handled in one place.
 //!
-//! The 3D image is letterboxed inside the viewport panel by the style's fit
-//! policy, and rendered at the internal resolution. Picking maps a pixel in
-//! the letterboxed image rectangle to normalised device coordinates; the
-//! internal resolution does not matter because it has the same aspect
-//! ratio as that rectangle. Clicks on the bars pick nothing. Vertex snapping
-//! moves drawn vertices by under one internal pixel and is ignored.
+//! The 3D image either fills the panel ([`ViewFrame::Fill`], the internal size
+//! follows the panel's shape) or is letterboxed by the style's fit policy
+//! ([`ViewFrame::Game`]). Picking maps a pixel in the image rectangle to
+//! normalised device coordinates; the internal resolution does not matter
+//! because it has the same aspect ratio as that rectangle. Clicks on the bars
+//! pick nothing. The style's vertex snapping moves drawn vertices by under
+//! one internal pixel and is ignored.
 
 use copperframe_core::RetroStyle;
 use copperframe_render::{Camera, Rect, ViewLayout};
 use copperframe_scene::CameraStart;
 use glam::{Mat4, Vec2, Vec3, Vec4Swizzles};
+use serde::{Deserialize, Serialize};
+
+/// How the image is placed in the viewport panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ViewFrame {
+    /// The image covers the panel. The internal size follows the panel's
+    /// shape, so a wide panel shows more of the scene.
+    #[default]
+    Fill,
+    /// Exactly what the game's window shows: the style's internal size and
+    /// fit policy, with bars around it.
+    Game,
+}
 
 /// The viewport panel and the image placed inside it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,7 +44,24 @@ pub struct ViewportGeometry {
 }
 
 impl ViewportGeometry {
-    pub fn new(panel: Rect, style: &RetroStyle) -> Option<Self> {
+    pub fn new(panel: Rect, style: &RetroStyle, frame: ViewFrame) -> Option<Self> {
+        if frame == ViewFrame::Fill {
+            if panel.is_empty() {
+                return None;
+            }
+            // Keep at least the style's line count, in whole-number blocks.
+            let internal = if style.low_res.enabled {
+                let scale = (panel.height / style.low_res.height.max(1)).max(1);
+                (panel.width.div_ceil(scale), panel.height.div_ceil(scale))
+            } else {
+                (panel.width, panel.height)
+            };
+            return Some(Self {
+                panel,
+                internal,
+                image: panel,
+            });
+        }
         let layout = ViewLayout::for_style((panel.width, panel.height), style)?;
         let r = layout.placement.rect;
         Some(Self {
@@ -193,12 +224,68 @@ mod tests {
             width: 1000,
             height: 600,
         };
-        let g = ViewportGeometry::new(panel, &RetroStyle::ps1()).unwrap();
+        let g = ViewportGeometry::new(panel, &RetroStyle::ps1(), ViewFrame::Game).unwrap();
         let cam = Camera {
             position: Vec3::new(0.0, 0.0, 5.0),
             ..Camera::default()
         };
         (g, cam.view_projection(g.aspect()), cam)
+    }
+
+    #[test]
+    fn fill_covers_the_panel_with_whole_number_blocks() {
+        let panel = Rect {
+            x: 200,
+            y: 50,
+            width: 1366,
+            height: 740,
+        };
+        let style = RetroStyle::ps1();
+        let g = ViewportGeometry::new(panel, &style, ViewFrame::Fill).unwrap();
+        assert_eq!(g.image, panel, "no bars");
+        // 740 lines hold 240 three times.
+        assert_eq!(g.internal, (456, 247));
+        assert!(
+            (g.aspect() - 1366.0 / 740.0).abs() < 0.01,
+            "follows the panel"
+        );
+        // A panel shorter than the style's lines never scales the image down.
+        let small = Rect {
+            height: 100,
+            width: 300,
+            ..panel
+        };
+        let g = ViewportGeometry::new(small, &style, ViewFrame::Fill).unwrap();
+        assert_eq!(g.internal, (300, 100));
+        // Low resolution off: native pixels.
+        let mut native = style.clone();
+        native.low_res.enabled = false;
+        let g = ViewportGeometry::new(panel, &native, ViewFrame::Fill).unwrap();
+        assert_eq!(g.internal, (1366, 740));
+        // No area: nothing to draw.
+        let empty = Rect { width: 0, ..panel };
+        assert!(ViewportGeometry::new(empty, &style, ViewFrame::Fill).is_none());
+    }
+
+    #[test]
+    fn picking_covers_all_of_a_filled_panel() {
+        let panel = Rect {
+            x: 10,
+            y: 20,
+            width: 900,
+            height: 500,
+        };
+        let g = ViewportGeometry::new(panel, &RetroStyle::ps1(), ViewFrame::Fill).unwrap();
+        let corner = g.pixel_to_ndc(Vec2::new(10.0, 20.0)).unwrap();
+        assert!(corner.abs_diff_eq(Vec2::new(-1.0, 1.0), 1e-6));
+        let cam = Camera {
+            position: Vec3::new(0.0, 0.0, 5.0),
+            ..Camera::default()
+        };
+        let vp = cam.view_projection(g.aspect());
+        let p = Vec3::new(1.2, -0.4, 0.0);
+        let (o, d) = g.ray(vp, g.project(vp, p).unwrap()).unwrap();
+        assert!((o + d * (p - o).dot(d)).distance(p) < 1e-3);
     }
 
     #[test]

@@ -29,7 +29,7 @@ game: hecs, rapier3d, kira  the editor and CLI never link game; they run a
 | `copperframe_assets` | `Project`, editor lock, asset `.meta.json` sidecars, `AssetDatabase`, glTF (static and skinned, with clips), PNG/JPEG and WAV/OGG import, `anim` (skeletons, poses, clip sampling, blending), project validation, `GameTarget` (find/build/run a project's game), `export` (standalone folder), test fixtures | Cooked asset cache |
 | `copperframe_render` | `GpuContext`, `Presenter`, `RetroRenderer` (scene + composite passes), `RenderView`, `Material`, layout/fit policy, `Camera`, `MeshData` (cube, quad, plane, sphere), `TextureData`, WGSL | PS2 extensions, sprites |
 | `copperframe_runtime` | winit `ApplicationHandler`, `InputState`, `FlyCamera`, comparison scene, style key controls, logging, `scene_gpu::SceneResources` (GPU assets for a scene, fallbacks, picking) | Gameplay scheduling, physics/audio integration |
-| `copperframe_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), Build menu jobs (validate, export, test script, benchmark), project hub (recent projects, new project from a template), `assets/`+`scenes/` folder watcher, `copperframe_editor` binary | More gizmos |
+| `copperframe_editor` | `EditorSession` (scene + history + assets + save/reload), egui UI in dockable panels, toolbar, move/rotate/scale gizmos with grid, vertex and model snapping, asset browser, viewport geometry and picking rays, editor camera, collider wireframes, gameplay inspectors, Play/Stop (child process), Build menu jobs (validate, export, test script, benchmark), project hub (recent projects, new project from a template), `assets/`+`scenes/` folder watcher, `copperframe_editor` binary | |
 | `copperframe_game` | Gameplay API (`Game`, `Behavior`, `Registry`), `Simulation` (hecs world from a scene), input actions, rapier3d physics, kira audio, built-in `psx.*` behaviours, windowed player (menus, HUD, settings, saves), headless script runner, `copperframe_game::main` launcher, `animation` (per-entity clip playback and crossfades) | |
 | `apps/copperframe_player` | Stock player: `copperframe_game::main` with only engine behaviours, for projects without a game crate | |
 | `apps/copperframe_cli` | `copperframe` binary: `new` (templates and game crate from `copperframe_assets::template`), `schema`, `validate`, `import`, `inspect`, `apply`, `test-scene`, `build` | |
@@ -45,6 +45,8 @@ The editor is a library so its session logic is tested without a window.
 | `wgpu` / `naga` | 30.0.x | Latest; required by `egui-wgpu` 0.37 |
 | `winit` | 0.30.13 | `egui-winit` 0.37 requires `^0.30.13`; 0.31 is still beta |
 | `egui`, `egui-wgpu`, `egui-winit` | 0.37 | Editor UI; compatible with the two rows above. `egui` uses `default_fonts`; `egui-wgpu` without default features |
+| `egui_tiles` | 0.18 (`serde`) | Dockable editor panels. `egui_dock` has no release for egui 0.37 yet |
+| `dunce` | 1.0 | Canonical paths without the Windows verbatim prefix, which cargo rejects in manifests |
 | `glam` | 0.34 (`serde`) | Latest; projection helpers live in `glam::camera`; vectors serialise as arrays |
 | `uuid` | 1.x (`v4`, `serde`) | Persistent IDs |
 | `gltf` | 1.4 (`import`, `utils`, `names`, `KHR_materials_unlit`) | glTF document parsing; buffers and URIs are resolved by our own bounded code |
@@ -382,9 +384,26 @@ both faces). The nearest hit wins.
 ## Editor
 
 `copperframe_editor` runs winit + egui (egui-winit, egui-wgpu). Each frame the world
-renders through `RetroRenderer` into the viewport rectangle (the central
-egui area), then egui draws on top using a non-sRGB view of the swapchain
+renders through `RetroRenderer` into the Viewport panel's rectangle, then egui
+draws on top using a non-sRGB view of the swapchain
 (`Presenter::overlay_format`) because egui outputs gamma-space colours.
+
+Panels live in an `egui_tiles` tree (`dock.rs`). Every panel paints its own
+background except the Viewport, which must stay transparent because the image
+is underneath egui; if the Viewport is closed or behind another tab, nothing
+is rendered. Closing a panel hides its tile, so it reopens in place. The
+layout and `ToolPrefs` are saved to `editor_layout.json` in the engine's data
+folder (`format: copperframe_editor_layout`, `version: 1`) when a project
+closes; an unreadable or newer file falls back to the defaults, because it is a
+convenience and must never stop the editor opening.
+
+The Viewport defaults to `ViewFrame::Fill`: the internal size follows the
+panel's shape at a whole-number block size, keeping at least the style's line
+count. This lives in `ViewportGeometry`, not `ViewLayout`: the game's own
+presentation is unchanged and `ViewFrame::Game` shows it. `ViewLook::Sharp`
+derives a style for the view only and never writes the scene. Transform tool
+maths and snapping are in `gizmo.rs`, free of egui; every gizmo edit is a
+`Command::SetTransform`, merged per drag.
 `EditorSession` owns the scene, history, asset database and log; the UI only
 issues commands through it. While open the editor holds
 `<project>/.psx/editor.lock` (its pid, under an exclusive OS file lock); a

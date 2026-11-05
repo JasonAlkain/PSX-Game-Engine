@@ -71,7 +71,7 @@ Makes the entity solid or a trigger.
 | `friction` | 0–10 (default 0.5) |
 
 Collider sizes are multiplied by the entity's world scale. Colliders of
-skinned models use the model's rest pose. Turn on **Edit > Show colliders**
+skinned models use the model's rest pose. Turn on **Colliders** in the toolbar
 to see them as wireframes.
 
 ### Audio source

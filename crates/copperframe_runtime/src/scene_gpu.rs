@@ -173,10 +173,13 @@ pub struct SceneResources {
 /// Unit shapes as described by [`PrimitiveShape`].
 pub fn primitive_mesh(shape: PrimitiveShape) -> MeshData {
     match shape {
-        PrimitiveShape::Cube => MeshData::cube(1.0).with_color([1.0; 4]),
+        // Flat faces are divided because entities scale these shapes up to
+        // whole floors and walls, where one quad would warp badly under
+        // affine UVs.
+        PrimitiveShape::Cube => MeshData::cube_divided(1.0, 4).with_color([1.0; 4]),
         PrimitiveShape::Plane => MeshData::plane(1.0, 1.0, (4, 4), (1.0, 1.0)),
         PrimitiveShape::Sphere => MeshData::sphere(0.5, 16, 10),
-        PrimitiveShape::Quad => MeshData::quad(1.0, 1.0),
+        PrimitiveShape::Quad => MeshData::quad_divided(1.0, 1.0, 4),
     }
 }
 

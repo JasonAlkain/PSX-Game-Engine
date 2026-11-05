@@ -1,6 +1,31 @@
 # Status
 
-Last updated: 2026-11-03 (editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+Last updated: 2026-11-04 (dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 runtime checks outstanding).
+
+## Editor layout and tools (2026-11-04)
+
+Panels are dockable, resizable and closable (`egui_tiles`), with a **Window**
+menu and a saved layout; **Scene settings** is its own panel. A toolbar holds
+the Move/Rotate/Scale tools (Q/W/E, with rotate and scale gizmos new), World /
+Local axes, Frame, grid snap steps, vertex snap (hold V) and model snap, view
+options and Play/Stop. The viewport fills its panel (**Game frame** keeps the
+old letterboxed view) and **Sharp** views the scene without the retro effects.
+The Assets panel is now a browser with folders, tiles, texture thumbnails,
+search and drag into the viewport. The editor has a copper theme.
+
+Cube and quad primitives are split into 4×4 quads per face, because entities
+scale them up to whole walls and one quad warped badly under affine UVs. The
+room's reference images still pass unchanged.
+
+Game crates created on Windows no longer get `//?/` paths, and existing ones
+are repaired when their game target is resolved.
+
+Verified on Windows 11 (NVIDIA, Vulkan) in the running editor on a copy of the
+Lever Room: selecting, Q/W/E, moving, rotating, scaling, undo, closing and
+reopening a panel, docking a tab elsewhere, vertex snap, model snap, Sharp, Game
+frame, the grid, asset folders, thumbnails and dropping a model in the viewport.
+The layout was seen to persist between runs. A copy of a project with the
+`//?/` manifest repaired itself, built and passed its walkthrough.
 
 ## Editor-only workflow (2026-11-03)
 

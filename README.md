@@ -108,7 +108,7 @@ this engine checkout (so keep the checkout where it is) and a starter scene
 you can play at once; `--no-game` skips it and the project then plays in the
 stock `copperframe_player` with engine behaviours only. Copy `.gltf`/`.glb` models,
 `.png`/`.jpg` textures and `.wav`/`.ogg` sounds into `assets/`; the editor's
-Assets tab (or `copperframe import`) registers them.
+Assets panel (or `copperframe import`) registers them.
 
 **Play** (or `F5`) builds and runs the game in its own window on a copy of
 the current scene, unsaved edits included; the authored scene file is never
@@ -122,7 +122,7 @@ Editor controls:
 | Input | Action |
 | --- | --- |
 | Left click in the viewport | select (click empty space to clear) |
-| Drag a gizmo arrow | move the selection along X (red), Y (green) or Z (blue); with Edit > Snap on, moves in steps (0.25 m by default) |
+| `Q` / `W` / `E` | move / rotate / scale tool: drag the gizmo in the viewport; grid, vertex (hold `V`) and model snapping are in the toolbar |
 | Right mouse drag | look; with `W` `A` `S` `D` `E` `Q` to fly, `Shift` faster |
 | Mouse wheel | dolly |
 | `Ctrl+S` | save |
@@ -133,7 +133,7 @@ The hierarchy panel selects; the inspector's parent box reparents (keeping
 the world position). The inspector edits name, transform
 (position, Euler rotation in degrees, scale), mesh and material overrides,
 collider (shape, body type, sensor, layer, mass, friction; drawn as
-wireframes, toggle in Edit > Show colliders), audio source and behaviours
+wireframes, toggle in the toolbar), audio source and behaviours
 (fields come from the game's schema; "Reload" rebuilds and re-reads it);
 Scene settings edit the style preset, lighting and camera start. The editor
 holds `.psx/editor.lock` while open, warns before closing with unsaved
