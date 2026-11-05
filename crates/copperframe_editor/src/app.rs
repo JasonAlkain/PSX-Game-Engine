@@ -375,6 +375,22 @@ impl Running {
             }
             Action::Reimport(id) => self.reimport(id),
             Action::AssetsChanged => self.resources.retry_unloaded(),
+            Action::NewScene {
+                path,
+                name,
+                template,
+            } => {
+                let Some(ws) = self.workspace.as_mut() else {
+                    return;
+                };
+                if let Err(e) = ws.session.new_scene_at(&path, &name, template) {
+                    ws.session.error(e);
+                    return;
+                }
+                ws.session
+                    .info(format!("created {}", ws.session.project.relative(&path)));
+                self.handle(Action::OpenScene(path), event_loop);
+            }
             Action::OpenScene(path) => {
                 let Some(ws) = self.workspace.as_mut() else {
                     return;

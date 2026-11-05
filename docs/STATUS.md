@@ -1,6 +1,25 @@
 # Status
 
-Last updated: 2026-11-05 (hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-05 (scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Scene workflow (2026-11-05, v0.7.0)
+
+New Scene (Ctrl+N, File menu, Assets panel Create and right-click) with a
+name, folder and template (Empty or Basic), never overwriting a file and
+asking about unsaved changes first; Save Scene As (Ctrl+Shift+S, new scene
+ID, keeps editing the copy); Open Scene > Browse… and Recent Scenes
+(`.psx/recent_scenes.json`). The Assets panel lists scenes under a
+`scenes` root and a Scenes filter: double-click opens, right-click renames,
+deletes (to `.psx/deleted/`) or sets the start scene, drag onto a folder
+moves. Renames and moves update the start scene, recent list and
+behaviour parameters equal to the old path in every scene. The Hierarchy
+header shows the open scene and an unsaved marker.
+
+Verified on Linux (Xvfb): Ctrl+N with the Basic template, the Scenes
+filter, the unsaved prompt on double-click (Save, then switch), the Save As
+dialog. `session::tests::scenes_save_as_move_delete_and_keep_references`
+covers the file operations and reference updates. Not yet verified on
+Windows 11 (including the Browse… file dialog).
 
 ## Hierarchy panel (2026-11-05, v0.6.0)
 
