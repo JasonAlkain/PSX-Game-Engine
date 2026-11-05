@@ -325,6 +325,7 @@ impl PaneContents for Panes<'_> {
                     &mut self.state.audio,
                 );
             }
+            Pane::Problems => crate::scripting::problems_panel(ui, self.session, self.tools),
             Pane::Console => console(ui, self.session),
             Pane::ProjectSettings => {
                 self.state
@@ -375,7 +376,9 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         });
     egui::Panel::bottom("status")
         .resizable(false)
-        .show(ui, |ui| status_bar(ui, session, state));
+        .show(ui, |ui| {
+            status_bar(ui, session, state, tools.problems.len())
+        });
     let ppp = ui.ctx().pixels_per_point();
     let mut viewport = None;
     egui::CentralPanel::no_frame().show(ui, |ui| {
@@ -403,6 +406,11 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
         }
         state.dock = dock;
     });
+    if std::mem::take(&mut tools.problems.arrived)
+        | std::mem::take(&mut state.project_settings.open_problems)
+    {
+        state.open_pane = Some(Pane::Problems);
+    }
     if std::mem::take(&mut state.project_settings.open_mixer) {
         state.open_pane = Some(Pane::AudioMixer);
     }
@@ -427,6 +435,7 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
 
     modals(ui.ctx(), session, state, &mut actions);
     build_dialogs(ui.ctx(), session, tools);
+    crate::scripting::new_script_dialog(ui.ctx(), session, tools);
     crate::snap_settings::show(ui.ctx(), session, state);
     state.reporting.show(ui.ctx(), session);
     UiOutput { viewport, actions }
@@ -618,6 +627,26 @@ fn menu_bar(
             }
             if ui.button("Reload behaviour kinds").clicked() {
                 tools.refresh_schema(session);
+            }
+            ui.separator();
+            if ui
+                .add_enabled(
+                    session.project.file.scripting.lua,
+                    egui::Button::new("New Lua script…"),
+                )
+                .on_disabled_hover_text("Lua is off: Project settings > Scripting")
+                .clicked()
+            {
+                tools.new_script = Some(crate::scripting::NewScript::new(session.selection));
+            }
+            let n = tools.problems.len();
+            let label = if n == 0 {
+                "Problems".to_owned()
+            } else {
+                format!("Problems ({n})")
+            };
+            if ui.button(label).clicked() {
+                state.dock.set_open(Pane::Problems, true);
             }
         });
         ui.menu_button("Build", |ui| build_menu(ui, session, state, tools));
@@ -929,8 +958,20 @@ fn build_dialogs(ctx: &egui::Context, session: &mut EditorSession, tools: &mut G
     }
 }
 
-fn status_bar(ui: &mut egui::Ui, session: &EditorSession, state: &UiState) {
+fn status_bar(ui: &mut egui::Ui, session: &EditorSession, state: &mut UiState, problems: usize) {
     ui.horizontal(|ui| {
+        if problems > 0 {
+            let text = egui::RichText::new(format!("{problems} script problem(s)"))
+                .color(level_color(LogLevel::Warning));
+            if ui
+                .add(egui::Button::new(text).frame(false))
+                .on_hover_text("Show the Problems panel")
+                .clicked()
+            {
+                state.open_pane = Some(Pane::Problems);
+            }
+            ui.separator();
+        }
         let dirty = if session.is_dirty() { " * unsaved" } else { "" };
         ui.label(format!(
             "{} — {} (revision {}){dirty}",

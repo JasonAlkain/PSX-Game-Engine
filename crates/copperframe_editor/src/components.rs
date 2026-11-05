@@ -419,6 +419,8 @@ fn card(
 enum AddAction {
     Run(Command),
     LoadBehaviourKinds,
+    /// Opens the New Lua script dialog for this entity.
+    NewScript,
 }
 
 /// One leaf of the Add component menu.
@@ -641,6 +643,16 @@ fn entries(
             });
         }
     }
+    if session.project.file.scripting.lua {
+        out.push(Entry {
+            help: "Creates a Lua script in scripts/ from a template and adds it here".into(),
+            ..Entry::new(
+                &["Behaviours", "Scripts"],
+                "New Lua script…",
+                Ok(AddAction::NewScript),
+            )
+        });
+    }
     out
 }
 
@@ -731,6 +743,9 @@ fn add_component_button(
             session.execute(cmd);
         }
         Some(AddAction::LoadBehaviourKinds) => tools.refresh_schema(session),
+        Some(AddAction::NewScript) => {
+            tools.new_script = Some(crate::scripting::NewScript::new(Some(id)));
+        }
         None => {}
     }
 }

@@ -159,6 +159,14 @@ pub fn report(status: &PlayStatus) {
     println!("{}", status.to_line());
 }
 
+/// Writes a script problem for the editor's Problems panel to stdout.
+pub fn report_problem(problem: &copperframe_assets::scripts::ScriptDiagnostic) {
+    println!(
+        "{}",
+        copperframe_assets::play_control::ProblemReport::new(problem.clone()).to_line()
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

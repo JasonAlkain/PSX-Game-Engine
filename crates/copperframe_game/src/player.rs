@@ -293,11 +293,15 @@ impl Running {
         Ok(running)
     }
 
-    /// Script errors are already in the log; show them in the corner too.
+    /// Script errors are already in the log; show them in the corner too,
+    /// and send them to the editor's Problems panel during Play.
     fn show_script_problems(&mut self) {
         let now = Instant::now();
         for d in self.sim.take_diagnostics() {
             self.notices.push((format!("Script error: {d}"), now));
+            if self.control.is_some() {
+                control::report_problem(&d);
+            }
         }
     }
 

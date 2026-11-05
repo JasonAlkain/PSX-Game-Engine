@@ -440,7 +440,9 @@ fn schema(project: Option<&Path>) -> Result<Success, Failure> {
     if let Some(root) = project {
         let project = Project::open(root)?;
         let target = GameTarget::for_project(&project).map_err(|e| Failure::new(4, e))?;
-        let game = target.schema().map_err(|e| Failure::new(1, e))?;
+        let game = target
+            .schema(&project.root)
+            .map_err(|e| Failure::new(1, e))?;
         if let Err(e) = copperframe_assets::game::write_schema_cache(&project, &game) {
             eprintln!("warning: {e}");
         }

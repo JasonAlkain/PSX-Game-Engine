@@ -32,17 +32,19 @@ pub enum Page {
     Display,
     Look,
     Input,
+    Scripting,
     Physics,
     Audio,
     Build,
 }
 
 impl Page {
-    pub const ALL: [Page; 7] = [
+    pub const ALL: [Page; 8] = [
         Page::General,
         Page::Display,
         Page::Look,
         Page::Input,
+        Page::Scripting,
         Page::Physics,
         Page::Audio,
         Page::Build,
@@ -54,6 +56,7 @@ impl Page {
             Page::Display => "Window",
             Page::Look => "Look",
             Page::Input => "Input",
+            Page::Scripting => "Scripting",
             Page::Physics => "Physics",
             Page::Audio => "Audio",
             Page::Build => "Build",
@@ -140,6 +143,10 @@ pub struct ProjectSettingsPanel {
     confirm_migrate: bool,
     /// The Audio page asked for the Audio mixer panel.
     pub open_mixer: bool,
+    /// The project's Lua scripts, and when the folder was read.
+    scripts: Option<(f64, Vec<String>)>,
+    /// The Scripting page asked for the Problems panel.
+    pub open_problems: bool,
 }
 
 /// The look source of every scene file (unreadable files are skipped).
@@ -411,12 +418,12 @@ impl ProjectSettingsPanel {
                     self.nav(ui, &draft);
                 });
                 ui.separator();
-                ui.vertical(|ui| self.page(ui, session, &mut draft));
+                ui.vertical(|ui| self.page(ui, session, tools, &mut draft));
             });
         } else {
             ui.horizontal_wrapped(|ui| self.nav(ui, &draft));
             ui.separator();
-            self.page(ui, session, &mut draft);
+            self.page(ui, session, tools, &mut draft);
         }
         self.draft = Some(draft);
     }
@@ -455,6 +462,7 @@ impl ProjectSettingsPanel {
         draft: &mut Draft,
     ) {
         let dirty = draft.is_dirty();
+        let scripting = session.project.file.scripting;
         if ui
             .add_enabled(dirty, egui::Button::new("Save"))
             .on_hover_text("Write project.json (and input.json if the keys changed)")
@@ -462,6 +470,10 @@ impl ProjectSettingsPanel {
             && save_draft(draft, session, &mut self.message)
         {
             tools.export_dir = session.project.export_dir().display().to_string();
+            if session.project.file.scripting != scripting {
+                // Scripts were switched on or off: their kinds change.
+                tools.refresh_schema(session);
+            }
         }
         if ui
             .add_enabled(dirty, egui::Button::new("Revert"))
@@ -497,10 +509,17 @@ impl ProjectSettingsPanel {
         }
     }
 
-    fn page(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, draft: &mut Draft) {
+    fn page(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        tools: &mut GameTools,
+        draft: &mut Draft,
+    ) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| match self.page {
+                Page::Scripting => self.scripting(ui, session, tools, draft),
                 Page::General => general(ui, session, draft),
                 Page::Display => display(ui, &mut draft.file.display),
                 Page::Look => self.look(ui, session, draft),
@@ -509,6 +528,108 @@ impl ProjectSettingsPanel {
                 Page::Audio => self.audio(ui, draft),
                 Page::Build => build(ui, session, draft),
             });
+    }
+
+    fn scripting(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        tools: &mut GameTools,
+        draft: &mut Draft,
+    ) {
+        use copperframe_assets::scripts::{SCRIPTS_DIR, find_lua_scripts, lua_kind_for};
+        hint(
+            ui,
+            "Gameplay code can be Rust (the project's game/ crate) or scripts in the \
+             scripts/ folder. Each script is a behaviour you add to entities with Add \
+             component, next to the Rust ones.",
+        );
+        ui.checkbox(&mut draft.file.scripting.lua, "Lua scripts")
+            .on_hover_text("Load scripts/**/*.lua as behaviours (Lua 5.4, built into every game)");
+        hint(
+            ui,
+            "scripts/door.lua becomes the behaviour lua.door, scripts/puzzles/door.lua \
+             lua.puzzles.door. Name scripts and folders with a-z, 0-9 and _.",
+        );
+        let saved = session.project.file.scripting.lua;
+        if draft.file.scripting.lua != saved {
+            ui.label(
+                RichText::new(
+                    "Save to apply; scenes that use Lua behaviours do not play with Lua off.",
+                )
+                .color(theme::ACCENT),
+            );
+        }
+        ui.add_space(6.0);
+        ui.separator();
+        let now = ui.input(|i| i.time);
+        if self.scripts.as_ref().is_none_or(|(t, _)| now - t > 2.0) {
+            self.scripts = Some((now, find_lua_scripts(&session.project.root)));
+        }
+        let scripts = self
+            .scripts
+            .as_ref()
+            .map(|(_, s)| s.clone())
+            .unwrap_or_default();
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format!("Scripts ({})", scripts.len())).strong());
+            if ui
+                .add_enabled(saved, egui::Button::new("New Lua script…"))
+                .on_disabled_hover_text("Turn Lua on and save first")
+                .clicked()
+            {
+                tools.new_script = Some(crate::scripting::NewScript::new(session.selection));
+                self.scripts = None;
+            }
+            if ui.button("Open folder").clicked() {
+                let dir = session.project.resolve(SCRIPTS_DIR);
+                if let Err(e) = std::fs::create_dir_all(&dir)
+                    .map_err(|e| e.to_string())
+                    .and_then(|()| {
+                        copperframe_core::report::open_external(&dir.display().to_string())
+                            .map_err(|e| e.to_string())
+                    })
+                {
+                    session.error(format!("could not open {SCRIPTS_DIR}/: {e}"));
+                }
+            }
+        });
+        if scripts.is_empty() {
+            hint(ui, "No scripts yet.");
+        }
+        let mut open = None;
+        egui::Grid::new("project-scripts")
+            .num_columns(3)
+            .spacing([12.0, 4.0])
+            .show(ui, |ui| {
+                for rel in &scripts {
+                    let file = format!("{SCRIPTS_DIR}/{rel}");
+                    ui.label(RichText::new(&file).monospace());
+                    let broken = tools.problems.all().filter(|p| p.file == file).count();
+                    if broken > 0 {
+                        let r = ui.add(
+                            egui::Button::new(
+                                RichText::new(format!("{broken} problem(s)")).color(
+                                    crate::ui::level_color(crate::session::LogLevel::Warning),
+                                ),
+                            )
+                            .frame(false),
+                        );
+                        if r.on_hover_text("Show the Problems panel").clicked() {
+                            self.open_problems = true;
+                        }
+                    } else {
+                        ui.label(RichText::new(lua_kind_for(rel)).weak());
+                    }
+                    if ui.small_button("Open").clicked() {
+                        open = Some(file);
+                    }
+                    ui.end_row();
+                }
+            });
+        if let Some(file) = open {
+            crate::scripting::open_in_editor(session, &file);
+        }
     }
 
     fn input(&mut self, ui: &mut egui::Ui, draft: &mut Draft) {

@@ -391,47 +391,8 @@ pub enum GameEvent {
     },
 }
 
-/// A script problem: it did not load, or a callback failed and its
-/// behaviour was switched off. Shown in the log, the editor and headless
-/// reports (where any diagnostic fails the run).
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ScriptDiagnostic {
-    /// Project-relative script path, `/`-separated.
-    pub file: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub line: Option<u32>,
-    /// Behaviour kind (`lua.door`).
-    pub kind: String,
-    /// Entity name, for runtime errors.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub entity: Option<String>,
-    /// Callback that failed (`fixed_update`), for runtime errors.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub callback: Option<String>,
-    pub message: String,
-    /// Fixed tick of a runtime error.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tick: Option<u64>,
-}
-
-impl std::fmt::Display for ScriptDiagnostic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.file)?;
-        if let Some(l) = self.line {
-            write!(f, ":{l}")?;
-        }
-        write!(f, ": {}", self.message)?;
-        match (&self.entity, &self.callback) {
-            (Some(e), Some(c)) => write!(
-                f,
-                " (in {c} on \"{e}\"; behaviour {} switched off)",
-                self.kind
-            ),
-            (Some(e), None) => write!(f, " (on \"{e}\", behaviour {})", self.kind),
-            _ => Ok(()),
-        }
-    }
-}
+/// A problem with a gameplay script (shared with the editor).
+pub use copperframe_assets::scripts::ScriptDiagnostic;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TimedEvent {

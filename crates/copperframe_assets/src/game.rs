@@ -133,10 +133,13 @@ impl GameTarget {
         executable.ok_or_else(|| "cargo did not report a game executable".to_owned())
     }
 
-    /// Runs the game with `--schema` and returns the behaviour schema.
-    pub fn schema(&self) -> Result<serde_json::Value, String> {
+    /// Runs the game with `--schema` for the project at `project_root`
+    /// (its scripts are behaviour kinds too) and returns the behaviour
+    /// schema.
+    pub fn schema(&self, project_root: &Path) -> Result<serde_json::Value, String> {
+        let root = std::path::absolute(project_root).map_err(|e| e.to_string())?;
         let out = self
-            .command(&["--schema".into()])
+            .command(&["--schema".into(), "--project".into(), root.into()])
             .stdin(Stdio::null())
             .output()
             .map_err(|e| format!("could not start the game: {e}"))?;

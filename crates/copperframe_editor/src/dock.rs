@@ -28,10 +28,11 @@ pub enum Pane {
     Console,
     ProjectSettings,
     AudioMixer,
+    Problems,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 8] = [
+    pub const ALL: [Pane; 9] = [
         Pane::Viewport,
         Pane::Hierarchy,
         Pane::Inspector,
@@ -40,17 +41,21 @@ impl Pane {
         Pane::Console,
         Pane::ProjectSettings,
         Pane::AudioMixer,
+        Pane::Problems,
     ];
 
     /// Panels that start closed in the standard layout.
     pub fn starts_closed(self) -> bool {
-        matches!(self, Pane::ProjectSettings | Pane::AudioMixer)
+        matches!(
+            self,
+            Pane::ProjectSettings | Pane::AudioMixer | Pane::Problems
+        )
     }
 
     /// The panel whose group this one joins when an older layout lacks it.
     fn neighbour(self) -> Pane {
         match self {
-            Pane::AudioMixer => Pane::Assets,
+            Pane::AudioMixer | Pane::Problems => Pane::Assets,
             _ => Pane::Inspector,
         }
     }
@@ -65,6 +70,7 @@ impl Pane {
             Pane::Console => "Console",
             Pane::ProjectSettings => "Project settings",
             Pane::AudioMixer => "Audio mixer",
+            Pane::Problems => "Problems",
         }
     }
 }
@@ -92,7 +98,8 @@ const TREE_ID: &str = "copperframe-dock";
 
 /// Hierarchy and viewport side by side over the assets and console, with the
 /// inspector and scene settings down the right. Project settings shares the
-/// right-hand group and the audio mixer the bottom one; both start closed.
+/// right-hand group, and the Problems panel and the audio mixer the bottom
+/// one; they start closed.
 fn default_tree() -> Tree<Pane> {
     let mut tiles = Tiles::default();
     let tabs = |tiles: &mut Tiles<Pane>, panes: &[Pane]| {
@@ -101,7 +108,15 @@ fn default_tree() -> Tree<Pane> {
     };
     let hierarchy = tabs(&mut tiles, &[Pane::Hierarchy]);
     let viewport = tabs(&mut tiles, &[Pane::Viewport]);
-    let bottom = tabs(&mut tiles, &[Pane::Assets, Pane::Console, Pane::AudioMixer]);
+    let bottom = tabs(
+        &mut tiles,
+        &[
+            Pane::Assets,
+            Pane::Console,
+            Pane::Problems,
+            Pane::AudioMixer,
+        ],
+    );
     let right = tabs(
         &mut tiles,
         &[Pane::Inspector, Pane::SceneSettings, Pane::ProjectSettings],

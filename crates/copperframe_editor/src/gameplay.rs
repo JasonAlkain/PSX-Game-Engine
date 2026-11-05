@@ -22,7 +22,7 @@ use copperframe_assets::export::{ExportOptions, Notices, export, verify_export};
 use copperframe_assets::game::{
     GameTarget, HeadlessRun, bench_summary, cached_schema, test_summary, write_schema_cache,
 };
-use copperframe_assets::play_control::{ControlCommand, PlayStatus, RunState};
+use copperframe_assets::play_control::{ControlCommand, PlayMessage, PlayStatus, RunState};
 use copperframe_core::{AssetId, EntityId};
 use copperframe_scene::{
     AudioBus, BodyKind, ColliderComponent, ColliderShape, Command, Entity, MeshSource,
@@ -32,6 +32,7 @@ use egui::Color32;
 use glam::Vec3;
 use serde_json::Value;
 
+use crate::scripting::{NewScript, Problems};
 use crate::session::{EditorSession, LogLevel};
 
 /// Folder (inside the project's `.psx/`) for play-mode scene copies.
@@ -70,6 +71,7 @@ pub enum PlayState {
 enum Msg {
     Log(LogLevel, String),
     Status(PlayStatus),
+    Problem(copperframe_assets::scripts::ScriptDiagnostic),
     Schema(Result<Value, String>),
     JobDone(JobResult),
 }
@@ -123,6 +125,8 @@ pub struct GameTools {
     play: Option<PlaySession>,
     schema: Option<Value>,
     schema_busy: bool,
+    /// Asked to read the schema again while it was being read.
+    schema_stale: bool,
     job: Option<Job>,
     /// The last finished job, until the results window is closed.
     pub result: Option<JobResult>,
@@ -134,6 +138,10 @@ pub struct GameTools {
     /// for its crash report.
     game_failed: bool,
     pub export_dir: String,
+    /// Script problems for the Problems panel.
+    pub problems: Problems,
+    /// The New Lua script dialog, while open.
+    pub new_script: Option<NewScript>,
 }
 
 impl GameTools {
@@ -146,14 +154,24 @@ impl GameTools {
             play: None,
             schema: cached_schema(&session.project),
             schema_busy: false,
+            schema_stale: false,
             job: None,
             result: None,
             rust: None,
             rust_prompt: false,
             game_failed: false,
             export_dir,
+            problems: Problems::default(),
+            new_script: None,
         };
-        if tools.schema.is_none() && tools.can_build(session, false) {
+        if let Some(schema) = &tools.schema {
+            tools.problems.set_load(schema);
+        }
+        // Scripts may have changed while the editor was closed, and the
+        // cached schema would not show it.
+        let scripts = session.project.file.scripting.lua
+            && !copperframe_assets::scripts::find_lua_scripts(&session.project.root).is_empty();
+        if (tools.schema.is_none() || scripts) && tools.can_build(session, false) {
             tools.refresh_schema(session);
         }
         tools
@@ -282,15 +300,28 @@ impl GameTools {
                         p.status = Some(status);
                     }
                 }
+                Msg::Problem(problem) => self.problems.add_runtime(problem),
                 Msg::Schema(result) => {
                     self.schema_busy = false;
+                    if std::mem::take(&mut self.schema_stale) {
+                        // Files changed while it was read: read it again.
+                        self.refresh_schema(session);
+                    }
                     match result {
                         Ok(schema) => {
                             if let Err(e) = write_schema_cache(&session.project, &schema) {
                                 session.warn(e);
                             }
                             let n = schema["behaviors"].as_array().map_or(0, Vec::len);
-                            session.info(format!("behaviour schema loaded ({n} kinds)"));
+                            let problems = self.problems.set_load(&schema);
+                            if problems > 0 {
+                                session.warn(format!(
+                                    "behaviour schema loaded ({n} kinds); {problems} script \
+                                     problem(s), see the Problems panel"
+                                ));
+                            } else {
+                                session.info(format!("behaviour schema loaded ({n} kinds)"));
+                            }
                             self.schema = Some(schema);
                         }
                         Err(e) => session.error(e),
@@ -418,8 +449,9 @@ impl GameTools {
                         let tx = self.tx.clone();
                         std::thread::spawn(move || {
                             for line in BufReader::new(pipe).lines().map_while(Result::ok) {
-                                let msg = match PlayStatus::parse_line(&line) {
-                                    Some(status) => Msg::Status(status),
+                                let msg = match PlayMessage::parse_line(&line) {
+                                    Some(PlayMessage::Status(status)) => Msg::Status(status),
+                                    Some(PlayMessage::Problem(p)) => Msg::Problem(p),
                                     None => Msg::Log(
                                         classify(&line).unwrap_or(level),
                                         format!("[game] {}", strip_ansi(&line)),
@@ -433,6 +465,8 @@ impl GameTools {
                     }
                 }
                 let stdin = child.stdin.take();
+                // Runtime problems are those of the latest run.
+                self.problems.clear_runtime();
                 self.play = Some(PlaySession {
                     child,
                     stdin,
@@ -482,6 +516,7 @@ impl GameTools {
     /// crate may need to compile first).
     pub fn refresh_schema(&mut self, session: &EditorSession) {
         if self.schema_busy {
+            self.schema_stale = true;
             return;
         }
         let target = match GameTarget::for_project(&session.project) {
@@ -493,8 +528,9 @@ impl GameTools {
         };
         self.schema_busy = true;
         let tx = self.tx.clone();
+        let root = session.project.root.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(Msg::Schema(target.schema()));
+            let _ = tx.send(Msg::Schema(target.schema(&root)));
         });
     }
 
@@ -1191,6 +1227,18 @@ pub fn behavior_editor(
         .iter()
         .map(|e| (e.id, e.name.clone()))
         .collect();
+    if let Some(file) = crate::scripting::script_file(session, kind) {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(&file).small().monospace().weak());
+            if ui
+                .small_button("Edit script")
+                .on_hover_text("Opens the script in your text editor")
+                .clicked()
+            {
+                crate::scripting::open_in_editor(session, &file);
+            }
+        });
+    }
     let b = &mut list[i];
     let Some(d) = descriptor(schema.as_ref(), &b.kind) else {
         if schema.is_some() {

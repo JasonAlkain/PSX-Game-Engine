@@ -43,11 +43,10 @@
 //! the rest of the game keeps running.
 
 use std::cell::Cell;
-use std::path::Path;
 use std::rc::Rc;
 
 use copperframe_assets::project::Project;
-use copperframe_assets::project_settings::SCRIPTS_DIR;
+use copperframe_assets::scripts::{SCRIPTS_DIR, check_lua_kind, find_lua_scripts};
 use glam::{EulerRot, Quat, Vec3};
 use mlua::{
     FromLuaMulti, Function, HookTriggers, IntoLuaMulti, Lua, LuaOptions, MultiValue, StdLib, Table,
@@ -60,15 +59,13 @@ use crate::api::{
 };
 use crate::sim::Ctx;
 
-/// Prefix of every Lua behaviour kind.
-pub const KIND_PREFIX: &str = "lua.";
+pub use copperframe_assets::scripts::{LUA_KIND_PREFIX as KIND_PREFIX, lua_kind_for as kind_for};
 /// Lua instructions one callback (or loading one script) may run before it
 /// is stopped as a probable endless loop.
 pub const INSTRUCTION_BUDGET: u32 = 10_000_000;
 const HOOK_EVERY: u32 = 10_000;
 /// Scripts larger than this are refused (a script is source code).
 const MAX_SCRIPT_BYTES: u64 = 1024 * 1024;
-const MAX_DEPTH: u32 = 8;
 
 /// The Lua state shared by every script of one simulation.
 struct Host {
@@ -155,12 +152,10 @@ pub fn register_project_scripts(
     if !project.file.scripting.lua {
         return Vec::new();
     }
-    let mut files = Vec::new();
-    find_scripts(&project.root.join(SCRIPTS_DIR), "", 0, &mut files);
+    let files = find_lua_scripts(&project.root);
     if files.is_empty() {
         return Vec::new();
     }
-    files.sort();
     let host = match Host::new() {
         Ok(h) => Rc::new(h),
         Err(e) => {
@@ -189,7 +184,7 @@ pub fn register_project_scripts(
             message,
             tick: None,
         };
-        if let Err(m) = check_kind(&kind) {
+        if let Err(m) = check_lua_kind(&kind) {
             problems.push(problem(None, m));
             continue;
         }
@@ -238,59 +233,6 @@ pub fn register_project_scripts(
         }
     }
     problems
-}
-
-/// The behaviour kind of `scripts/<rel>`.
-pub fn kind_for(rel: &str) -> String {
-    format!(
-        "{KIND_PREFIX}{}",
-        rel.strip_suffix(".lua").unwrap_or(rel).replace('/', ".")
-    )
-}
-
-/// Kinds follow the scene format's rule (`a-z`, `0-9`, `_`, `.`, at most
-/// 64 characters); explains how to rename the file when it does not.
-fn check_kind(kind: &str) -> Result<(), String> {
-    let ok = kind.len() <= 64
-        && kind.split('.').all(|part| !part.is_empty())
-        && kind
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.');
-    if ok {
-        Ok(())
-    } else {
-        Err(format!(
-            "`{kind}` is not a valid behaviour kind: name scripts and their folders with              a-z, 0-9 and _ only (no spaces, capitals, dots or dashes), at most {} characters              in all; not loaded",
-            64 - KIND_PREFIX.len()
-        ))
-    }
-}
-
-/// Project-relative `.lua` paths under `dir`, `/`-separated.
-fn find_scripts(dir: &Path, prefix: &str, depth: u32, out: &mut Vec<String>) {
-    if depth > MAX_DEPTH {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') {
-            continue;
-        }
-        let rel = if prefix.is_empty() {
-            name.clone()
-        } else {
-            format!("{prefix}/{name}")
-        };
-        let path = entry.path();
-        if path.is_dir() {
-            find_scripts(&path, &rel, depth + 1, out);
-        } else if name.ends_with(".lua") && name.len() > 4 {
-            out.push(rel);
-        }
-    }
 }
 
 fn load_script(host: &Host, file: &str, kind: &str, source: &str) -> mlua::Result<Loaded> {

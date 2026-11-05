@@ -42,14 +42,14 @@ return {
 ```
 
 Its kind is `lua.spinner`. A script in a sub-folder, `scripts/puzzles/door.lua`,
-is `lua.puzzles.door`, and the editor files it under **Scripts > puzzles**
+is `lua.puzzles.door`, and the editor files it under **Behaviours > Scripts > puzzles**
 in the Add component menu. Behaviour kinds may only use `a-z`, `0-9` and `_`,
 so name scripts and folders that way; a script with another name (capitals,
 spaces, dashes) is reported and not loaded.
 
-After adding or changing a script, use **Game > Reload behaviour kinds** in
-the editor so the inspector shows its fields. Play always loads the
-scripts as they are on disk.
+The editor notices new and saved scripts by itself and updates the
+inspector and Add component (see [In the editor](#in-the-editor)). Play
+always loads the scripts as they are on disk.
 
 ### Fields
 
@@ -174,6 +174,26 @@ that does not exist (check with `ctx:exists(e)` first if it may be gone).
 
 `print(...)` also writes to the log.
 
+## In the editor
+
+- **New Lua script…** (in **Game**, in **Add component > Behaviours >
+  Scripts**, and on the Scripting page of Project settings) asks for a
+  name, such as `door` or `puzzles/door`, writes a starting script to
+  `scripts/`, adds it to the selected entity and opens it in the program
+  your system uses for `.lua` files.
+- A behaviour card of a Lua kind shows its file and **Edit script**.
+- The editor watches `scripts/`: when you save a script in your text
+  editor, the inspector shows its new fields within a couple of seconds.
+- **Project settings > Scripting** turns Lua on or off for the project and
+  lists every script with its behaviour kind.
+- The **Problems** panel lists scripts that do not load and errors from the
+  last Play, each with the file, line, entity and callback, the lines around
+  the error, and **Open**. It opens by itself when a new problem appears;
+  the status bar shows how many there are. **Check scripts** loads every
+  script again.
+
+![The Problems panel with a script that does not load](../images/problems-panel.png)
+
 ## Errors
 
 A script error never stops the game. When a callback raises an error (a
@@ -186,8 +206,8 @@ reported once with the file, line, entity and callback:
 scripts/door.lua:7: attempt to perform arithmetic on a nil value (local 'y') (in on_message on "Door"; behaviour lua.door switched off)
 ```
 
-The report goes to the log (the editor's console during Play) and to the
-corner of the game window. A script that does not load (a syntax error, no
+The report goes to the log (the editor's console and Problems panel during
+Play) and to the corner of the game window. A script that does not load (a syntax error, no
 `return { ... }`, a bad field) is reported when the game starts and its kind
 is not registered, so a scene that uses it does not play and says which
 kind is missing.

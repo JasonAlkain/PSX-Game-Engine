@@ -184,7 +184,8 @@ impl PhysicsSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ScriptingSettings {
-    /// Load `scripts/**/*.lua` as behaviour kinds `lua:<path>`.
+    /// Load `scripts/**/*.lua` as behaviour kinds `lua.<path>` (see
+    /// [`crate::scripts`]).
     pub lua: bool,
 }
 

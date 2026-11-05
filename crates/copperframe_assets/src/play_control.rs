@@ -14,14 +14,18 @@
 //! game started by an editor that crashed does not keep running.
 //!
 //! The game answers on stdout with lines that start with
-//! [`STATUS_PREFIX`] followed by a [`PlayStatus`] JSON object, after
-//! every command and when a step finishes. Other stdout and stderr lines
-//! are ordinary log text.
+//! [`STATUS_PREFIX`] followed by a JSON object ([`PlayMessage`]): a
+//! [`PlayStatus`] after every command and when a step finishes, and a
+//! [`ProblemReport`] for each script problem (since 0.12; older editors
+//! show those lines as log text). Other stdout and stderr lines are
+//! ordinary log text.
 //!
 //! This module has no window or GPU dependency so the editor (which never
 //! links `copperframe_game`) and the game share one definition.
 
 use serde::{Deserialize, Serialize};
+
+use crate::scripts::ScriptDiagnostic;
 
 /// Start of every status line the game writes to stdout.
 pub const STATUS_PREFIX: &str = "@copperframe ";
@@ -29,6 +33,10 @@ pub const STATUS_PREFIX: &str = "@copperframe ";
 pub const STATUS_FORMAT: &str = "copperframe_play_status";
 /// Version of [`PlayStatus`].
 pub const STATUS_VERSION: u32 = 1;
+/// Format tag of [`ProblemReport`].
+pub const PROBLEM_FORMAT: &str = "copperframe_script_problem";
+/// Version of [`ProblemReport`].
+pub const PROBLEM_VERSION: u32 = 1;
 /// The largest `step` count accepted in one command (10 s at 60 Hz).
 pub const MAX_STEP: u32 = 600;
 
@@ -155,6 +163,53 @@ impl PlayStatus {
     }
 }
 
+/// A script problem the game reports while it runs for the editor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProblemReport {
+    pub format: String,
+    pub version: u32,
+    pub problem: ScriptDiagnostic,
+}
+
+impl ProblemReport {
+    pub fn new(problem: ScriptDiagnostic) -> Self {
+        Self {
+            format: PROBLEM_FORMAT.into(),
+            version: PROBLEM_VERSION,
+            problem,
+        }
+    }
+
+    /// The stdout line (without the newline).
+    pub fn to_line(&self) -> String {
+        format!(
+            "{STATUS_PREFIX}{}",
+            serde_json::to_string(self).unwrap_or_default()
+        )
+    }
+}
+
+/// A line from the game that is not log text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlayMessage {
+    Status(PlayStatus),
+    Problem(ScriptDiagnostic),
+}
+
+impl PlayMessage {
+    /// Reads a game stdout line. `None` for log text and for messages of an
+    /// unknown format or a newer version.
+    pub fn parse_line(line: &str) -> Option<Self> {
+        if let Some(status) = PlayStatus::parse_line(line) {
+            return Some(Self::Status(status));
+        }
+        let json = line.trim_end().strip_prefix(STATUS_PREFIX)?;
+        let report: ProblemReport = serde_json::from_str(json).ok()?;
+        (report.format == PROBLEM_FORMAT && report.version <= PROBLEM_VERSION)
+            .then_some(Self::Problem(report.problem))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,5 +256,32 @@ mod tests {
         assert_eq!(PlayStatus::parse_line("@copperframe {not json"), None);
         let newer = r#"@copperframe {"format":"copperframe_play_status","version":99,"state":"paused","tick":1}"#;
         assert_eq!(PlayStatus::parse_line(newer), None);
+    }
+
+    #[test]
+    fn problem_lines_round_trip() {
+        let d = ScriptDiagnostic {
+            file: "scripts/door.lua".into(),
+            line: Some(3),
+            kind: "lua.door".into(),
+            entity: Some("Door".into()),
+            callback: Some("start".into()),
+            message: "attempt to call a nil value".into(),
+            tick: Some(1),
+        };
+        let line = ProblemReport::new(d.clone()).to_line();
+        assert_eq!(
+            PlayMessage::parse_line(&line),
+            Some(PlayMessage::Problem(d))
+        );
+        assert!(PlayStatus::parse_line(&line).is_none());
+        let s = PlayStatus::new(RunState::Running, 5);
+        assert_eq!(
+            PlayMessage::parse_line(&s.to_line()),
+            Some(PlayMessage::Status(s))
+        );
+        assert_eq!(PlayMessage::parse_line("lua: hello"), None);
+        let newer = r#"@copperframe {"format":"copperframe_script_problem","version":9,"problem":{"file":"a","message":"b"}}"#;
+        assert_eq!(PlayMessage::parse_line(newer), None);
     }
 }

@@ -525,6 +525,28 @@ problems are diagnostics from tick 0 and their kinds stay unregistered.
 `Simulation::take_diagnostics` drains them: headless reports list them
 and fail, the player shows them in the corner, everything is logged.
 
+The script file rules (kind naming, finding `scripts/**/*.lua`, the new
+script template) and `ScriptDiagnostic` itself live in
+`copperframe_assets::scripts` (0.12), so the editor shares them without
+linking `copperframe_game`.
+
+### Scripts in the editor (0.12)
+
+The editor learns about scripts only through the game: `--schema --project
+<root>` lists Lua kinds next to Rust ones and the scripts that do not load
+(`problems`), and during Play the game writes each new diagnostic to stdout
+as `@copperframe {copperframe_script_problem v1}`
+(`play_control::PlayMessage`). `copperframe_editor::scripting::Problems`
+keeps load problems (replaced on every schema read) and runtime problems
+(cleared when Play starts); the Problems panel opens when a new one
+arrives and shows the failing lines read from the file. The folder watcher
+includes `scripts/`, so saving a `.lua` file re-reads the schema (a read
+requested while one runs is queued, not dropped), and the editor re-reads
+it at start when the project has scripts, since the cached schema may be
+older than the files. **New Lua script** writes the template with
+`scripts::create_lua_script`, adds the behaviour to the selected entity as
+one undoable `SetBehaviors`, and opens the file with the system's handler.
+
 ### Input
 
 Named actions (`move_forward`, `move_back`, `move_left`, `move_right`,
@@ -592,6 +614,7 @@ mode, and is deleted when the game finishes.
 | Format | Where | Notes |
 | --- | --- | --- |
 | `copperframe_play_status` v1 (0.10) | stdout lines after `@copperframe ` from `--control stdin` | `state` (`running`, `paused`, `stepping`, `quitting`), `tick`, optional `error` |
+| `copperframe_script_problem` v1 (0.12) | stdout lines after `@copperframe ` from `--control stdin` | `problem`: a `ScriptDiagnostic` (`file`, `line`, `kind`, `entity`, `callback`, `message`, `tick`) |
 | `psx_bench` v1 | stdout of `--bench` or `--report` | Adapter (name, backend, device type, driver), output size, frames, build profile, and per style (`scene`, `ps1`, `ps2`): internal size, draws, triangles, `tick` and `frame` stats (`mean_ms`, `p50_ms`, `p95_ms`, `max_ms`) |
 
 See [MIGRATION.md](MIGRATION.md) for every format version.
