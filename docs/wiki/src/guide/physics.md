@@ -47,8 +47,8 @@ Rules:
 
 ### Project gravity
 
-Gravity is a project setting (`physics.gravity` in `project.json`, default
-`[0, -9.81, 0]` m/s²). Game code can change it during play with
+Gravity is a project setting: **Project Settings > Physics** in the editor
+(`physics.gravity` in `project.json`, default `[0, -9.81, 0]` m/s²). Game code can change it during play with
 `ctx.set_gravity`.
 
 ## The player and physics
