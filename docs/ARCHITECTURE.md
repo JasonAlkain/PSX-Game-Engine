@@ -67,6 +67,7 @@ The editor is a library so its session logic is tested without a window.
 | `directories` | 6 | Per-user config and data folders for player settings and saves |
 | `mlua` | 0.12 (`lua54`, `vendored`) | Lua 5.4 gameplay scripts (0.11). Vendored: Lua is compiled from source by the `cc` crate, so nobody installs Lua; the `unsafe` FFI stays inside mlua |
 | `netcorehost` | 0.22 (`net8_0`, `utils`; no `nethost` download) | Hosts the .NET runtime for C# scripts (0.13). `hostfxr` is found at run time (`DOTNET_ROOT`, `dotnet` on `PATH`, the standard install folders), so games without C# never touch .NET |
+| `libc` | 0.2 (Unix only) | `sigaltstack`: threads that run C# get a 1 MiB signal stack, because .NET's SIGSEGV handler (which raises `NullReferenceException`) overflows the small one Rust installs |
  Versions are centralised in the root `Cargo.toml`;
 `Cargo.lock` is committed.
 

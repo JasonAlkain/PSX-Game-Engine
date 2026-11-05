@@ -672,6 +672,7 @@ dependencies = [
  "glam 0.34.2",
  "hecs",
  "kira",
+ "libc",
  "mlua",
  "netcorehost",
  "pollster 1.0.1",

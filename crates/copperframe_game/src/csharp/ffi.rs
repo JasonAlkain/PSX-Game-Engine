@@ -198,6 +198,67 @@ pub struct Runtime {
     _loader: AssemblyDelegateLoader,
 }
 
+// SAFETY: `Runtime` is plain function pointers into managed code plus the
+// loader, which is only used while loading (under the caller's lock). The
+// managed host locks its shared state and gives each thread its own `Ctx`
+// buffers, so the entry points may be called from any thread.
+unsafe impl Send for Runtime {}
+// SAFETY: as above.
+unsafe impl Sync for Runtime {}
+
+/// Size of the signal stack threads get before they run managed code.
+#[cfg(unix)]
+const SIGNAL_STACK: usize = 1 << 20;
+
+/// Gives this thread a signal stack big enough for .NET's signal handler.
+///
+/// .NET turns a null dereference in managed code into a
+/// `NullReferenceException` from its SIGSEGV handler, which runs on the
+/// thread's alternate signal stack. Rust gives every thread a small one
+/// (a few pages, for its stack-overflow message) and .NET uses it rather
+/// than its own when one is set, so the handler overflowed it and the
+/// process crashed on the first script null dereference. Called before
+/// each entry into managed code; does work once per thread.
+#[cfg(unix)]
+fn ensure_signal_stack() {
+    use std::cell::Cell;
+    thread_local! {
+        static DONE: Cell<bool> = const { Cell::new(false) };
+    }
+    if DONE.with(Cell::get) {
+        return;
+    }
+    DONE.with(|d| d.set(true));
+    // SAFETY: `sigaltstack` with a null new stack only reads the current
+    // one into `old`, a valid out-pointer.
+    let mut old: libc::stack_t = unsafe { std::mem::zeroed() };
+    if unsafe { libc::sigaltstack(std::ptr::null(), &mut old) } != 0 {
+        return;
+    }
+    if old.ss_flags & libc::SS_ONSTACK != 0 {
+        return;
+    }
+    if old.ss_flags & libc::SS_DISABLE == 0 && old.ss_size >= SIGNAL_STACK {
+        return;
+    }
+    // Leaked on purpose: the thread may receive signals until it exits, and
+    // a thread that runs scripts usually lives as long as the game.
+    let stack: &'static mut [u8] = Vec::leak(vec![0u8; SIGNAL_STACK]);
+    let new = libc::stack_t {
+        ss_sp: stack.as_mut_ptr().cast(),
+        ss_flags: 0,
+        ss_size: stack.len(),
+    };
+    // SAFETY: `new` points at `SIGNAL_STACK` bytes that are never freed, and
+    // the thread is not running on its signal stack (checked above).
+    unsafe {
+        libc::sigaltstack(&new, std::ptr::null_mut());
+    }
+}
+
+#[cfg(not(unix))]
+fn ensure_signal_stack() {}
+
 /// A callback of `Behaviour` (matches `Host.Invoke`).
 #[derive(Debug, Clone, Copy)]
 pub enum Callback {
@@ -241,6 +302,7 @@ impl Runtime {
                 copperframe_assets::csharp::DOTNET_URL
             )
         })?;
+        ensure_signal_stack();
         let hostfxr = Hostfxr::load_from_path(&hostfxr_path)
             .map_err(|e| format!("could not load {}: {e}", hostfxr_path.display()))?;
         let config = assembly.with_extension("runtimeconfig.json");
@@ -305,6 +367,7 @@ impl Runtime {
 
     /// The behaviours of the assembly as JSON (see `Host.Describe`).
     pub fn describe(&self) -> String {
+        ensure_signal_stack();
         let mut len = 0;
         let p = (self.describe)(&mut len);
         self.take(p, len).unwrap_or_default()
@@ -312,6 +375,7 @@ impl Runtime {
 
     /// A new instance of kind number `kind` with the scene's values.
     pub fn create(&self, kind: usize, params_json: &str) -> Result<i64, String> {
+        ensure_signal_stack();
         let mut err = std::ptr::null_mut();
         let mut err_len = 0;
         let h = (self.create)(
@@ -331,10 +395,12 @@ impl Runtime {
     }
 
     pub fn release(&self, handle: i64) {
+        ensure_signal_stack();
         (self.release)(handle);
     }
 
     pub fn prompt(&self, handle: i64) -> Option<String> {
+        ensure_signal_stack();
         let mut len = 0;
         let p = (self.prompt)(handle, &mut len);
         self.take(p, len)
@@ -353,6 +419,7 @@ impl Runtime {
         text: &str,
         dispatch: &mut Dispatch<'_>,
     ) -> Result<(), String> {
+        ensure_signal_stack();
         let mut state = CallState {
             dispatch,
             strings: Vec::new(),

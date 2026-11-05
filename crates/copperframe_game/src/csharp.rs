@@ -17,10 +17,10 @@
 
 mod ffi;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::{Mutex, PoisonError};
 
 use copperframe_assets::csharp::{Build, CS_KIND_PREFIX, ensure_built};
 use copperframe_assets::project::Project;
@@ -34,12 +34,10 @@ use crate::sim::Ctx;
 
 pub use ffi::ABI_VERSION;
 
-thread_local! {
-    /// One load per assembly per thread: .NET cannot unload an assembly
-    /// from the default context, and Restart reloads the scene, not the
-    /// scripts.
-    static LOADED: RefCell<HashMap<PathBuf, Rc<ffi::Runtime>>> = RefCell::new(HashMap::new());
-}
+/// One load per assembly per process, never dropped: .NET cannot unload
+/// an assembly, Restart reloads the scene and not the scripts, and closing
+/// the host while the process exits crashed it.
+static LOADED: Mutex<Option<HashMap<PathBuf, &'static ffi::Runtime>>> = Mutex::new(None);
 
 #[derive(Deserialize)]
 struct Described {
@@ -183,31 +181,35 @@ pub fn register_project_scripts(
             "" => "Scripts".to_owned(),
             f => format!("Scripts/{f}"),
         };
-        let rt = runtime.clone();
+        let rt = runtime;
         let kind = k.kind.clone();
         registry.register_dynamic(DynamicKind {
             kind: k.kind,
             description: k.description,
             fields,
             folder,
-            create: Rc::new(move |p| CsBehavior::create(&rt, index, &kind, &names, p)),
+            create: Rc::new(move |p| CsBehavior::create(rt, index, &kind, &names, p)),
         });
     }
     problems
 }
 
-fn load(dll: &Path, root: &Path) -> Result<Rc<ffi::Runtime>, String> {
-    if let Some(rt) = LOADED.with(|l| l.borrow().get(dll).cloned()) {
+fn load(dll: &Path, root: &Path) -> Result<&'static ffi::Runtime, String> {
+    // Held while loading: hostfxr cannot start or load on several threads
+    // at once.
+    let mut loaded = LOADED.lock().unwrap_or_else(PoisonError::into_inner);
+    let loaded = loaded.get_or_insert_with(HashMap::new);
+    if let Some(rt) = loaded.get(dll) {
         return Ok(rt);
     }
-    let rt = Rc::new(ffi::Runtime::load(dll, root)?);
-    LOADED.with(|l| l.borrow_mut().insert(dll.to_path_buf(), rt.clone()));
+    let rt: &'static ffi::Runtime = Box::leak(Box::new(ffi::Runtime::load(dll, root)?));
+    loaded.insert(dll.to_path_buf(), rt);
     Ok(rt)
 }
 
 /// A behaviour backed by a C# class.
 struct CsBehavior {
-    runtime: Rc<ffi::Runtime>,
+    runtime: &'static ffi::Runtime,
     handle: i64,
     kind: String,
     /// Switched off after an error.
@@ -216,7 +218,7 @@ struct CsBehavior {
 
 impl CsBehavior {
     fn create(
-        runtime: &Rc<ffi::Runtime>,
+        runtime: &'static ffi::Runtime,
         index: usize,
         kind: &str,
         fields: &[(String, FieldKind)],
@@ -233,7 +235,7 @@ impl CsBehavior {
         }
         let handle = runtime.create(index, &Json::Object(values).to_string())?;
         Ok(Box::new(Self {
-            runtime: runtime.clone(),
+            runtime,
             handle,
             kind: kind.to_owned(),
             off: false,
