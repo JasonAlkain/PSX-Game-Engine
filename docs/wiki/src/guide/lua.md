@@ -11,6 +11,12 @@ have gameplay code too.
 Rust and Lua mix freely: a scene can use `psx.player`, your Rust kinds and
 Lua kinds side by side.
 
+Lua and C# can coexist in the same project; both use the shared script `ctx`
+API. For differences in installation and runtime behavior, see
+[C# scripting](csharp.md). To test an edited script in gameplay, stop and
+restart Play: the editor refreshes the behaviour schema on save, but the
+running game retains the code loaded at launch.
+
 ## Turning it on or off
 
 Lua is on for every project unless `project.json` says otherwise:
