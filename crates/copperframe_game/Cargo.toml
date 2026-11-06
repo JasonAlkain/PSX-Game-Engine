@@ -31,6 +31,10 @@ thiserror.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 mlua.workspace = true
+netcorehost.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

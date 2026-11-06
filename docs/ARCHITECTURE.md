@@ -66,6 +66,8 @@ The editor is a library so its session logic is tested without a window.
 | `kira` | 0.12 (`cpal`, `wav`, `pcm`, `ogg`, `vorbis`) | Audio buses, tweens, spatial tracks, one listener. Linux needs `libasound2-dev` to build |
 | `directories` | 6 | Per-user config and data folders for player settings and saves |
 | `mlua` | 0.12 (`lua54`, `vendored`) | Lua 5.4 gameplay scripts (0.11). Vendored: Lua is compiled from source by the `cc` crate, so nobody installs Lua; the `unsafe` FFI stays inside mlua |
+| `netcorehost` | 0.22 (`net8_0`, `utils`; no `nethost` download) | Hosts the .NET runtime for C# scripts (0.13). `hostfxr` is found at run time (`DOTNET_ROOT`, `dotnet` on `PATH`, the standard install folders), so games without C# never touch .NET |
+| `libc` | 0.2 (Unix only) | `sigaltstack`: threads that run C# get a 1 MiB signal stack, because .NET's SIGSEGV handler (which raises `NullReferenceException`) overflows the small one Rust installs |
  Versions are centralised in the root `Cargo.toml`;
 `Cargo.lock` is committed.
 
@@ -530,6 +532,56 @@ script template) and `ScriptDiagnostic` itself live in
 `copperframe_assets::scripts` (0.12), so the editor shares them without
 linking `copperframe_game`.
 
+### One script API (0.13)
+
+`copperframe_game::script_api` is the `ctx` API every script language
+uses: `call(ctx, me, name, &[ScriptValue])` dispatches the 42 methods
+listed in `METHODS` over plain values (`Nil`, `Bool`, `Int`, `Num`, `Str`;
+entities are `Int`s from `hecs::Entity::to_bits`, angles degrees) and
+returns values or an error `"name: message"`. Lua converts its arguments
+to `ScriptValue`s and prefixes errors with `ctx:`; C# goes through the
+same function from managed code. A method added there is available to
+both; the C# test fails until `Copperframe.cs` has a binding for it.
+`script_api::register_project_scripts` registers Lua then C# kinds.
+
+### C# scripts (0.13)
+
+With `project.json` v6 `scripting.csharp` on, `copperframe_assets::csharp`
+builds the scripts: it writes `.psx/csharp/CopperframeScripts.csproj`
+(net10.0, nullable, unsafe, portable PDB) with the engine's API sources
+(`crates/copperframe_assets/csharp/*.cs`, embedded with `include_str!`) and
+`../../scripts/**/*.cs`, runs `dotnet build -c Release`, and copies the
+result to `out/<stamp>/` (`stamp`: FNV of the engine version, API sources
+and every script's path and text), named by `current.txt`. An existing
+stamp is not rebuilt; a lock file keeps the editor's schema read and the
+game from building at once; the newest three builds are kept. Compiler
+output lines become `ScriptDiagnostic`s with file and line. An export
+builds first and carries `out/<stamp>/` and `current.txt` without
+sources; a project without `.cs` files loads the current build.
+
+`copperframe_game::csharp` loads the assembly with `netcorehost`
+(`initialize_for_runtime_config`, then `load_assembly_and_get_function_pointer`
+for `[UnmanagedCallersOnly]` methods of `Copperframe.Internal.Host`, ABI
+version 1, checked by `Init`). `Describe` returns the behaviour classes as
+JSON (kind `cs.<snake_case>`, fields from public fields of number, bool,
+string and `EntityRef` types, defaults from a sample instance), which
+become `register_dynamic` kinds in the folder `Scripts/<Folder>`. Each
+`CsBehavior` owns a managed instance handle (released on drop) and calls
+`Invoke(handle, InvokeArgs*)` per callback, passing a `ctx_call` function
+pointer and a pointer to the call's dispatch closure; managed `Ctx` methods
+call back through it into `script_api::call`. The closure lives on the
+Rust stack for the call only, so a `Ctx` kept by a script reaches nothing
+later. An exception becomes JSON `{message, file, line}` (the first stack
+frame inside `scripts/`, from the PDB) and switches the behaviour off.
+All `unsafe` code is in `csharp/ffi.rs`, with its memory rules at the top;
+a panic in `ctx_call` is caught and returned as an error.
+
+.NET cannot unload an assembly from its load context, so each assembly is
+loaded once per thread and kept (Restart keeps the scripts). The managed
+host locks its instance table and gives each thread its own `Ctx`
+buffers, since tests run simulations on several threads. C# code is
+trusted: no sandbox and no loop budget.
+
 ### Scripts in the editor (0.12)
 
 The editor learns about scripts only through the game: `--schema --project
@@ -546,6 +598,10 @@ it at start when the project has scripts, since the cached schema may be
 older than the files. **New Lua script** writes the template with
 `scripts::create_lua_script`, adds the behaviour to the selected entity as
 one undoable `SetBehaviors`, and opens the file with the system's handler.
+In 0.13 the same tools cover C#: the dialog has a Lua/C# choice
+(`csharp::create_cs_script`), `.cs` saves re-read the schema (which
+rebuilds), and a C# kind's file is found by the class-named-after-file
+convention (`csharp::cs_script_for`).
 
 ### Input
 

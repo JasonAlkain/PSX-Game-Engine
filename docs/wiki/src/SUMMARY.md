@@ -18,6 +18,7 @@
 - [Physics](guide/physics.md)
 - [Behaviours and game code](guide/behaviours.md)
 - [Lua scripting](guide/lua.md)
+- [C# scripting](guide/csharp.md)
 - [Input, audio and the player app](guide/player.md)
 - [Testing gameplay headless](guide/testing.md)
 - [Exporting a game](guide/exporting.md)

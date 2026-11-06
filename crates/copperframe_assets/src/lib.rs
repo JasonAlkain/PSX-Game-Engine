@@ -13,6 +13,7 @@
 //! - [`export`]: host-platform export of a game and its data.
 //! - [`play_control`]: the editor's Pause/Resume/Step line protocol with a
 //!   running game.
+//! - [`csharp`]: compiling a project's C# scripts with `dotnet build`.
 //! - [`scripts`]: gameplay script files, their behaviour kinds and
 //!   [`scripts::ScriptDiagnostic`].
 //! - [`template`]: new projects from templates, and their Rust game crate.
@@ -20,6 +21,7 @@
 //! No window or GPU dependencies.
 
 pub mod anim;
+pub mod csharp;
 pub mod export;
 pub mod fixtures;
 pub mod game;

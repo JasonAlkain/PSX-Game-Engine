@@ -33,8 +33,8 @@ pub use crate::project_settings::{
 pub const PROJECT_FILE: &str = "project.json";
 pub const PROJECT_FORMAT: &str = "psx_project";
 /// Version 2 added the `display`, `style`, `build` and `physics` sections;
-/// 3 `style.look`; 4 `audio`; 5 `scripting`.
-pub const PROJECT_VERSION: u32 = 5;
+/// 3 `style.look`; 4 `audio`; 5 `scripting`; 6 `scripting.csharp`.
+pub const PROJECT_VERSION: u32 = 6;
 pub const ASSETS_DIR: &str = "assets";
 pub const SCENES_DIR: &str = "scenes";
 pub const LOCK_FILE: &str = ".psx/editor.lock";
@@ -1206,7 +1206,7 @@ mod tests {
         p.file.build.export_dir = "../builds/room".into();
         p.save().unwrap();
         let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
-        assert!(text.contains("\"version\": 5") && text.contains("\"look\""));
+        assert!(text.contains("\"version\": 6") && text.contains("\"look\""));
         assert!(text.contains("\"audio\"") && text.contains("\"scripting\""));
         let again = Project::open(&root).unwrap();
         p.file.version = PROJECT_VERSION;
@@ -1249,12 +1249,33 @@ mod tests {
         let p = Project::open(&root).unwrap();
         assert_eq!(p.file.version, 4);
         assert_eq!(p.file.audio.music.volume_db, -6.0);
-        assert_eq!(p.file.scripting, ScriptingSettings { lua: true });
+        assert_eq!(
+            p.file.scripting,
+            ScriptingSettings {
+                lua: true,
+                csharp: false
+            }
+        );
         p.save().unwrap();
         let text = std::fs::read_to_string(root.join(PROJECT_FILE)).unwrap();
-        assert!(text.contains("\"version\": 5") && text.contains("\"scripting\""));
+        assert!(text.contains("\"version\": 6") && text.contains("\"scripting\""));
         let again = Project::open(&root).unwrap();
         assert_eq!(again.file.scripting, p.file.scripting);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn version_5_project_files_load_with_csharp_off() {
+        let root = temp("v5");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/v5.project.json"),
+            root.join(PROJECT_FILE),
+        )
+        .unwrap();
+        let p = Project::open(&root).unwrap();
+        assert_eq!(p.file.version, 5);
+        assert!(!p.file.scripting.lua && !p.file.scripting.csharp);
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -1282,13 +1303,13 @@ mod tests {
         // So does a newer version.
         let text = std::fs::read_to_string(root.join(PROJECT_FILE))
             .unwrap()
-            .replace("\"version\": 5", "\"version\": 6");
+            .replace("\"version\": 6", "\"version\": 7");
         std::fs::write(root.join(PROJECT_FILE), text).unwrap();
         assert!(
             Project::open(&root)
                 .unwrap_err()
                 .to_string()
-                .contains("version 6")
+                .contains("version 7")
         );
         std::fs::remove_dir_all(&root).unwrap();
     }

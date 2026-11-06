@@ -47,16 +47,14 @@ use std::rc::Rc;
 
 use copperframe_assets::project::Project;
 use copperframe_assets::scripts::{SCRIPTS_DIR, check_lua_kind, find_lua_scripts};
-use glam::{EulerRot, Quat, Vec3};
 use mlua::{
-    FromLuaMulti, Function, HookTriggers, IntoLuaMulti, Lua, LuaOptions, MultiValue, StdLib, Table,
-    Value, Variadic, VmState,
+    Function, HookTriggers, IntoLuaMulti, Lua, LuaOptions, MultiValue, StdLib, Table, Value,
+    Variadic, VmState,
 };
 use serde_json::Value as Json;
 
-use crate::api::{
-    Behavior, DynamicKind, Entity, FieldKind, GameEvent, Params, Registry, ScriptDiagnostic,
-};
+use crate::api::{Behavior, DynamicKind, Entity, FieldKind, Params, Registry, ScriptDiagnostic};
+use crate::script_api::{self, ScriptValue};
 use crate::sim::Ctx;
 
 pub use copperframe_assets::scripts::{LUA_KIND_PREFIX as KIND_PREFIX, lua_kind_for as kind_for};
@@ -561,63 +559,7 @@ impl Behavior for LuaBehavior {
 
 /// Lua's view of an entity handle.
 fn to_lua(e: Entity) -> i64 {
-    e.to_bits().get() as i64
-}
-
-fn entity(v: i64) -> mlua::Result<Entity> {
-    Entity::from_bits(v as u64).ok_or_else(|| mlua::Error::runtime(format!("{v} is not an entity")))
-}
-
-fn missing(e: Entity) -> mlua::Error {
-    mlua::Error::runtime(format!(
-        "entity {} has no transform (despawned?)",
-        to_lua(e)
-    ))
-}
-
-fn degrees(q: Quat) -> (f32, f32, f32) {
-    let (y, x, z) = q.to_euler(EulerRot::YXZ);
-    (y.to_degrees(), x.to_degrees(), z.to_degrees())
-}
-
-fn from_degrees(yaw: f32, pitch: f32, roll: f32) -> Quat {
-    Quat::from_euler(
-        EulerRot::YXZ,
-        yaw.to_radians(),
-        pitch.to_radians(),
-        roll.to_radians(),
-    )
-}
-
-fn json_to_lua(lua: &Lua, v: &Json) -> mlua::Result<Value> {
-    Ok(match v {
-        Json::Null => Value::Nil,
-        Json::Bool(b) => Value::Boolean(*b),
-        Json::Number(n) => match n.as_i64() {
-            Some(i) => Value::Integer(i),
-            None => Value::Number(n.as_f64().unwrap_or(0.0)),
-        },
-        Json::String(s) => Value::String(lua.create_string(s)?),
-        // Saves written by Rust code may hold structures; scripts see them
-        // as JSON text.
-        other => Value::String(lua.create_string(other.to_string())?),
-    })
-}
-
-fn lua_to_json(v: Value) -> mlua::Result<Option<Json>> {
-    Ok(match v {
-        Value::Nil => None,
-        Value::Boolean(b) => Some(Json::from(b)),
-        Value::Integer(i) => Some(Json::from(i)),
-        Value::Number(x) if x.is_finite() => Some(Json::from(x)),
-        Value::String(s) => Some(Json::from(s.to_str()?.to_owned())),
-        other => {
-            return Err(mlua::Error::runtime(format!(
-                "game state holds nil, booleans, numbers and strings, not a {}",
-                other.type_name()
-            )));
-        }
-    })
+    script_api::entity_value(e)
 }
 
 /// Lua side of `ctx`: one table reused for every call. Its methods
@@ -640,17 +582,7 @@ end })
 return setmetatable({}, { __index = function(_, name) return methods[name] end })
 "#;
 
-fn args<A: FromLuaMulti>(lua: &Lua, name: &str, values: MultiValue) -> mlua::Result<A> {
-    A::from_lua_multi(values, lua).map_err(|e| mlua::Error::runtime(format!("ctx:{name}: {e}")))
-}
-
-fn ret(lua: &Lua, v: impl IntoLuaMulti) -> mlua::Result<MultiValue> {
-    v.into_lua_multi(lua)
-}
-
-/// Runs `ctx:<name>(...)` for a script of entity `me`. The methods are a
-/// subset of [`Ctx`]: entities are integers, vectors three numbers,
-/// angles degrees (yaw, pitch, roll).
+/// Runs `ctx:<name>(...)` through the shared [`script_api`].
 fn dispatch(
     lua: &Lua,
     ctx: &mut Ctx,
@@ -658,278 +590,43 @@ fn dispatch(
     name: &str,
     values: MultiValue,
 ) -> mlua::Result<MultiValue> {
-    macro_rules! a {
-        ($t:ty) => {
-            args::<$t>(lua, name, values)?
-        };
+    let mut args = Vec::with_capacity(values.len());
+    for (i, v) in values.into_iter().enumerate() {
+        args.push(from_lua(v).map_err(|t| {
+            mlua::Error::runtime(format!(
+                "ctx:{name}: argument {}: a {t} cannot be passed to ctx",
+                i + 1
+            ))
+        })?);
     }
-    let local = |ctx: &Ctx, e: Entity| ctx.local(e).ok_or_else(|| missing(e));
-    match name {
-        // Time and identity.
-        "dt" => ret(lua, ctx.dt()),
-        "tick" => ret(lua, ctx.tick()),
-        "me" => ret(lua, to_lua(me)),
-        "find" => {
-            let id = a!(String);
-            ret(lua, id.parse().ok().and_then(|id| ctx.find(id)).map(to_lua))
-        }
-        "find_by_name" => {
-            let n = a!(String);
-            ret(lua, ctx.find_by_name(&n).map(to_lua))
-        }
-        "id_of" => {
-            let e = entity(a!(i64))?;
-            ret(lua, ctx.id_of(e).map(|id| id.to_string()))
-        }
-        "name" => {
-            let e = entity(a!(i64))?;
-            ret(lua, ctx.name(e))
-        }
-        "exists" => {
-            let e = a!(i64);
-            ret(lua, entity(e).is_ok_and(|e| ctx.exists(e)))
-        }
-        "parent" => {
-            let e = entity(a!(i64))?;
-            ret(lua, ctx.parent(e).map(to_lua))
-        }
+    let out = script_api::call(ctx, me, name, &args)
+        .map_err(|e| mlua::Error::runtime(format!("ctx:{e}")))?;
+    out.into_iter().map(|v| to_lua_value(lua, v)).collect()
+}
 
-        // Transforms (local to the parent).
-        "position" => {
-            let t = local(ctx, entity(a!(i64))?)?.translation;
-            ret(lua, (t.x, t.y, t.z))
-        }
-        "set_position" | "translate" => {
-            let (e, x, y, z) = a!((i64, f32, f32, f32));
-            let e = entity(e)?;
-            let mut t = local(ctx, e)?;
-            let v = Vec3::new(x, y, z);
-            t.translation = if name == "translate" {
-                t.translation + v
-            } else {
-                v
-            };
-            ctx.set_local(e, t);
-            ret(lua, ())
-        }
-        "world_position" => {
-            let e = entity(a!(i64))?;
-            let p = ctx.world_position(e).ok_or_else(|| missing(e))?;
-            ret(lua, (p.x, p.y, p.z))
-        }
-        "rotation" => ret(lua, degrees(local(ctx, entity(a!(i64))?)?.rotation)),
-        "set_rotation" => {
-            let (e, y, p, r) = a!((i64, f32, f32, f32));
-            let e = entity(e)?;
-            let mut t = local(ctx, e)?;
-            t.rotation = from_degrees(y, p, r);
-            ctx.set_local(e, t);
-            ret(lua, ())
-        }
-        "rotate" => {
-            let (e, y, p, r) = a!((i64, f32, Option<f32>, Option<f32>));
-            let e = entity(e)?;
-            let mut t = local(ctx, e)?;
-            t.rotation =
-                (t.rotation * from_degrees(y, p.unwrap_or(0.0), r.unwrap_or(0.0))).normalize();
-            ctx.set_local(e, t);
-            ret(lua, ())
-        }
-        "scale" => {
-            let s = local(ctx, entity(a!(i64))?)?.scale;
-            ret(lua, (s.x, s.y, s.z))
-        }
-        "set_scale" => {
-            let (e, x, y, z) = a!((i64, f32, f32, f32));
-            let e = entity(e)?;
-            let mut t = local(ctx, e)?;
-            t.scale = Vec3::new(x, y, z);
-            ctx.set_local(e, t);
-            ret(lua, ())
-        }
-        "set_hidden" => {
-            let (e, hidden) = a!((i64, bool));
-            ctx.set_hidden(entity(e)?, hidden);
-            ret(lua, ())
-        }
+fn from_lua(v: Value) -> Result<ScriptValue, &'static str> {
+    Ok(match v {
+        Value::Nil => ScriptValue::Nil,
+        Value::Boolean(b) => ScriptValue::Bool(b),
+        Value::Integer(i) => ScriptValue::Int(i),
+        Value::Number(x) => ScriptValue::Num(x),
+        Value::String(s) => ScriptValue::Str(s.to_string_lossy()),
+        other => return Err(other.type_name()),
+    })
+}
 
-        // Physics.
-        "velocity" => {
-            let v = ctx.velocity(entity(a!(i64))?);
-            ret(lua, (v.x, v.y, v.z))
-        }
-        "set_velocity" | "apply_impulse" | "add_force" => {
-            let (e, x, y, z) = a!((i64, f32, f32, f32));
-            let (e, v) = (entity(e)?, Vec3::new(x, y, z));
-            match name {
-                "set_velocity" => ctx.set_velocity(e, v),
-                "apply_impulse" => ctx.apply_impulse(e, v),
-                _ => ctx.add_force(e, v),
-            }
-            ret(lua, ())
-        }
-        "raycast" => {
-            let (ox, oy, oz, dx, dy, dz, max, ignore) =
-                a!((f32, f32, f32, f32, f32, f32, f32, Option<i64>));
-            let ignore = ignore.map(entity).transpose()?;
-            let hit = ctx.raycast(Vec3::new(ox, oy, oz), Vec3::new(dx, dy, dz), max, ignore);
-            ret(
-                lua,
-                hit.map_or((None, None), |h| (Some(to_lua(h.entity)), Some(h.distance))),
-            )
-        }
-
-        // Sound and animation.
-        "play_sound" => {
-            ctx.play_sound(entity(a!(i64))?);
-            ret(lua, ())
-        }
-        "stop_sound" => {
-            let (e, fade) = a!((i64, Option<f32>));
-            ctx.stop_sound(entity(e)?, fade.unwrap_or(0.0));
-            ret(lua, ())
-        }
-        "is_sound_playing" => {
-            let e = entity(a!(i64))?;
-            ret(lua, ctx.is_sound_playing(e))
-        }
-        "play_animation" => {
-            let (e, clip, fade, looping) = a!((i64, String, Option<f32>, Option<bool>));
-            let played = ctx.play_animation(
-                entity(e)?,
-                &clip,
-                fade.unwrap_or(0.2),
-                looping.unwrap_or(true),
-            );
-            ret(lua, played)
-        }
-        "stop_animation" => {
-            let (e, fade) = a!((i64, Option<f32>));
-            ctx.stop_animation(entity(e)?, fade.unwrap_or(0.2));
-            ret(lua, ())
-        }
-        "is_animation_playing" => {
-            let e = entity(a!(i64))?;
-            ret(lua, ctx.is_animation_playing(e))
-        }
-
-        // Input.
-        "held" => {
-            let action = a!(String);
-            ret(lua, ctx.input().held(&action))
-        }
-        "pressed" => {
-            let action = a!(String);
-            ret(lua, ctx.input().pressed(&action))
-        }
-        "axis" => {
-            let (neg, pos) = a!((String, String));
-            ret(lua, ctx.input().axis(&neg, &pos))
-        }
-
-        // Messages, events, state and flow.
-        "send" => {
-            let (to, message) = a!((i64, String));
-            ctx.send(entity(to)?, Some(me), message);
-            ret(lua, ())
-        }
-        "show_message" => {
-            let (text, secs) = a!((String, Option<f32>));
-            ctx.show_message(text, secs.unwrap_or(3.0));
-            ret(lua, ())
-        }
-        "event" => {
-            let (name, detail) = a!((String, Option<String>));
-            ctx.log(GameEvent::Custom {
-                name,
-                detail: detail.unwrap_or_default(),
-            });
-            ret(lua, ())
-        }
-        "get_state" => {
-            let key = a!(String);
-            let v = ctx
-                .state()
-                .get(&key)
-                .map_or(Ok(Value::Nil), |v| json_to_lua(lua, v))?;
-            ret(lua, v)
-        }
-        "set_state" => {
-            let (key, value) = a!((String, Value));
-            match lua_to_json(value)? {
-                Some(v) => ctx.state_mut().insert(key, v),
-                None => ctx.state_mut().remove(&key),
-            };
-            ret(lua, ())
-        }
-        "despawn" => {
-            ctx.despawn(entity(a!(i64))?);
-            ret(lua, ())
-        }
-        "load_scene" => {
-            ctx.load_scene(a!(String));
-            ret(lua, ())
-        }
-        "finish" => {
-            ctx.finish(a!(Option<String>).unwrap_or_default());
-            ret(lua, ())
-        }
-        "log" => {
-            let text = a!(String);
-            tracing::info!(target: "lua", entity = %ctx.name(me), "{text}");
-            ret(lua, ())
-        }
-        _ => Err(mlua::Error::runtime(format!(
-            "ctx has no method `{name}` (see the Lua scripting page of the wiki)"
-        ))),
-    }
+fn to_lua_value(lua: &Lua, v: ScriptValue) -> mlua::Result<Value> {
+    Ok(match v {
+        ScriptValue::Nil => Value::Nil,
+        ScriptValue::Bool(b) => Value::Boolean(b),
+        ScriptValue::Int(i) => Value::Integer(i),
+        ScriptValue::Num(x) => Value::Number(x),
+        ScriptValue::Str(s) => Value::String(lua.create_string(s)?),
+    })
 }
 
 /// Every `ctx` method, for documentation tests.
-pub const API_METHODS: &[&str] = &[
-    "dt",
-    "tick",
-    "me",
-    "find",
-    "find_by_name",
-    "id_of",
-    "name",
-    "exists",
-    "parent",
-    "position",
-    "set_position",
-    "translate",
-    "world_position",
-    "rotation",
-    "set_rotation",
-    "rotate",
-    "scale",
-    "set_scale",
-    "set_hidden",
-    "velocity",
-    "set_velocity",
-    "apply_impulse",
-    "add_force",
-    "raycast",
-    "play_sound",
-    "stop_sound",
-    "is_sound_playing",
-    "play_animation",
-    "stop_animation",
-    "is_animation_playing",
-    "held",
-    "pressed",
-    "axis",
-    "send",
-    "show_message",
-    "event",
-    "get_state",
-    "set_state",
-    "despawn",
-    "load_scene",
-    "finish",
-    "log",
-];
+pub const API_METHODS: &[&str] = script_api::METHODS;
 
 #[cfg(test)]
 mod tests;

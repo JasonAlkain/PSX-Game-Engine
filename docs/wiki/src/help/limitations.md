@@ -50,6 +50,9 @@ together with what has and has not been verified on each platform.
 - Saves keep the scene and game state, not the player's position.
 - Collider sizes scale with the entity.
 - glTF: no morph targets or PBR textures; glTF samplers are ignored.
+- C# scripts are not sandboxed and an endless loop in one hangs the game
+  (Lua scripts are stopped). Players of a game with C# scripts need the
+  .NET 10 runtime. A running game keeps the C# scripts it started with.
 
 ## Projects and export
 

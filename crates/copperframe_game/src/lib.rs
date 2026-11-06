@@ -23,11 +23,13 @@ pub mod audio;
 pub mod bench;
 pub mod builtin;
 pub mod control;
+pub mod csharp;
 pub mod headless;
 pub mod launch;
 pub mod lua;
 pub mod physics;
 pub mod player;
+pub mod script_api;
 pub mod settings;
 pub mod sim;
 

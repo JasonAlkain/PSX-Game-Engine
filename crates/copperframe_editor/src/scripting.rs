@@ -1,5 +1,5 @@
-//! Gameplay scripts in the editor: the Problems panel, the New Lua script
-//! dialog, and opening a script in the user's text editor.
+//! Gameplay scripts in the editor: the Problems panel, the New script
+//! dialog (Lua or C#), and opening a script in the user's text editor.
 //!
 //! Problems come from two places. Scripts that do not load are listed in
 //! the game's behaviour schema (`problems`), read whenever the schema is.
@@ -8,6 +8,10 @@
 //! ([`copperframe_assets::play_control::PlayMessage`]) and stay listed until
 //! the next Play.
 
+use copperframe_assets::csharp::{
+    self, CS_KIND_PREFIX, create_cs_script, cs_kind_for, new_cs_script_path,
+};
+use copperframe_assets::project::Project;
 use copperframe_assets::scripts::{
     self, LUA_KIND_PREFIX, SCRIPTS_DIR, ScriptDiagnostic, create_lua_script, lua_kind_for,
     new_script_path,
@@ -96,9 +100,32 @@ pub fn open_in_editor(session: &mut EditorSession, rel: &str) {
     }
 }
 
-/// The project-relative file of a Lua behaviour kind, if it exists.
+/// Whether the project turns on any scripting language.
+pub fn scripting_on(project: &Project) -> bool {
+    project.file.scripting.lua || project.file.scripting.csharp
+}
+
+/// Whether the project has scripts in a language it turns on.
+pub fn has_scripts(project: &Project) -> bool {
+    (project.file.scripting.lua && !scripts::find_lua_scripts(&project.root).is_empty())
+        || (project.file.scripting.csharp && !csharp::find_cs_scripts(&project.root).is_empty())
+}
+
+/// Whether a changed project file is a script in a language that is on.
+pub fn is_script_change(project: &Project, rel: &str) -> bool {
+    rel.starts_with(&format!("{SCRIPTS_DIR}/"))
+        && ((project.file.scripting.lua && rel.ends_with(".lua"))
+            || (project.file.scripting.csharp && rel.ends_with(".cs")))
+}
+
+/// The project-relative file of a script behaviour kind, if it exists.
+/// C# files are found by the class-named-after-file convention.
 pub fn script_file(session: &EditorSession, kind: &str) -> Option<String> {
-    let rel = format!("{SCRIPTS_DIR}/{}", scripts::lua_script_for(kind)?);
+    let rel = match scripts::lua_script_for(kind) {
+        Some(rel) => rel,
+        None => csharp::cs_script_for(&session.project.root, kind)?,
+    };
+    let rel = format!("{SCRIPTS_DIR}/{rel}");
     session.project.resolve(&rel).is_file().then_some(rel)
 }
 
@@ -137,9 +164,9 @@ pub fn problems_panel(ui: &mut egui::Ui, session: &mut EditorSession, tools: &mu
             ui.label(RichText::new(busy).small().weak());
         }
     });
-    if !session.project.file.scripting.lua {
+    if !scripting_on(&session.project) {
         ui.label(
-            RichText::new("Lua scripting is off for this project (Project settings > Scripting).")
+            RichText::new("Scripting is off for this project (Project settings > Scripting).")
                 .small()
                 .weak(),
         );
@@ -228,21 +255,42 @@ fn problem_row(ui: &mut egui::Ui, session: &EditorSession, p: &ScriptDiagnostic)
     open
 }
 
-/// The New Lua script dialog's state.
+/// The New script dialog's state.
 #[derive(Debug, Clone, Default)]
 pub struct NewScript {
-    /// What the user typed (`door`, `puzzles/door`).
+    /// What the user typed (`door`, `puzzles/door`; C#: `DoorOpener`).
     pub name: String,
+    /// A C# script rather than Lua.
+    pub csharp: bool,
     /// Attach the new script to this entity.
     pub attach: Option<EntityId>,
     pub error: Option<String>,
 }
 
 impl NewScript {
-    pub fn new(attach: Option<EntityId>) -> Self {
+    /// Starts in C# when Lua is off.
+    pub fn new(project: &Project, attach: Option<EntityId>) -> Self {
         Self {
             attach,
+            csharp: !project.file.scripting.lua && project.file.scripting.csharp,
             ..Self::default()
+        }
+    }
+
+    /// The file under `scripts/` the typed name becomes.
+    fn path(&self) -> Result<String, String> {
+        if self.csharp {
+            new_cs_script_path(&self.name)
+        } else {
+            new_script_path(&self.name)
+        }
+    }
+
+    fn kind(&self, rel: &str) -> String {
+        if self.csharp {
+            cs_kind_for(rel)
+        } else {
+            lua_kind_for(rel)
         }
     }
 }
@@ -254,9 +302,13 @@ fn create(
     tools: &mut GameTools,
     dialog: &NewScript,
 ) -> Result<(), String> {
-    let rel = new_script_path(&dialog.name)?;
-    let kind = lua_kind_for(&rel);
-    create_lua_script(&session.project.root, &rel)?;
+    let rel = dialog.path()?;
+    let kind = dialog.kind(&rel);
+    if dialog.csharp {
+        create_cs_script(&session.project.root, &rel)?;
+    } else {
+        create_lua_script(&session.project.root, &rel)?;
+    }
     let file = format!("{SCRIPTS_DIR}/{rel}");
     session.info(format!("created {file} (behaviour {kind})"));
     if let Some(entity) = dialog.attach.and_then(|id| session.scene.get(id).cloned())
@@ -274,32 +326,44 @@ fn create(
     Ok(())
 }
 
-/// Draws the New Lua script dialog while it is open.
+/// Draws the New script dialog while it is open.
 pub fn new_script_dialog(ctx: &egui::Context, session: &mut EditorSession, tools: &mut GameTools) {
     let Some(mut dialog) = tools.new_script.take() else {
         return;
     };
     let mut keep = true;
     egui::Modal::new(egui::Id::unique("copperframe-new-script")).show(ctx, |ui| {
-        ui.heading("New Lua script");
+        ui.heading("New script");
         ui.label(format!(
             "Creates a script in {SCRIPTS_DIR}/ from a template and opens it in your text editor."
         ));
+        let langs = &session.project.file.scripting;
+        if langs.lua && langs.csharp {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut dialog.csharp, false, "Lua");
+                ui.selectable_value(&mut dialog.csharp, true, "C#");
+            });
+        }
+        let hint = if dialog.csharp {
+            "DoorOpener, or Puzzles/DoorOpener"
+        } else {
+            "door, or puzzles/door"
+        };
         let field = ui.add(
             egui::TextEdit::singleline(&mut dialog.name)
-                .hint_text("door, or puzzles/door")
+                .hint_text(hint)
                 .desired_width(260.0),
         );
         if !field.has_focus() && dialog.name.is_empty() {
             field.request_focus();
         }
-        let checked = new_script_path(&dialog.name);
+        let checked = dialog.path();
         match &checked {
             Ok(rel) => {
                 ui.label(
                     RichText::new(format!(
                         "{SCRIPTS_DIR}/{rel} · behaviour {}",
-                        lua_kind_for(rel)
+                        dialog.kind(rel)
                     ))
                     .small()
                     .weak(),
@@ -309,13 +373,17 @@ pub fn new_script_dialog(ctx: &egui::Context, session: &mut EditorSession, tools
                 ui.colored_label(Color32::from_rgb(235, 90, 80), e);
             }
             Err(_) => {
-                ui.label(
-                    RichText::new(format!(
+                let rule = if dialog.csharp {
+                    format!(
+                        "A class name, like DoorOpener; folders with /. The behaviour kind is \
+                         {CS_KIND_PREFIX}<name in snake_case>."
+                    )
+                } else {
+                    format!(
                         "a-z, 0-9 and _; folders with /. The behaviour kind is {LUA_KIND_PREFIX}<name>."
-                    ))
-                    .small()
-                    .weak(),
-                );
+                    )
+                };
+                ui.label(RichText::new(rule).small().weak());
             }
         }
         if let Some(name) = dialog

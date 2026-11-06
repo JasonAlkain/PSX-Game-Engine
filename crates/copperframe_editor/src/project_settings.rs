@@ -143,8 +143,8 @@ pub struct ProjectSettingsPanel {
     confirm_migrate: bool,
     /// The Audio page asked for the Audio mixer panel.
     pub open_mixer: bool,
-    /// The project's Lua scripts, and when the folder was read.
-    scripts: Option<(f64, Vec<String>)>,
+    /// The project's scripts (Lua and C#), and when the folder was read.
+    scripts: Option<(f64, Vec<(String, String)>)>,
     /// The Scripting page asked for the Problems panel.
     pub open_problems: bool,
 }
@@ -537,6 +537,9 @@ impl ProjectSettingsPanel {
         tools: &mut GameTools,
         draft: &mut Draft,
     ) {
+        use copperframe_assets::csharp::{
+            DOTNET_URL, DOTNET_VERSION, cs_kind_for, find_cs_scripts,
+        };
         use copperframe_assets::scripts::{SCRIPTS_DIR, find_lua_scripts, lua_kind_for};
         hint(
             ui,
@@ -551,20 +554,47 @@ impl ProjectSettingsPanel {
             "scripts/door.lua becomes the behaviour lua.door, scripts/puzzles/door.lua \
              lua.puzzles.door. Name scripts and folders with a-z, 0-9 and _.",
         );
-        let saved = session.project.file.scripting.lua;
-        if draft.file.scripting.lua != saved {
+        ui.add_space(4.0);
+        ui.checkbox(&mut draft.file.scripting.csharp, "C# scripts")
+            .on_hover_text(format!(
+                "Compile scripts/**/*.cs into one assembly and run it on .NET {DOTNET_VERSION}"
+            ));
+        hint(
+            ui,
+            &format!(
+                "Each public class deriving from Behaviour is a behaviour: DoorOpener becomes \
+                 cs.door_opener. Needs the .NET {DOTNET_VERSION} SDK to build ({DOTNET_URL}); \
+                 players of an exported game need the .NET {DOTNET_VERSION} runtime. Builds \
+                 go to .psx/csharp/."
+            ),
+        );
+        let saved = session.project.file.scripting;
+        if draft.file.scripting != saved {
             ui.label(
                 RichText::new(
-                    "Save to apply; scenes that use Lua behaviours do not play with Lua off.",
+                    "Save to apply; scenes that use behaviours of a language that is off do \
+                     not play.",
                 )
                 .color(theme::ACCENT),
             );
         }
+        let saved = saved.lua || saved.csharp;
         ui.add_space(6.0);
         ui.separator();
         let now = ui.input(|i| i.time);
         if self.scripts.as_ref().is_none_or(|(t, _)| now - t > 2.0) {
-            self.scripts = Some((now, find_lua_scripts(&session.project.root)));
+            let root = &session.project.root;
+            let mut all: Vec<(String, String)> = find_lua_scripts(root)
+                .into_iter()
+                .map(|r| (lua_kind_for(&r), r))
+                .collect();
+            all.extend(
+                find_cs_scripts(root)
+                    .into_iter()
+                    .map(|r| (cs_kind_for(&r), r)),
+            );
+            all.sort_by(|a, b| a.1.cmp(&b.1));
+            self.scripts = Some((now, all));
         }
         let scripts = self
             .scripts
@@ -574,11 +604,14 @@ impl ProjectSettingsPanel {
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("Scripts ({})", scripts.len())).strong());
             if ui
-                .add_enabled(saved, egui::Button::new("New Lua script…"))
-                .on_disabled_hover_text("Turn Lua on and save first")
+                .add_enabled(saved, egui::Button::new("New script…"))
+                .on_disabled_hover_text("Turn Lua or C# on and save first")
                 .clicked()
             {
-                tools.new_script = Some(crate::scripting::NewScript::new(session.selection));
+                tools.new_script = Some(crate::scripting::NewScript::new(
+                    &session.project,
+                    session.selection,
+                ));
                 self.scripts = None;
             }
             if ui.button("Open folder").clicked() {
@@ -602,7 +635,7 @@ impl ProjectSettingsPanel {
             .num_columns(3)
             .spacing([12.0, 4.0])
             .show(ui, |ui| {
-                for rel in &scripts {
+                for (kind, rel) in &scripts {
                     let file = format!("{SCRIPTS_DIR}/{rel}");
                     ui.label(RichText::new(&file).monospace());
                     let broken = tools.problems.all().filter(|p| p.file == file).count();
@@ -619,7 +652,7 @@ impl ProjectSettingsPanel {
                             self.open_problems = true;
                         }
                     } else {
-                        ui.label(RichText::new(lua_kind_for(rel)).weak());
+                        ui.label(RichText::new(kind).weak());
                     }
                     if ui.small_button("Open").clicked() {
                         open = Some(file);

@@ -505,11 +505,9 @@ impl Running {
         }
         // Scripts are behaviour kinds: read them again so the inspector and
         // Add component match the files.
-        let scripts_prefix = format!("{}/", copperframe_assets::scripts::SCRIPTS_DIR);
-        if ws.session.project.file.scripting.lua
-            && changes
-                .all()
-                .any(|p| p.starts_with(&scripts_prefix) && p.ends_with(".lua"))
+        if changes
+            .all()
+            .any(|p| crate::scripting::is_script_change(&ws.session.project, p))
         {
             ws.session
                 .info("scripts changed; reading the behaviour kinds again");

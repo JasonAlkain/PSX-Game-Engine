@@ -19,8 +19,9 @@ Lua is on for every project unless `project.json` says otherwise:
 "scripting": { "lua": true }
 ```
 
-(`project.json` version 5. Older projects load with Lua on, which changes
-nothing until you add a `.lua` file.)
+(`project.json` version 5 and later. Older projects load with Lua on, which
+changes nothing until you add a `.lua` file.) Behaviours can also be
+written in [C#](csharp.md).
 
 ## Writing a script
 
@@ -176,9 +177,9 @@ that does not exist (check with `ctx:exists(e)` first if it may be gone).
 
 ## In the editor
 
-- **New Lua script…** (in **Game**, in **Add component > Behaviours >
+- **New script…** (in **Game**, in **Add component > Behaviours >
   Scripts**, and on the Scripting page of Project settings) asks for a
-  name, such as `door` or `puzzles/door`, writes a starting script to
+  name (choose **Lua** when [C#](csharp.md) is on too), such as `door` or `puzzles/door`, writes a starting script to
   `scripts/`, adds it to the selected entity and opens it in the program
   your system uses for `.lua` files.
 - A behaviour card of a Lua kind shows its file and **Edit script**.

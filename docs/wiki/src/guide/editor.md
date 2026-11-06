@@ -31,7 +31,7 @@ whose lock is held by a hung editor (see [Project lock](#project-lock)).
 | Project settings | Settings for the whole game (closed at first; the toolbar's cog opens it). See [Project settings](#project-settings) |
 | Assets | The [asset browser](#the-assets-panel) |
 | Console | The log, including a running game's output |
-| Problems | Script problems: scripts that do not load, and errors from the last Play (closed at first; opens by itself when a problem appears). See [Lua scripting](lua.md#in-the-editor) |
+| Problems | Script problems: scripts that do not load, and errors from the last Play (closed at first; opens by itself when a problem appears). See [Lua scripting](lua.md#in-the-editor) and [C# scripting](csharp.md#in-the-editor) |
 | Status bar | The number of script problems (click to open the Problems panel), project and scene name, revision, unsaved state, frame rate, draw and triangle counts, and "idle" when the editor is not redrawing |
 
 ### Arranging panels
@@ -167,8 +167,8 @@ settings is unrelated: it is the PS1 wobble effect (see
 - **Create**: Empty, Cube, Plane, Sphere, Quad. New entities appear a few
   metres in front of the editor camera and are selected.
 - **Game**: Play/Stop, Pause and Step, **Reload behaviour kinds** (rebuilds
-  the game and re-reads the behaviours it registers), **New Lua script…**
-  and **Problems** (see [Lua scripting](lua.md#in-the-editor)).
+  the game and re-reads the behaviours it registers), **New script…**
+  (Lua or C#) and **Problems** (see [Lua scripting](lua.md#in-the-editor)).
 - **Build** (each saves unsaved changes first and runs in the background;
   the result opens in its own window with **Copy** and, for exports,
   **Open folder**):
@@ -222,7 +222,7 @@ each frame, so put the one that should act first higher up.
 | Lighting | **Point light**, **Blob shadow** |
 | Physics | **Collider** (sized to fit the mesh) |
 | Audio | **Audio source** (pick a sound from `assets/`) |
-| Behaviours | The game's behaviours, in the folders the game files them in (see [Behaviours and game code](behaviours.md#folders-in-the-add-component-menu)), plus **Reload behaviour kinds**. Lua scripts are under **Scripts**, with **New Lua script…** |
+| Behaviours | The game's behaviours, in the folders the game files them in (see [Behaviours and game code](behaviours.md#folders-in-the-add-component-menu)), plus **Reload behaviour kinds**. Lua and C# scripts are under **Scripts**, with **New script…** |
 
 Type in the search field at the top to list every match instead, with its
 folder next to it; `Enter` adds the first match. Entries the entity cannot
@@ -294,7 +294,7 @@ the scene's undo history. Play and Export use the saved values.
 | General | **Name** (hub, status bar, default export folder), **Start scene** (the scene the game opens with; the same as **File > Set as Startup Scene**), and the project folder with **Open** |
 | Window | **Window size** of the game in points, with presets (640 × 480 up to 1920 × 1080), and whether a new player starts **fullscreen** and with **vertical sync** |
 | Look | **Default look**: *As authored* (each scene's look), *PS1* or *PS2*, and whether **players can switch** between them in the game's settings screen. **Project look**: the console look (presets and every effect) of all scenes set to *Project look*; edits show in the viewport before you save. **Copy from the open scene** takes the open scene's look. **Scenes** lists the scenes that still have their own look, and **Make all use the project look…** switches them (after asking; their fog, background and lighting are kept). Save the project settings first |
-| Scripting | Whether the project loads **Lua scripts**, the scripts in `scripts/` with their behaviour kinds (or how many problems each has), **Open** for each, **New Lua script…** and **Open folder**. See [Lua scripting](lua.md) |
+| Scripting | Whether the project loads **Lua scripts** and **C# scripts**, the scripts in `scripts/` with their behaviour kinds (or how many problems each has), **Open** for each, **New script…** and **Open folder**. See [Lua scripting](lua.md) and [C# scripting](csharp.md) |
 | Input | The keys each action starts with. Click a key to unbind it, **+ key** to add one (a key used by another action moves here, and the panel says so), add your own actions by name for game code to read, or **Reset to engine defaults**. Players can still remap keys in the game |
 | Audio | The project mixer's bus volumes, mutes and the master limiter in a table, and **Open the Audio mixer** for faders and meters (see [The Audio mixer](#the-audio-mixer)) |
 | Build | The **Export folder** (relative to the project or a full path; empty means `dist/<name>`), whether to **check the exported game starts**, and **Check with** an idle run or one of the project's test scripts |
@@ -395,7 +395,7 @@ Hidden files and `*.tmp` files are ignored.
 
 `scenes/` and `scripts/` are watched the same way: a scene changed by
 another program is reloaded (or, with unsaved edits, the editor asks), and
-a saved `.lua` script makes the editor read the behaviour kinds again.
+a saved `.lua` script (or `.cs` script with C# on) makes the editor read the behaviour kinds again.
 
 ## Saving, undo and conflicts
 

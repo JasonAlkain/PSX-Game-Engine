@@ -38,13 +38,14 @@ copperframe build --project my_game --out "my_game/dist/My Game"
 ## What happens
 
 1. The project is validated (the same checks as **Build > Validate Project**); errors stop the export.
-2. The game crate is built in release mode.
+2. The game crate is built in release mode. With [C# scripts](csharp.md) on,
+   they are built too; a compiler error stops the export.
 3. The output folder is written:
 
    | Path | Contents |
    | --- | --- |
    | `<game>` (`.exe` on Windows) | The game executable |
-   | `data/` | `project.json`, `input.json`, scenes and assets |
+   | `data/` | `project.json`, `input.json`, scenes, assets, Lua scripts and the compiled C# scripts (`.psx/csharp/`, not their sources) |
    | `NOTICES.txt` | Licences of every third-party crate compiled into the executable |
    | `README.txt` | How to run the game |
    | `export.json` | Marks the folder as an export, so `--replace` may overwrite it |
@@ -54,7 +55,8 @@ copperframe build --project my_game --out "my_game/dist/My Game"
    if given), to prove it starts and finds its data.
 
 The executable looks for `data/` next to itself, so the folder can be moved,
-renamed or zipped. Settings and saves go to the player's user folder, never
+renamed or zipped. A game with C# scripts also needs the .NET 10 runtime on
+the player's computer; say so on its store page. Settings and saves go to the player's user folder, never
 into the export.
 
 ## Size

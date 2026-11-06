@@ -187,11 +187,18 @@ pub struct ScriptingSettings {
     /// Load `scripts/**/*.lua` as behaviour kinds `lua.<path>` (see
     /// [`crate::scripts`]).
     pub lua: bool,
+    /// Compile `scripts/**/*.cs` and load its behaviours as kinds
+    /// `cs.<name>` (since project version 6; see [`crate::csharp`]). Off
+    /// by default because it needs .NET.
+    pub csharp: bool,
 }
 
 impl Default for ScriptingSettings {
     fn default() -> Self {
-        Self { lua: true }
+        Self {
+            lua: true,
+            csharp: false,
+        }
     }
 }
 
