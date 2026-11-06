@@ -78,9 +78,14 @@ moves an entity up and down. In the editor:
    builds the game and reads which behaviours it registers.
 3. Set `height` and `speed`, then **Play**.
 
-To write your own, add a `BehaviorDescriptor` in `register` and a type that
-implements `Behavior`. [Behaviours and game code](../guide/behaviours.md)
-explains how, with the full [Ctx reference](../reference/ctx.md).
+To write your own Rust behaviour, add a `BehaviorDescriptor` in `register`
+and implement `Behavior`. You can instead choose **Game > New script…**
+for a Lua or C# behaviour. Lua runs without a separate installation; C#
+authoring requires the .NET 10 SDK and enabling C# in **Project settings >
+Scripting**. Lua and C# share the same script API. See
+[Behaviours and game code](../guide/behaviours.md),
+[Lua scripting](../guide/lua.md), [C# scripting](../guide/csharp.md), and
+the [Ctx reference](../reference/ctx.md).
 
 ## 5. Add your own art
 
@@ -95,8 +100,10 @@ See [Asset pipeline](../guide/assets.md).
 
 ## 6. Choose the look
 
-Open the **Scene settings** tab next to the inspector. Click **PS1**,
-**PS2** or **Clean**, or turn individual effects on and off. See
+Open **Project settings > Look** to set the game's shared retro look, then
+choose **Project look** in **Scene settings** for scenes that should follow
+it. A scene can instead keep its own PS1, PS2 or Clean-inspired settings;
+its fog, background and lighting can differ from other scenes. See
 [PS1 and PS2 style settings](../guide/style.md).
 
 ## 7. Check and export
