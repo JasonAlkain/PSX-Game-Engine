@@ -66,6 +66,15 @@ exist yet, or must be empty.
 | **Starter scene** | A floor, a spinning cube and a first-person player. Press **Play** and walk around immediately |
 | **The Lever Room demo** | A copy of the example game: its models, textures, sounds, scene, test script and Rust gameplay code |
 
+### Choosing a gameplay language
+
+Rust is optional. You can attach built-in behaviours immediately or add
+Lua 5.4 scripts in `scripts/` without a `game/` crate. To use C# gameplay
+scripts, enable C# in **Project settings > Scripting** and install the
+.NET 10 SDK; players of exported C# games need the .NET 10 runtime.
+You may mix Rust, Lua and C# behaviours within the same scene. See
+[Lua scripting](lua.md) and [C# scripting](csharp.md).
+
 ### Rust game code
 
 With **Include Rust game code** ticked, the project gets a `game/` crate
