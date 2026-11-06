@@ -18,6 +18,13 @@ whose lock is held by a hung editor (see [Project lock](#project-lock)).
 
 ![The editor with The Lever Room open: hierarchy on the left, the viewport filling its panel with a crate selected and its move gizmo, the toolbar above, the inspector and Scene settings tabs on the right, and the Assets browser and Console tabs at the bottom](../images/editor_lever_room.png)
 
+**Project versus scene settings:** Project settings provide shared defaults
+(including the retro look and audio mixer). A scene can use the shared
+project look or override it; its fog, background, lighting and start camera
+remain scene-specific. For scripting, open **Project settings > Scripting**
+to enable C#, review Lua/C# scripts, and access script creation. A save
+refreshes the editor's script schema; restart Play to run modified code.
+
 ## Layout
 
 | Area | What it does |
