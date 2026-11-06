@@ -429,6 +429,12 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
                     Some(folder),
                 ));
             }
+            PanelRequest::NewScript { folder, csharp } => {
+                let mut dialog = crate::scripting::NewScript::new(&session.project, None);
+                dialog.csharp = csharp;
+                dialog.folder = folder;
+                tools.new_script = Some(dialog);
+            }
         }
     }
     let viewport = viewport.map(|r| viewport_panel::to_pixels(r, ppp));

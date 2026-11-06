@@ -13,6 +13,8 @@
 //! - [`export`]: host-platform export of a game and its data.
 //! - [`play_control`]: the editor's Pause/Resume/Step line protocol with a
 //!   running game.
+//! - [`files`]: folders, small data files and the project bin, as the
+//!   editor's Assets panel manages them.
 //! - [`csharp`]: compiling a project's C# scripts with `dotnet build`.
 //! - [`scripts`]: gameplay script files, their behaviour kinds and
 //!   [`scripts::ScriptDiagnostic`].
@@ -23,6 +25,7 @@
 pub mod anim;
 pub mod csharp;
 pub mod export;
+pub mod files;
 pub mod fixtures;
 pub mod game;
 pub mod import;

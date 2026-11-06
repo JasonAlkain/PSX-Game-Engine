@@ -335,14 +335,17 @@ Ambient).
 
 ## The Assets panel
 
-A browser for `assets/`: folders on the left, a grid of tiles for the open
-folder on the right (textures show a thumbnail), and a strip along the bottom
-with the selected asset's path, any problem with it, and its actions.
+A browser for the project's three folders: `assets/` (models, textures,
+sounds, and text or data files), `scenes/` and `scripts/` (Lua and C#
+scripts). Folders are on the left, a grid of tiles for the open folder on
+the right (textures show a thumbnail), and a strip along the bottom with the
+selected item's path, any problem with it, and its actions.
 
 - Click a folder, a part of the path above the grid, or double-click a folder
   tile to open it.
 - **Search** looks through the open folder and everything below it. **All**,
-  **Models**, **Textures** and **Sounds** filter by kind, and the slider sets
+  **Models**, **Textures** and **Sounds** filter by kind; **Scenes** and
+  **Scripts** list every scene or script in the project. The slider sets
   the tile size.
 - A dot on a tile marks an asset with a problem: yellow for import warnings,
   red for a failed import or a missing file. The strip says what is wrong.
@@ -360,6 +363,40 @@ with the selected asset's path, any problem with it, and its actions.
 - **Reimport** (models and textures) reads the file again after you changed
   it. If the new import fails, the last good version stays on screen and
   the error appears in the console.
+- **Open** (right-click, or the strip) opens a file in the program your
+  system uses for it: your text editor for scripts and data files, your
+  image viewer or paint program for textures.
+
+### Creating things
+
+The panel's **Create** button, and a right-click on empty space, a tile or
+a folder, offer:
+
+| Item | Where it goes |
+| --- | --- |
+| **Folder…** | The open folder (in any of the three) |
+| **Scene…** | The open folder if it is in `scenes/`, else `scenes/` |
+| **Lua script…**, **C# script…** | The open folder if it is in `scripts/`, else `scripts/`. Opens the New script dialog; the language must be on in Project settings > Scripting |
+| **Text file…**, **JSON data file…** | The open folder if it is in `assets/`, else `assets/`. An empty `.txt` file, or a `.json` file holding `{}` |
+
+New scripts and data files open in your text editor straight away.
+Everything in `assets/` is copied into exported games, data files included.
+Copperframe has no material files: a model's materials come from the model,
+and an entity's changes to them are set on its Mesh component.
+
+### Deleting
+
+**Delete…** (right-click a tile or a folder, or the strip) moves the file
+or folder to `.psx/deleted/` in the project folder, so it can be recovered
+by hand. Before it does, the dialog says what else is affected:
+
+- an **asset**: the scenes that use it. Its `.meta.json` goes with it, so
+  moving both back restores it with the same ID;
+- a **script**: the scenes whose entities use its behaviour. Those scenes do
+  not play until the script is back or the components are removed;
+- a **folder**: how many files go with it. A folder holding the open scene
+  or the start scene cannot be deleted, and neither can `assets`, `scenes`
+  or `scripts` themselves.
 
 ### Scenes in the Assets panel
 
@@ -373,8 +410,7 @@ name). The open scene's tile is copper; the start scene is marked
   changes first).
 - **Right-click** a scene for Open, Rename…, Delete…, Set as Start Scene and
   Show in folder, and right-click a scenes folder or empty space for
-  **Create Scene…** and **Create Folder…** (also on the panel's **Create**
-  button).
+  **Scene…** and **Folder…** (also on the panel's **Create** button).
 - **Drag** a scene onto a scenes folder (in the tree or the grid) to move it.
 - Renaming and moving keep references working: the project's start scene,
   the recent list, and behaviour parameters that hold the old path (in every

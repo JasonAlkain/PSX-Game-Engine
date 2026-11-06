@@ -65,7 +65,7 @@ pub const SCENE_SUFFIX: &str = ".scene.json";
 /// Recently opened scenes of the project.
 const RECENT_FILE: &str = ".psx/recent_scenes.json";
 /// Deleted scene files are moved here.
-pub const DELETED_DIR: &str = ".psx/deleted";
+pub use copperframe_assets::files::DELETED_DIR;
 const RECENT_SCENES: usize = 10;
 
 /// What a new scene starts with.
@@ -610,20 +610,57 @@ impl EditorSession {
 
     /// Makes a folder under `scenes/`.
     pub fn create_scene_folder(&mut self, parent: &str, name: &str) -> Result<PathBuf, String> {
-        let name = name.trim();
-        if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
-            return Err("give the folder a plain name".into());
-        }
         let parent = parent.trim_matches('/');
         if !(parent == SCENES_DIR || parent.starts_with(&format!("{SCENES_DIR}/"))) {
             return Err(format!("scene folders go in {SCENES_DIR}/"));
         }
-        let path = self.project.resolve(parent).join(name);
-        if path.exists() {
-            return Err(format!("{} already exists", self.project.relative(&path)));
-        }
-        std::fs::create_dir_all(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        self.create_folder(parent, name)
+    }
+
+    /// Makes a folder in `parent` (under `assets/`, `scenes/` or
+    /// `scripts/`).
+    pub fn create_folder(&mut self, parent: &str, name: &str) -> Result<PathBuf, String> {
+        let path = copperframe_assets::files::create_folder(&self.project.root, parent, name)?;
+        self.info(format!("made the folder {}", self.project.relative(&path)));
         Ok(path)
+    }
+
+    /// Moves a file or folder (project-relative, under `assets/`,
+    /// `scenes/` or `scripts/`) into `.psx/deleted/`. An asset goes with
+    /// its `.meta.json`, so it keeps its ID if it is moved back. A folder
+    /// holding the open scene or the start scene cannot be deleted.
+    pub fn delete_path(&mut self, rel: &str) -> Result<(), String> {
+        let rel = rel.trim_matches('/').to_owned();
+        let path = self.project.resolve(&rel);
+        if path.is_file() && rel.ends_with(SCENE_SUFFIX) {
+            return self.delete_scene(&path);
+        }
+        if path.is_dir() {
+            if self.scene_path.starts_with(&path) {
+                return Err(format!(
+                    "{rel} holds the open scene; open a scene from another folder first"
+                ));
+            }
+            if self.project.startup_scene_path().starts_with(&path) {
+                return Err(format!(
+                    "{rel} holds the start scene; make a scene from another folder the start \
+                     scene first"
+                ));
+            }
+        }
+        let bin = copperframe_assets::files::move_to_bin(&self.project.root, &rel)?;
+        let inside = format!("{rel}/");
+        let before = self.recent_scenes.len();
+        self.recent_scenes.retain(|r| !r.starts_with(&inside));
+        if self.recent_scenes.len() != before {
+            self.save_recent();
+        }
+        self.info(format!("deleted {rel} (kept as {bin})"));
+        if copperframe_assets::files::root_of(&rel) == Some(copperframe_assets::project::ASSETS_DIR)
+        {
+            self.rescan_assets();
+        }
+        Ok(())
     }
 
     /// Every folder under `scenes/` (relative, sorted), including empty ones.
@@ -1039,6 +1076,38 @@ mod tests {
         drop(s);
         let s = EditorSession::open(&root, Some(&copy), true, false).unwrap();
         assert_eq!(s.recent_scene_paths(), vec![moved.clone()]);
+        drop(s);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn panel_deletes_go_to_the_bin_but_not_the_open_scene_folder() {
+        let root = temp("delete_path");
+        Project::create(&root, "T").unwrap();
+        let mut s = EditorSession::open(&root, None, false, false).unwrap();
+        s.create_folder("scripts", "puzzles").unwrap();
+        std::fs::write(root.join("scripts/puzzles/door.lua"), "return {}").unwrap();
+        s.delete_path("scripts/puzzles").unwrap();
+        assert!(root.join(DELETED_DIR).join("puzzles/door.lua").is_file());
+        assert!(!root.join("scripts/puzzles").exists());
+        // An asset leaves the database with its sidecar.
+        std::fs::write(root.join("assets/a.wav"), b"RIFF").unwrap();
+        s.rescan_assets();
+        assert_eq!(s.db.entries.len(), 1);
+        s.delete_path("assets/a.wav").unwrap();
+        assert!(s.db.entries.is_empty());
+        assert!(root.join(DELETED_DIR).join("a.wav.meta.json").is_file());
+        // The folder of the open (and start) scene stays.
+        let levels = s.create_scene_folder("scenes", "levels").unwrap();
+        let moved = levels.join("main.scene.json");
+        s.move_scene(&s.scene_path.clone(), &moved).unwrap();
+        assert!(
+            s.delete_path("scenes/levels")
+                .unwrap_err()
+                .contains("open scene")
+        );
+        assert!(s.delete_path("scenes").is_err(), "roots stay");
+        assert!(s.create_scene_folder("assets", "x").is_err());
         drop(s);
         std::fs::remove_dir_all(&root).unwrap();
     }

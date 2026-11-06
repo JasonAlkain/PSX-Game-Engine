@@ -31,7 +31,7 @@ and `--project DIR` (default: the current folder) where it applies.
 ## `new`
 
 ```sh
-copperframe new DIR [--name NAME] [--template empty|starter|lever-room] [--no-game]
+copperframe new DIR [--name NAME] [--template empty|starter|lever-room] [--no-game] [--scripting lua|csharp]
 ```
 
 Creates a project: `project.json`, `assets/`, `scenes/main.scene.json` and

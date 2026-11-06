@@ -27,7 +27,7 @@ use copperframe_assets::export::{
 };
 use copperframe_assets::game::{GameTarget, HeadlessRun, bench_summary, test_summary};
 use copperframe_assets::project::{AssetDatabase, ImportedAsset, Project, ProjectError};
-use copperframe_assets::template::{NewProject, ProjectTemplate, create_project};
+use copperframe_assets::template::{NewProject, ProjectTemplate, ScriptLanguage, create_project};
 use copperframe_assets::validate_project;
 use copperframe_scene::batch::{BATCH_FORMAT, BATCH_VERSION, BatchError, parse_batch};
 use copperframe_scene::file::{SCENE_FORMAT, SCENE_VERSION};
@@ -63,6 +63,9 @@ enum Cmd {
         /// plays in the stock player with engine behaviours only.
         #[arg(long)]
         no_game: bool,
+        /// The scripting language turned on: lua (default) or csharp.
+        #[arg(long, default_value = "lua")]
+        scripting: String,
     },
     /// Describe file formats, components and batch commands. With
     /// --project, also the behaviour kinds that project's game registers.
@@ -223,7 +226,8 @@ fn main() -> ExitCode {
             name,
             template,
             no_game,
-        } => new(&dir, name, &template, no_game),
+            scripting,
+        } => new(&dir, name, &template, no_game, &scripting),
         Cmd::Schema { project } => schema(project.as_deref()),
         Cmd::TestScene {
             scene,
@@ -297,6 +301,7 @@ fn new(
     name: Option<String>,
     template: &str,
     no_game: bool,
+    scripting: &str,
 ) -> Result<Success, Failure> {
     let name = name.unwrap_or_else(|| {
         dir.file_name()
@@ -313,11 +318,18 @@ fn new(
             ),
         )
     })?;
+    let scripting = ScriptLanguage::from_id(scripting).ok_or_else(|| {
+        Failure::new(
+            2,
+            format!("unknown scripting language `{scripting}` (use lua or csharp)"),
+        )
+    })?;
     let created = create_project(&NewProject {
         dir: dir.to_path_buf(),
         name: name.clone(),
         template,
         game_code: !no_game,
+        scripting,
     })
     .map_err(|e| {
         let hint = if no_game { "" } else { " (or pass --no-game)" };
@@ -339,12 +351,14 @@ fn new(
             "template": template.id(),
             "startup_scene": project.file.startup_scene,
             "game_crate": created.game_crate_engine.is_some(),
+            "scripting": scripting.id(),
         }),
         text: format!(
-            "created project \"{name}\" in {}\n  template: {}\n  startup scene: {}\n  gameplay code: {game}\n",
+            "created project \"{name}\" in {}\n  template: {}\n  startup scene: {}\n  gameplay code: {game}\n  scripting: {}\n",
             dir.display(),
             template.label(),
-            scene.display()
+            scene.display(),
+            scripting.label()
         ),
     })
 }

@@ -52,6 +52,7 @@ crash reports and logs.
 | **Name** | The game's name. The project folder gets the same name, with characters Windows does not allow in file names replaced by `_` |
 | **Location** | The folder the project folder is created in. **Browse…** picks one. The default is `Documents\Copperframe Projects`, then wherever you last created a project |
 | **Template** | What the project starts with (below) |
+| **Scripting language** | **Lua** (the default; built into every game) or **C#** (needs the [.NET SDK](https://dotnet.microsoft.com/download) to build; the form warns if it is not installed). The chosen language is turned on in `project.json`; switch or turn on both later in Project settings > Scripting. See [Lua scripting](lua.md) and [C# scripting](csharp.md) |
 | **Include Rust game code** | Adds a `game/` folder with a Rust crate for your own behaviours. See [Behaviours and game code](behaviours.md) |
 
 The form shows the full path it will create. **Create** (or `Enter`) makes
@@ -117,7 +118,7 @@ The hub does the same as these commands, which stay available for scripts
 and automation:
 
 ```sh
-copperframe new my_game --name "My Game" --template starter   # or empty, lever-room; --no-game
+copperframe new my_game --name "My Game" --template starter   # or empty, lever-room; --no-game; --scripting csharp
 cargo editor my_game                                           # open a project directly, skipping the hub
 ```
 

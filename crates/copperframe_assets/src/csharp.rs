@@ -303,6 +303,33 @@ pub fn dotnet_command() -> PathBuf {
     PathBuf::from(exe)
 }
 
+/// Whether a .NET SDK of [`DOTNET_VERSION`] or newer is installed (runs
+/// `dotnet --list-sdks`).
+pub fn dotnet_sdk_available() -> bool {
+    Command::new(dotnet_command())
+        .arg("--list-sdks")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|o| o.status.success() && has_sdk(&String::from_utf8_lossy(&o.stdout)))
+}
+
+/// Whether `dotnet --list-sdks` output lists an SDK new enough.
+fn has_sdk(list: &str) -> bool {
+    let want: u32 = DOTNET_VERSION
+        .split('.')
+        .next()
+        .and_then(|m| m.parse().ok())
+        .unwrap_or(0);
+    list.lines().any(|line| {
+        line.trim()
+            .split('.')
+            .next()
+            .and_then(|m| m.parse::<u32>().ok())
+            .is_some_and(|major| major >= want)
+    })
+}
+
 /// What [`ensure_built`] found.
 #[derive(Debug)]
 pub enum Build {
@@ -617,6 +644,19 @@ impl Drop for BuildLock {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sdk_list_needs_a_new_enough_version() {
+        assert!(has_sdk(
+            "8.0.404 [/usr/share/dotnet/sdk]\n10.0.114 [/usr/lib/dotnet/sdk]\n"
+        ));
+        assert!(has_sdk(
+            "11.0.100-preview.1 [C:\\Program Files\\dotnet\\sdk]"
+        ));
+        assert!(!has_sdk("8.0.404 [/usr/share/dotnet/sdk]\n"));
+        assert!(!has_sdk(""));
+    }
+
     use super::*;
 
     #[test]

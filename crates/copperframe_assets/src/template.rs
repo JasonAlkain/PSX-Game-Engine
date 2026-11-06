@@ -13,6 +13,7 @@ use copperframe_scene::Scene;
 
 use crate::game::GAME_DIR;
 use crate::project::{ASSETS_DIR, PROJECT_FILE, Project, SCENES_DIR};
+use crate::project_settings::ScriptingSettings;
 
 /// The engine source tree this program was built from, if it still exists
 /// (a downloaded build has none).
@@ -95,6 +96,61 @@ impl ProjectTemplate {
     }
 }
 
+/// The gameplay scripting language a new project starts with. Either can
+/// be switched later in Project settings > Scripting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScriptLanguage {
+    /// Lua 5.4, built into every game.
+    #[default]
+    Lua,
+    /// C# on .NET (needs the .NET SDK to build).
+    CSharp,
+}
+
+impl ScriptLanguage {
+    pub const ALL: [ScriptLanguage; 2] = [Self::Lua, Self::CSharp];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lua => "Lua",
+            Self::CSharp => "C#",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Lua => "Built into every game; nothing else to install.",
+            Self::CSharp => {
+                "Compiled with the .NET SDK; players of an exported game need the .NET runtime."
+            }
+        }
+    }
+
+    /// The command-line name (`copperframe new --scripting NAME`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Lua => "lua",
+            Self::CSharp => "csharp",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        let id = id.to_ascii_lowercase();
+        match id.as_str() {
+            "c#" | "cs" => Some(Self::CSharp),
+            _ => Self::ALL.into_iter().find(|l| l.id() == id),
+        }
+    }
+
+    /// The project's scripting settings: this language on, the other off.
+    pub fn settings(self) -> ScriptingSettings {
+        ScriptingSettings {
+            lua: self == Self::Lua,
+            csharp: self == Self::CSharp,
+        }
+    }
+}
+
 /// Options for [`create_project`].
 #[derive(Debug, Clone)]
 pub struct NewProject {
@@ -104,6 +160,8 @@ pub struct NewProject {
     pub template: ProjectTemplate,
     /// Write a Rust game crate into `game/` (needs [`engine_root`]).
     pub game_code: bool,
+    /// The scripting language turned on in `project.json`.
+    pub scripting: ScriptLanguage,
 }
 
 /// What [`create_project`] made.
@@ -171,6 +229,10 @@ pub fn create_project(options: &NewProject) -> Result<CreatedProject, String> {
             let demo = demo.as_deref().unwrap_or(Path::new("."));
             copy_demo_data(demo, &mut project)?;
         }
+    }
+    if project.file.scripting != options.scripting.settings() {
+        project.file.scripting = options.scripting.settings();
+        project.save().map_err(|e| e.to_string())?;
     }
     if let Some(engine) = &engine {
         match (options.template, demo.as_deref()) {
@@ -433,6 +495,7 @@ mod tests {
             name: "My Game".into(),
             template,
             game_code,
+            scripting: ScriptLanguage::default(),
         })
     }
 
@@ -461,6 +524,30 @@ mod tests {
             assert_eq!(ProjectTemplate::from_id(template.id()), Some(template));
             std::fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    #[test]
+    fn new_projects_turn_on_the_chosen_language() {
+        assert_eq!(ScriptLanguage::default(), ScriptLanguage::Lua);
+        for lang in ScriptLanguage::ALL {
+            assert_eq!(ScriptLanguage::from_id(lang.id()), Some(lang));
+            let dir = temp(&format!("lang_{}", lang.id()));
+            create_project(&NewProject {
+                dir: dir.clone(),
+                name: "Scripted".into(),
+                template: ProjectTemplate::Starter,
+                game_code: false,
+                scripting: lang,
+            })
+            .unwrap();
+            let saved = Project::open(&dir).unwrap().file.scripting;
+            assert_eq!(saved, lang.settings());
+            assert_eq!(saved.lua, lang == ScriptLanguage::Lua);
+            assert_eq!(saved.csharp, lang == ScriptLanguage::CSharp);
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+        assert_eq!(ScriptLanguage::from_id("C#"), Some(ScriptLanguage::CSharp));
+        assert_eq!(ScriptLanguage::from_id("python"), None);
     }
 
     #[test]
@@ -514,6 +601,7 @@ mod tests {
             name: "  ".into(),
             template: ProjectTemplate::Empty,
             game_code: false,
+            scripting: ScriptLanguage::Lua,
         })
         .unwrap_err();
         assert!(err.contains("name"));

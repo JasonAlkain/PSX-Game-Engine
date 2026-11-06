@@ -265,6 +265,9 @@ pub struct NewScript {
     /// Attach the new script to this entity.
     pub attach: Option<EntityId>,
     pub error: Option<String>,
+    /// Folder under `scripts/` the script goes in (`puzzles`), or empty.
+    /// The Assets panel sets it to the folder it has open.
+    pub folder: String,
 }
 
 impl NewScript {
@@ -279,10 +282,19 @@ impl NewScript {
 
     /// The file under `scripts/` the typed name becomes.
     fn path(&self) -> Result<String, String> {
-        if self.csharp {
-            new_cs_script_path(&self.name)
+        let name = self.name.trim();
+        if name.is_empty() {
+            return Err("type a name for the script".into());
+        }
+        let full = if self.folder.is_empty() {
+            name.to_owned()
         } else {
-            new_script_path(&self.name)
+            format!("{}/{name}", self.folder)
+        };
+        if self.csharp {
+            new_cs_script_path(&full)
+        } else {
+            new_script_path(&full)
         }
     }
 
@@ -337,6 +349,9 @@ pub fn new_script_dialog(ctx: &egui::Context, session: &mut EditorSession, tools
         ui.label(format!(
             "Creates a script in {SCRIPTS_DIR}/ from a template and opens it in your text editor."
         ));
+        if !dialog.folder.is_empty() {
+            ui.label(format!("In {SCRIPTS_DIR}/{}/", dialog.folder));
+        }
         let langs = &session.project.file.scripting;
         if langs.lua && langs.csharp {
             ui.horizontal(|ui| {
@@ -430,6 +445,24 @@ mod tests {
             message: "boom".into(),
             tick,
         }
+    }
+
+    #[test]
+    fn new_scripts_go_in_the_chosen_folder() {
+        let mut d = NewScript {
+            folder: "puzzles".into(),
+            ..NewScript::default()
+        };
+        assert!(d.path().is_err(), "a folder alone is not a script");
+        d.name = "lever".into();
+        assert_eq!(d.path().unwrap(), "puzzles/lever.lua");
+        assert_eq!(d.kind("puzzles/lever.lua"), "lua.puzzles.lever");
+        d.csharp = true;
+        d.folder = "Puzzles".into();
+        d.name = "LeverPull".into();
+        assert_eq!(d.path().unwrap(), "Puzzles/LeverPull.cs");
+        d.folder.clear();
+        assert_eq!(d.path().unwrap(), "LeverPull.cs");
     }
 
     #[test]
