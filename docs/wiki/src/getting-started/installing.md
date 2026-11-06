@@ -17,6 +17,7 @@ source build below.
 | Operating system | Windows 11 x86-64 is the primary target. Linux builds and runs (tested on X11). macOS is untested. |
 | Linux packages | X11/Wayland client libraries including `libxkbcommon-x11`, and ALSA headers (`libasound2-dev`) to build the audio backend. |
 | Audio | Optional at run time. Without an output device games run silently and log a warning. |
+| C# authoring (optional) | Install the .NET 10 SDK to compile C# gameplay scripts. Exported games with C# scripts require the .NET 10 runtime on player machines. Lua scripts need no separate runtime installation. |
 
 On Ubuntu or Debian:
 

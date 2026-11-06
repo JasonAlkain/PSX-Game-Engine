@@ -3,7 +3,7 @@
 Every file Copperframe reads is JSON with a `format` tag and a `version`:
 
 ```json
-{ "format": "psx_scene", "version": 4, "scene": { … } }
+{ "format": "psx_scene", "version": 8, "scene": { } }
 ```
 
 A build loads every older version it knows, rejects newer versions (and

@@ -1,9 +1,11 @@
 # Behaviours and game code
 
-Gameplay is written in Rust. A project's `game/` folder is a normal Rust
-binary crate that depends on `copperframe_game`. It registers **behaviour
-kinds**; scenes attach them to entities by name with parameters; the engine
-creates one behaviour instance per entity when the scene loads.
+Gameplay behaviours can be written in **Rust, Lua 5.4 or C# (.NET 10)**.
+A project's optional `game/` folder is a Rust binary crate that depends on
+`copperframe_game`. It registers **behaviour kinds**; scenes attach them to
+entities by name with parameters, and the engine creates one behaviour
+instance per entity when the scene loads. Lua and C# live in `scripts/`
+and do not require a Rust game crate.
 
 Rust behaviours are compiled, so they are fast, type-checked and
 debuggable with normal Rust tools. Behaviours can also be written in Lua,

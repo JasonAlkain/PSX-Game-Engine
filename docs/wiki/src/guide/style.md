@@ -1,12 +1,14 @@
 # PS1 and PS2 style settings
 
-Every visual effect that makes a scene look like a PS1 or PS2 game is a
-setting in the scene's **style**. Each effect can be switched on and off
-independently and tuned. Styles are read every frame, so switching between
+PS1 and PS2 effects come from a project's shared **look** or a scene's
+own **style**. A scene can choose **Project look** to share the project's
+retro settings, or **Scene look** to override them. Fog, background,
+lighting and the start camera stay scene-specific. Individual effects can
+be tuned independently. Styles are read every frame, so switching between
 PS1 and PS2 never reimports or re-uploads content.
 
-You edit the style in the editor's **Scene settings** panel, in
-the sandbox with keys, or in JSON. A player can also override it in the game's
+Edit the shared look in **Project settings > Look**, scene overrides in
+**Scene settings**, or use JSON. The sandbox also offers keyboard toggles. A player can also override it in the game's
 **Settings > Graphics style** (As authored, PS1 or PS2), which applies a
 preset's look while keeping the scene's own fog and atmosphere.
 

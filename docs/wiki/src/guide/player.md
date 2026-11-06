@@ -65,10 +65,14 @@ Gamepads are not supported yet.
 
 ## Audio
 
-Audio uses three buses: **master**, **music** and **effects**, with volumes
-the player sets in Settings. Each **audio source** component plays on the
-music or effects bus. Spatial sources follow their entity, and the single
-listener follows the camera.
+Project audio uses a mixer with **Master**, **Music**, **SFX** (`effects` in
+JSON), **Voice** and **Ambient** buses. The project sets bus levels, mute and
+a Master limiter in **Project settings > Audio** or the editor's **Audio
+mixer** panel. The player's volume settings are applied on top of the
+project mixer. Each audio source routes to a bus; spatial sources follow
+their entity, and the listener follows the camera. The editor can preview
+sound assets and monitor editor-preview peaks. Mixer changes take effect in
+the game on the next Play, not during a running game.
 
 From code, through the entity's audio source:
 
