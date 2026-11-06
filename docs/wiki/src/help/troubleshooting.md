@@ -113,6 +113,17 @@ not built from the engine source (for example the itch.io download), so it
 cannot write a game crate that depends on it. Create the project without
 game code, or build the engine from source.
 
+**A Lua edit appears in the inspector but not in a running game.**
+Script changes refresh the editor's behaviour schema after you save, but
+a game already running in Play keeps the code it started with. Stop and
+start Play again to test the new version. C# assemblies likewise cannot
+be unloaded while a game is running.
+
+**Audio mixer changes have no effect while Play is running.** The editor
+and player are separate processes. Save project audio settings and restart
+Play. Mixer peak meters in the editor report editor previews, not the
+running game's audio output.
+
 ## Gameplay
 
 **The player falls through the floor.** The floor needs a collider (a box,
