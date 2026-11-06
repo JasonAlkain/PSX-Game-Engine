@@ -11,6 +11,12 @@ C# scripts use the same `ctx` API as Lua scripts, with C# names
 (`ctx.SetPosition` for `ctx:set_position`). Rust, Lua and C# behaviours can
 be on the same entity and send each other messages.
 
+For a lightweight option without an external runtime dependency, consider
+[Lua scripting](lua.md). Both languages share the script `ctx` API, and
+scripts in either language can be attached to entities in the same scene.
+C# script changes are compiled for the next Play; they do not hot-reload
+into a running game.
+
 ## What you need
 
 - **To make the game:** the [.NET SDK](https://dotnet.microsoft.com/download)
