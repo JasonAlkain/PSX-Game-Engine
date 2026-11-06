@@ -1,6 +1,25 @@
 # Status
 
-Last updated: 2026-11-05 (C# gameplay scripting on .NET 10, one script API for Lua and C#; scripts in the editor: Problems panel, Scripting settings, New Lua script; Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+Last updated: 2026-11-06 (Assets panel manages scripts, folders, data files and deletes; scripting language chosen in the New project form; C# gameplay scripting on .NET 10, one script API for Lua and C#; scripts in the editor: Problems panel, Scripting settings, New Lua script; Lua gameplay scripting; Play mode pause, resume and step; audio mixer and sound preview; project look shared by scenes; scene workflow: new/save as/rename/move/delete; hierarchy search, collapse and drag-and-drop; project settings panel; dockable editor panels, toolbar, snapping, asset browser; editor-only workflow: project hub, automatic asset import, Build menu; crash and bug reporting; renamed to Copperframe Engine; Milestone 6: hardening and platform evidence; all six milestones implemented, Windows 11 automated checks run on 2026-11-05, hand checks outstanding).
+
+## Scripts and files in the Assets panel (2026-11-06, v0.14.0)
+
+The Assets panel shows `scripts/` beside `assets/` and `scenes/`, with a
+**Scripts** filter. **Create** (and right-click menus) makes folders in any
+of the three, scenes, Lua and C# scripts (through the New script dialog,
+in the open scripts folder) and `.txt` or `.json` data files in `assets/`.
+Scripts, data files and assets **Open** in the system's program for them.
+**Delete…** works on assets, scripts, data files, scenes and folders: it
+moves them (an asset with its `.meta.json`) to `.psx/deleted/` and first
+lists the scenes that use the asset, the script's behaviour or the scene.
+Shared rules in `copperframe_assets::files`. Material files were not added:
+materials come from models plus per-entity overrides.
+
+The New project form (and `copperframe new --scripting lua|csharp`) picks
+the scripting language: Lua by default, or C#, which turns C# on and Lua
+off in `project.json` and warns when no .NET 10 SDK is found.
+
+Not yet checked on Windows 11.
 
 ## C# gameplay scripting (2026-11-05, v0.13.0)
 

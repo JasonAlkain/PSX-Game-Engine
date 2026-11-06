@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use copperframe_assets::project::PROJECT_FILE;
 use copperframe_assets::template::{
-    NewProject, ProjectTemplate, create_project, demo_source, engine_root,
+    NewProject, ProjectTemplate, ScriptLanguage, create_project, demo_source, engine_root,
 };
 use egui::{Color32, RichText};
 use serde::{Deserialize, Serialize};
@@ -169,6 +169,7 @@ struct NewProjectForm {
     location: String,
     template: ProjectTemplate,
     game_code: bool,
+    scripting: ScriptLanguage,
     error: Option<String>,
 }
 
@@ -183,6 +184,8 @@ pub struct Hub {
     demo: Option<PathBuf>,
     /// Checked when the new project form opens (it runs `cargo`).
     rust: Option<bool>,
+    /// Checked when C# is first chosen in the form (it runs `dotnet`).
+    dotnet: Option<bool>,
     header: Option<egui::TextureHandle>,
 }
 
@@ -201,6 +204,7 @@ impl Hub {
             engine: engine_root(),
             demo: demo_source(),
             rust: None,
+            dotnet: None,
             header: None,
         }
     }
@@ -242,6 +246,7 @@ impl Hub {
             location: location.display().to_string(),
             template: ProjectTemplate::Starter,
             game_code: self.engine.is_some() && rust,
+            scripting: ScriptLanguage::default(),
             error: None,
         });
     }
@@ -492,6 +497,27 @@ impl Hub {
                 ui.indent(t.id(), |ui| ui.label(RichText::new(t.description()).weak()));
             }
             ui.add_space(6.0);
+            ui.label(RichText::new("Scripting language").strong());
+            ui.horizontal(|ui| {
+                for lang in ScriptLanguage::ALL {
+                    ui.radio_value(&mut form.scripting, lang, lang.label());
+                }
+            });
+            ui.indent("scripting-language", |ui| {
+                ui.label(RichText::new(form.scripting.description()).weak());
+                ui.label(
+                    RichText::new("You can switch later in Project settings > Scripting.").weak(),
+                );
+            });
+            if form.scripting == ScriptLanguage::CSharp {
+                let dotnet = *self
+                    .dotnet
+                    .get_or_insert_with(copperframe_assets::csharp::dotnet_sdk_available);
+                if !dotnet {
+                    dotnet_missing_note(ui);
+                }
+            }
+            ui.add_space(6.0);
             if form.template.needs_game_code() {
                 form.game_code = true;
             }
@@ -545,6 +571,7 @@ impl Hub {
                 name: form.name.trim().to_owned(),
                 template: form.template,
                 game_code: form.game_code && self.engine.is_some(),
+                scripting: form.scripting,
             };
             match create_project(&options) {
                 Ok(created) => {
@@ -563,6 +590,21 @@ impl Hub {
             self.form = None;
         }
     }
+}
+
+/// The note shown when C# is chosen but no .NET SDK was found.
+fn dotnet_missing_note(ui: &mut egui::Ui) {
+    use copperframe_assets::csharp::{DOTNET_URL, DOTNET_VERSION};
+    ui.horizontal_wrapped(|ui| {
+        ui.colored_label(
+            Color32::from_rgb(232, 170, 80),
+            format!(
+                "The .NET {DOTNET_VERSION} SDK was not found. The project is still created, \
+                 but C# scripts build only once it is installed:"
+            ),
+        );
+        ui.hyperlink(DOTNET_URL);
+    });
 }
 
 /// The note shown where Rust is needed but `cargo` was not found.

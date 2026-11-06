@@ -265,6 +265,8 @@ pub struct NewScript {
     /// Attach the new script to this entity.
     pub attach: Option<EntityId>,
     pub error: Option<String>,
+    /// The name field has been given the keyboard once.
+    focused: bool,
 }
 
 impl NewScript {
@@ -354,8 +356,9 @@ pub fn new_script_dialog(ctx: &egui::Context, session: &mut EditorSession, tools
                 .hint_text(hint)
                 .desired_width(260.0),
         );
-        if !field.has_focus() && dialog.name.is_empty() {
+        if !dialog.focused {
             field.request_focus();
+            dialog.focused = true;
         }
         let checked = dialog.path();
         match &checked {

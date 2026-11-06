@@ -36,6 +36,10 @@ pub enum Icon {
     ArrowDown,
     Trash,
     Plus,
+    /// A script file: a page with angle brackets.
+    Script,
+    /// Any other file: a page with lines of text.
+    File,
 }
 
 /// Paints `icon` to fill `rect`.
@@ -286,6 +290,26 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             painter.circle_stroke(c, s * 0.42, stroke);
             line(&[(-0.42, 0.0), (0.42, 0.0)]);
             line(&[(0.0, -0.42), (0.0, 0.42)]);
+        }
+        Icon::Script | Icon::File => {
+            // A page with its top right corner folded.
+            line(&[
+                (-0.65, -0.9),
+                (0.25, -0.9),
+                (0.65, -0.5),
+                (0.65, 0.9),
+                (-0.65, 0.9),
+                (-0.65, -0.9),
+            ]);
+            line(&[(0.25, -0.9), (0.25, -0.5), (0.65, -0.5)]);
+            if icon == Icon::Script {
+                line(&[(-0.15, -0.15), (-0.42, 0.2), (-0.15, 0.55)]);
+                line(&[(0.15, -0.15), (0.42, 0.2), (0.15, 0.55)]);
+            } else {
+                for y in [-0.3, 0.05, 0.4] {
+                    line(&[(-0.4, y), (0.4, y)]);
+                }
+            }
         }
     }
 }

@@ -2,15 +2,26 @@
 //! a strip of details and actions for the selected asset. Models can be
 //! dragged from here into the viewport.
 //!
-//! Scene files are listed too, under their own `scenes` root: double-click
-//! opens one, right-click renames, deletes or makes it the start scene, and
-//! dragging a scene onto a folder moves it. File operations go through
-//! [`EditorSession`] so references to the scene follow it.
+//! It shows the project's three folders: `assets` (models, textures,
+//! sounds, and text or data files), `scenes` and `scripts` (Lua and C#).
+//! Create (or a right-click) makes folders, scenes, scripts and data files
+//! in the open folder; right-click a tile to open or delete it. Scripts and
+//! data files open in the program the system uses for them. Deleting moves
+//! things to `.psx/deleted/` in the project, and first lists the scenes
+//! that use what is going.
+//!
+//! Scenes: double-click opens one, right-click renames, deletes or makes it
+//! the start scene, and dragging a scene onto a folder moves it. File
+//! operations go through [`EditorSession`] so references to the scene
+//! follow it.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use copperframe_assets::project::AudioSettings;
+use copperframe_assets::csharp::cs_kind_for;
+use copperframe_assets::files::{self, DataFile, FileKind};
+use copperframe_assets::project::{AudioSettings, ScriptingSettings};
+use copperframe_assets::scripts::{SCRIPTS_DIR, lua_kind_for};
 use copperframe_assets::{AssetEntry, AssetKind};
 use copperframe_core::AssetId;
 use copperframe_runtime::scene_gpu::{AssetStatus, SceneResources};
@@ -18,7 +29,7 @@ use egui::{Color32, RichText, Sense, TextureHandle, vec2};
 
 use crate::audio_tools::EditorAudio;
 use crate::icons::{self, Icon};
-use crate::session::{EditorSession, LogLevel, SCENE_SUFFIX, scene_stem};
+use crate::session::{DELETED_DIR, EditorSession, LogLevel, SCENE_SUFFIX, scene_stem};
 use crate::theme;
 use crate::ui::{Action, level_color};
 use crate::viewport::EditorCamera;
@@ -31,6 +42,8 @@ const THUMBNAIL: u32 = 128;
 const THUMBNAIL_MAX_BYTES: u64 = 16 * 1024 * 1024;
 /// Images with a longer side than this show the plain icon too.
 const THUMBNAIL_MAX_SIDE: u32 = 8192;
+/// Seconds between listings of the project's folders and plain files.
+const RELIST: f64 = 1.0;
 
 /// Which kinds of asset the grid lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +52,8 @@ enum Filter {
     Kind(AssetKind),
     /// Every scene in the project (a search looks through all of them).
     Scenes,
+    /// Every Lua and C# script in the project.
+    Scripts,
 }
 
 /// What a scene tile carries when dragged.
@@ -51,6 +66,12 @@ pub enum PanelRequest {
     OpenScene(PathBuf),
     /// Show the New Scene dialog for this folder (relative to the project).
     NewScene(String),
+    /// Show the New script dialog with the name starting with `prefix`
+    /// (the folder under `scripts/`, ending in `/`, or empty).
+    NewScript {
+        prefix: String,
+        csharp: bool,
+    },
 }
 
 /// A dialog the panel shows over the editor.
@@ -61,12 +82,23 @@ enum Dialog {
         name: String,
         error: Option<String>,
     },
+    /// Moving a file or folder to the project's bin.
     Delete {
-        scene: String,
+        rel: String,
+        /// What it is ("scene", "Lua script", "folder").
+        what: String,
+        /// What else goes or breaks with it.
+        notes: Vec<String>,
         error: Option<String>,
     },
     NewFolder {
         parent: String,
+        name: String,
+        error: Option<String>,
+    },
+    NewDataFile {
+        folder: String,
+        kind: DataFile,
         name: String,
         error: Option<String>,
     },
@@ -82,6 +114,14 @@ pub struct AssetsPanel {
     selected: Option<AssetId>,
     /// Selected scene file, relative to the project.
     selected_scene: Option<String>,
+    /// Selected script or other plain file, relative to the project.
+    selected_file: Option<String>,
+    /// Every folder of the three roots, and the plain files
+    /// ([`files::plain_files`]), as last listed.
+    folders: Vec<String>,
+    files: Vec<String>,
+    /// When they were listed (egui time); `None` lists them again.
+    listed_at: Option<f64>,
     thumbnails: HashMap<AssetId, Option<TextureHandle>>,
     dialog: Option<Dialog>,
     /// Requests for the editor, taken by the UI each frame.
@@ -97,6 +137,10 @@ impl Default for AssetsPanel {
             tile: 72.0,
             selected: None,
             selected_scene: None,
+            selected_file: None,
+            folders: Vec::new(),
+            files: Vec::new(),
+            listed_at: None,
             thumbnails: HashMap::new(),
             dialog: None,
             requests: Vec::new(),
@@ -111,20 +155,6 @@ fn folder_of(relative: &str) -> &str {
 
 fn file_name(relative: &str) -> &str {
     relative.rsplit_once('/').map_or(relative, |(_, name)| name)
-}
-
-/// Every folder holding assets, with its parents, sorted so that a folder
-/// comes right before its children.
-fn folders<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
-    let mut all = BTreeSet::from([ROOT.to_owned(), SCENES.to_owned()]);
-    for path in paths {
-        let mut dir = folder_of(path);
-        while !dir.is_empty() {
-            all.insert(dir.to_owned());
-            dir = folder_of(dir);
-        }
-    }
-    all.into_iter().collect()
 }
 
 /// Direct subfolders of `folder`.
@@ -165,7 +195,7 @@ fn scene_label(relative: &str) -> &str {
 /// Scenes filter every folder is searched.
 fn scene_listed(relative: &str, folder: &str, search: &str, filter: Filter) -> bool {
     match filter {
-        Filter::Kind(_) => false,
+        Filter::Kind(_) | Filter::Scripts => false,
         Filter::Scenes => {
             search.is_empty()
                 || scene_label(relative)
@@ -174,6 +204,69 @@ fn scene_listed(relative: &str, folder: &str, search: &str, filter: Filter) -> b
         }
         Filter::All => listed(relative, folder, search),
     }
+}
+
+/// Whether the grid lists the plain file `relative` (see [`listed`]); with
+/// the Scripts filter every script is searched.
+fn file_listed(relative: &str, folder: &str, search: &str, filter: Filter) -> bool {
+    match filter {
+        Filter::Kind(_) | Filter::Scenes => false,
+        Filter::Scripts => {
+            FileKind::of(relative).is_script()
+                && (search.is_empty()
+                    || file_name(relative)
+                        .to_lowercase()
+                        .contains(&search.to_lowercase()))
+        }
+        Filter::All => listed(relative, folder, search),
+    }
+}
+
+/// The behaviour kind a script file becomes, if it is one.
+fn script_kind(relative: &str) -> Option<String> {
+    let inner = relative.strip_prefix(&format!("{SCRIPTS_DIR}/"))?;
+    match FileKind::of(relative) {
+        FileKind::Lua => Some(lua_kind_for(inner)),
+        FileKind::CSharp => Some(cs_kind_for(inner)),
+        FileKind::Other => None,
+    }
+}
+
+fn file_icon(kind: FileKind) -> (Icon, Color32) {
+    match kind {
+        FileKind::Lua => (Icon::Script, Color32::from_rgb(120, 150, 230)),
+        FileKind::CSharp => (Icon::Script, Color32::from_rgb(160, 200, 110)),
+        FileKind::Other => (Icon::File, theme::TEXT_DIM),
+    }
+}
+
+/// "2 scenes (scenes/a.scene.json ×2, scenes/b.scene.json)".
+fn describe_uses(uses: &[(String, usize)]) -> String {
+    let list: Vec<String> = uses
+        .iter()
+        .map(|(scene, n)| {
+            if *n > 1 {
+                format!("{scene} ×{n}")
+            } else {
+                scene.clone()
+            }
+        })
+        .collect();
+    let scenes = if uses.len() == 1 { "scene" } else { "scenes" };
+    format!("{} {scenes} ({})", uses.len(), list.join(", "))
+}
+
+/// Files inside a folder, at any depth.
+fn count_files(dir: &Path) -> usize {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| {
+            let p = e.path();
+            if p.is_dir() { count_files(&p) } else { 1 }
+        })
+        .sum()
 }
 
 fn kind_icon(kind: AssetKind) -> Icon {
@@ -252,6 +345,11 @@ impl AssetsPanel {
         self.thumbnails.clear();
     }
 
+    /// Lists folders and plain files again on the next frame.
+    pub fn relist(&mut self) {
+        self.listed_at = None;
+    }
+
     /// `audio` previews sounds through the project's `mixer` settings.
     #[allow(clippy::too_many_arguments)]
     pub fn show(
@@ -270,26 +368,18 @@ impl AssetsPanel {
             .iter()
             .map(|p| session.project.relative(p))
             .collect();
-        let scene_folders = session.scene_folders();
-        let all = folders(
-            entries
-                .iter()
-                .map(|e| e.relative.as_str())
-                .chain(scenes.iter().map(String::as_str))
-                .chain(scene_folders.iter().map(|f| f.as_str())),
-        );
-        // `folders` takes file paths; a folder path must count as a folder.
-        let mut all = all;
-        for f in &scene_folders {
-            if !all.contains(f) {
-                all.push(f.clone());
-            }
+        let now = ui.input(|i| i.time);
+        if self.listed_at.is_none_or(|t| now - t > RELIST || now < t) {
+            self.folders = files::folders(&session.project.root);
+            self.files = files::plain_files(&session.project.root);
+            self.listed_at = Some(now);
         }
-        all.sort();
+        let all = self.folders.clone();
         if !all.contains(&self.folder) {
             self.folder = ROOT.to_owned();
         }
-        self.top_bar(ui, session, actions);
+        let langs = session.project.file.scripting;
+        self.top_bar(ui, session, actions, langs);
         ui.separator();
         // The details strip takes its height first so the grid can fill what
         // is left.
@@ -307,7 +397,7 @@ impl AssetsPanel {
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| self.folder_tree(ui, session, &all));
+                    .show(ui, |ui| self.folder_tree(ui, session, &all, langs));
             });
         egui::CentralPanel::no_frame().show(ui, |ui| {
             self.breadcrumb(ui);
@@ -319,7 +409,7 @@ impl AssetsPanel {
                     );
                 });
         });
-        self.dialogs(ui.ctx(), session);
+        self.dialogs(ui.ctx(), session, actions, audio);
     }
 
     fn top_bar(
@@ -327,6 +417,7 @@ impl AssetsPanel {
         ui: &mut egui::Ui,
         session: &mut EditorSession,
         actions: &mut Vec<Action>,
+        langs: ScriptingSettings,
     ) {
         ui.horizontal(|ui| {
             ui.add(
@@ -340,10 +431,11 @@ impl AssetsPanel {
                 (Filter::Kind(AssetKind::Texture), "Textures"),
                 (Filter::Kind(AssetKind::Audio), "Sounds"),
                 (Filter::Scenes, "Scenes"),
+                (Filter::Scripts, "Scripts"),
             ] {
                 ui.selectable_value(&mut self.filter, filter, label);
             }
-            ui.menu_button("Create", |ui| self.create_menu(ui));
+            ui.menu_button("Create", |ui| self.create_menu(ui, langs));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add(
                     egui::Slider::new(&mut self.tile, 48.0..=128.0)
@@ -354,89 +446,245 @@ impl AssetsPanel {
                 if ui
                     .button("Rescan")
                     .on_hover_text(
-                        "The assets folder is watched: new and changed files are imported \
-                         automatically within a second or two",
+                        "The project's folders are watched: new and changed files appear \
+                         and are imported automatically within a second or two",
                     )
                     .clicked()
                 {
                     session.rescan_assets();
                     self.clear_thumbnails();
+                    self.relist();
                     actions.push(Action::AssetsChanged);
                 }
             });
         });
     }
 
-    fn folder_tree(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, all: &[String]) {
+    fn folder_tree(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        all: &[String],
+        langs: ScriptingSettings,
+    ) {
         for folder in all {
             let depth = folder.matches('/').count();
             ui.horizontal(|ui| {
                 ui.add_space(depth as f32 * 12.0);
                 let rect = icons::row_rect(ui, 13.0);
-                let icon = if folder == SCENES {
-                    Icon::Scene
-                } else {
-                    Icon::Folder
+                let icon = match folder.as_str() {
+                    SCENES => Icon::Scene,
+                    SCRIPTS_DIR => Icon::Script,
+                    _ => Icon::Folder,
                 };
                 icons::paint(ui.painter(), rect, icon, theme::TEXT_DIM);
                 let open = self.folder == *folder;
                 let response = ui.selectable_label(open, file_name(folder));
-                if response.clicked() {
+                if response.clicked() || response.secondary_clicked() {
                     self.folder = folder.clone();
                 }
                 if in_scenes(folder) {
                     self.scene_drop_target(ui, session, &response, folder);
-                    response.context_menu(|ui| {
-                        if ui.button("Create Scene…").clicked() {
-                            self.requests.push(PanelRequest::NewScene(folder.clone()));
-                            ui.close();
-                        }
-                        if ui.button("Create Folder…").clicked() {
-                            self.dialog = Some(Dialog::NewFolder {
-                                parent: folder.clone(),
-                                name: "New folder".into(),
-                                error: None,
-                            });
-                            ui.close();
-                        }
-                    });
                 }
+                response.context_menu(|ui| self.folder_menu(ui, session, folder, langs));
             });
         }
     }
 
-    /// The folder new scenes and scene folders go in: the open folder if
-    /// it is under `scenes`, otherwise `scenes`.
-    fn scene_folder(&self) -> String {
-        if in_scenes(&self.folder) {
-            self.folder.clone()
-        } else {
-            SCENES.to_owned()
+    /// Right-click menu of a folder (in the tree or the grid): what can be
+    /// made in it, and deleting it.
+    fn folder_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        folder: &str,
+        langs: ScriptingSettings,
+    ) {
+        if self.folder != folder {
+            if ui.button("Open").clicked() {
+                self.folder = folder.to_owned();
+                ui.close();
+            }
+            ui.separator();
+        }
+        // The create menu works on the open folder.
+        let open = std::mem::replace(&mut self.folder, folder.to_owned());
+        self.create_menu(ui, langs);
+        self.folder = open;
+        ui.separator();
+        if ui.button("Show in folder").clicked() {
+            open_folder(session, &session.project.resolve(folder));
+            ui.close();
+        }
+        if !files::ROOTS.contains(&folder) && ui.button("Delete…").clicked() {
+            self.ask_delete(session, folder);
+            ui.close();
         }
     }
 
-    fn create_menu(&mut self, ui: &mut egui::Ui) {
-        let folder = self.scene_folder();
-        if ui
-            .button("Scene…")
-            .on_hover_text(format!("A new scene in {folder}/"))
-            .clicked()
-        {
-            self.requests.push(PanelRequest::NewScene(folder.clone()));
-            ui.close();
+    /// The folder in `root` new things of that root go in: the open folder
+    /// if it is inside `root`, otherwise `root` itself.
+    fn target_in(&self, root: &str) -> String {
+        if files::root_of(&self.folder) == Some(root) || self.folder == root {
+            self.folder.clone()
+        } else {
+            root.to_owned()
         }
+    }
+
+    /// Everything that can be made, each in the open folder when it is the
+    /// right kind of folder, else at the top of its own.
+    fn create_menu(&mut self, ui: &mut egui::Ui, langs: ScriptingSettings) {
+        let here = self.folder.clone();
         if ui
             .button("Folder…")
-            .on_hover_text(format!("A folder for scenes in {folder}/"))
+            .on_hover_text(format!("A new folder in {here}/"))
             .clicked()
         {
             self.dialog = Some(Dialog::NewFolder {
-                parent: folder,
+                parent: here,
                 name: "New folder".into(),
                 error: None,
             });
             ui.close();
         }
+        ui.separator();
+        let scenes = self.target_in(SCENES);
+        if ui
+            .button("Scene…")
+            .on_hover_text(format!("A new scene in {scenes}/"))
+            .clicked()
+        {
+            self.requests.push(PanelRequest::NewScene(scenes));
+            ui.close();
+        }
+        let scripts = self.target_in(SCRIPTS_DIR);
+        let prefix = scripts
+            .strip_prefix(SCRIPTS_DIR)
+            .unwrap_or("")
+            .trim_start_matches('/');
+        let prefix = if prefix.is_empty() {
+            String::new()
+        } else {
+            format!("{prefix}/")
+        };
+        for (csharp, label, on) in [
+            (false, "Lua script…", langs.lua),
+            (true, "C# script…", langs.csharp),
+        ] {
+            if ui
+                .add_enabled(on, egui::Button::new(label))
+                .on_hover_text(format!(
+                    "A new script in {scripts}/ from a template, opened in your text editor"
+                ))
+                .on_disabled_hover_text("Turn the language on in Project settings > Scripting")
+                .clicked()
+            {
+                self.requests.push(PanelRequest::NewScript {
+                    prefix: prefix.clone(),
+                    csharp,
+                });
+                ui.close();
+            }
+        }
+        ui.separator();
+        let data = self.target_in(ROOT);
+        for kind in DataFile::ALL {
+            if ui
+                .button(format!("{}…", kind.label()))
+                .on_hover_text(format!(
+                    "A new .{} file in {data}/; it is copied into exported games",
+                    kind.extension()
+                ))
+                .clicked()
+            {
+                self.dialog = Some(Dialog::NewDataFile {
+                    folder: data.clone(),
+                    kind,
+                    name: String::new(),
+                    error: None,
+                });
+                ui.close();
+            }
+        }
+    }
+
+    /// Opens the Delete dialog for `rel`, listing what else is affected.
+    fn ask_delete(&mut self, session: &EditorSession, rel: &str) {
+        let root = &session.project.root;
+        let path = session.project.resolve(rel);
+        let mut notes = Vec::new();
+        let what = if path.is_dir() {
+            let n = count_files(&path);
+            notes.push(match n {
+                0 => "The folder is empty.".to_owned(),
+                1 => "The 1 file inside goes with it.".to_owned(),
+                n => format!("The {n} files inside go with it."),
+            });
+            if files::root_of(rel) == Some(ROOT) && n > 0 {
+                notes.push(
+                    "Entities using models, textures or sounds from it will show them as \
+                     missing."
+                        .into(),
+                );
+            }
+            if files::root_of(rel) == Some(SCRIPTS_DIR) && n > 0 {
+                notes.push(
+                    "Scenes using its scripts will not play until the scripts are back or \
+                     their components are removed."
+                        .into(),
+                );
+            }
+            "folder".to_owned()
+        } else if rel.ends_with(SCENE_SUFFIX) {
+            let uses: Vec<_> = files::scenes_mentioning(root, rel)
+                .into_iter()
+                .filter(|(s, _)| s != rel)
+                .collect();
+            if !uses.is_empty() {
+                notes.push(format!(
+                    "Behaviour settings name it in {}; they will point at a missing scene.",
+                    describe_uses(&uses)
+                ));
+            }
+            "scene".to_owned()
+        } else if let Some(entry) = session.db.entries.iter().find(|e| e.relative == rel) {
+            let uses = files::scenes_mentioning(root, &entry.id.to_string());
+            if uses.is_empty() {
+                notes.push("No scene uses it.".into());
+            } else {
+                notes.push(format!(
+                    "Used in {}; those entities will show it as missing.",
+                    describe_uses(&uses)
+                ));
+            }
+            notes.push(
+                "Its .meta.json goes with it, so moving both back restores it with the same ID."
+                    .into(),
+            );
+            entry.kind.label().to_owned()
+        } else {
+            let kind = FileKind::of(rel);
+            if let Some(behaviour) = script_kind(rel) {
+                let uses = files::scenes_mentioning(root, &behaviour);
+                if uses.is_empty() {
+                    notes.push(format!("No scene uses its behaviour {behaviour}."));
+                } else {
+                    notes.push(format!(
+                        "Its behaviour {behaviour} is used in {}; those scenes will not play \
+                         until the script is back or the components are removed.",
+                        describe_uses(&uses)
+                    ));
+                }
+            }
+            kind.label().to_owned()
+        };
+        self.dialog = Some(Dialog::Delete {
+            rel: rel.to_owned(),
+            what,
+            notes,
+            error: None,
+        });
     }
 
     /// Lets a dragged scene be dropped onto a scene folder (moving it).
@@ -485,6 +733,12 @@ impl AssetsPanel {
         });
     }
 
+    fn select(&mut self, asset: Option<AssetId>, scene: Option<&str>, file: Option<&str>) {
+        self.selected = asset;
+        self.selected_scene = scene.map(str::to_owned);
+        self.selected_file = file.map(str::to_owned);
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn grid(
         &mut self,
@@ -501,25 +755,27 @@ impl AssetsPanel {
         let mut any = false;
         let mut loaded_one = false;
         let search = self.search.trim().to_owned();
+        let langs = session.project.file.scripting;
+        let plain = self.files.clone();
         let response = ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-            if search.is_empty() && self.filter != Filter::Scenes {
+            if search.is_empty() && matches!(self.filter, Filter::All | Filter::Kind(_)) {
                 for sub in subfolders(all, &self.folder) {
                     any = true;
                     let (response, icon_rect) = self.tile(ui, file_name(sub));
-                    let icon = if sub == SCENES {
-                        Icon::Scene
-                    } else {
-                        Icon::Folder
-                    };
                     icons::paint(ui.painter(), icon_rect, Icon::Folder, theme::TEXT_DIM);
-                    if icon == Icon::Scene {
+                    let badge = match sub {
+                        SCENES => Some(Icon::Scene),
+                        SCRIPTS_DIR => Some(Icon::Script),
+                        _ => None,
+                    };
+                    if let Some(badge) = badge {
                         icons::paint(
                             ui.painter(),
                             icon_rect
                                 .shrink(icon_rect.width() * 0.3)
                                 .translate(vec2(0.0, 3.0)),
-                            Icon::Scene,
+                            badge,
                             theme::TEXT,
                         );
                     }
@@ -529,6 +785,9 @@ impl AssetsPanel {
                     if in_scenes(sub) {
                         self.scene_drop_target(ui, session, &response, sub);
                     }
+                    response
+                        .on_hover_text(format!("{sub}/\nDouble-click to open"))
+                        .context_menu(|ui| self.folder_menu(ui, session, sub, langs));
                 }
             }
             for rel in scenes {
@@ -538,7 +797,14 @@ impl AssetsPanel {
                 any = true;
                 self.scene_tile(ui, session, rel);
             }
-            if self.filter == Filter::Scenes {
+            for rel in &plain {
+                if !file_listed(rel, &self.folder, &search, self.filter) {
+                    continue;
+                }
+                any = true;
+                self.file_tile(ui, session, rel);
+            }
+            if matches!(self.filter, Filter::Scenes | Filter::Scripts) {
                 return;
             }
             for entry in entries {
@@ -590,9 +856,8 @@ impl AssetsPanel {
                         color,
                     );
                 }
-                if response.clicked() || response.drag_started() {
-                    self.selected = Some(entry.id);
-                    self.selected_scene = None;
+                if response.clicked() || response.drag_started() || response.secondary_clicked() {
+                    self.select(Some(entry.id), None, None);
                 }
                 if entry.kind == AssetKind::Gltf {
                     response.dnd_set_drag_payload(entry.id);
@@ -620,23 +885,119 @@ impl AssetsPanel {
                         "\nDouble-click to preview"
                     });
                 }
-                response.on_hover_text(hover);
+                response
+                    .on_hover_text(hover)
+                    .context_menu(|ui| self.asset_menu(ui, session, camera, entry, langs));
             }
         });
-        if in_scenes(&self.folder) || self.filter == Filter::Scenes {
-            let rest =
-                ui.allocate_response(ui.available_size().max(vec2(1.0, 40.0)), Sense::click());
-            let menu_target = response.response.union(rest);
-            menu_target.context_menu(|ui| self.create_menu(ui));
-        }
+        let rest = ui.allocate_response(ui.available_size().max(vec2(1.0, 40.0)), Sense::click());
+        let menu_target = response.response.union(rest);
+        menu_target.context_menu(|ui| self.create_menu(ui, langs));
         if !any {
-            let text = if in_scenes(&self.folder) || self.filter == Filter::Scenes {
-                "No scenes here. Create one with Create > Scene… or Ctrl+N."
-            } else {
-                "Nothing here. Files you add to assets/ appear on their own."
+            let text = match self.filter {
+                Filter::Scenes => "No scenes. Create one with Create > Scene… or Ctrl+N.",
+                Filter::Scripts => {
+                    "No scripts. Create one with Create > Lua script… or C# script…."
+                }
+                _ if in_scenes(&self.folder) => {
+                    "No scenes here. Create one with Create > Scene… or Ctrl+N."
+                }
+                _ if files::root_of(&self.folder) == Some(SCRIPTS_DIR) => {
+                    "No scripts here. Create one with Create, or right-click."
+                }
+                _ => "Nothing here. Files you add to assets/ appear on their own.",
             };
             ui.label(RichText::new(text).weak());
         }
+    }
+
+    /// Right-click menu of an asset tile.
+    fn asset_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        session: &mut EditorSession,
+        camera: &EditorCamera,
+        entry: &AssetEntry,
+        langs: ScriptingSettings,
+    ) {
+        if entry.kind == AssetKind::Gltf && ui.button("Add to scene").clicked() {
+            session.add_model(entry.id, camera.spawn_point(4.0));
+            ui.close();
+        }
+        if ui
+            .button("Open")
+            .on_hover_text("Opens the file in the program your system uses for it")
+            .clicked()
+        {
+            open_file(session, &entry.relative);
+            ui.close();
+        }
+        if ui.button("Show in folder").clicked() {
+            if let Some(dir) = entry.source.parent() {
+                open_folder(session, dir);
+            }
+            ui.close();
+        }
+        if ui.button("Delete…").clicked() {
+            self.ask_delete(session, &entry.relative);
+            ui.close();
+        }
+        ui.separator();
+        self.create_menu(ui, langs);
+    }
+
+    /// A script or other plain file.
+    fn file_tile(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, rel: &str) {
+        let kind = FileKind::of(rel);
+        let (response, icon_rect) = self.tile(ui, file_name(rel));
+        let (icon, color) = file_icon(kind);
+        icons::paint(ui.painter(), icon_rect.shrink(4.0), icon, color);
+        if self.selected_file.as_deref() == Some(rel) {
+            ui.painter().rect_stroke(
+                response.rect,
+                3.0,
+                egui::Stroke::new(1.5, theme::ACCENT),
+                egui::StrokeKind::Inside,
+            );
+        }
+        if response.clicked() || response.drag_started() || response.secondary_clicked() {
+            self.select(None, None, Some(rel));
+        }
+        if response.double_clicked() {
+            open_file(session, rel);
+        }
+        let mut hover = format!("{rel}\n{}", kind.label());
+        if let Some(behaviour) = script_kind(rel) {
+            hover.push_str(&format!(" (behaviour {behaviour})"));
+            let langs = session.project.file.scripting;
+            let on = match kind {
+                FileKind::Lua => langs.lua,
+                _ => langs.csharp,
+            };
+            if !on {
+                hover.push_str("\nIts language is off in Project settings > Scripting");
+            }
+        }
+        hover.push_str("\nDouble-click to open");
+        let langs = session.project.file.scripting;
+        response.on_hover_text(hover).context_menu(|ui| {
+            if ui.button("Open").clicked() {
+                open_file(session, rel);
+                ui.close();
+            }
+            if ui.button("Show in folder").clicked() {
+                if let Some(dir) = session.project.resolve(rel).parent() {
+                    open_folder(session, dir);
+                }
+                ui.close();
+            }
+            if ui.button("Delete…").clicked() {
+                self.ask_delete(session, rel);
+                ui.close();
+            }
+            ui.separator();
+            self.create_menu(ui, langs);
+        });
     }
 
     fn scene_tile(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, rel: &str) {
@@ -664,8 +1025,7 @@ impl AssetsPanel {
             );
         }
         if response.clicked() || response.drag_started() || response.secondary_clicked() {
-            self.selected_scene = Some(rel.to_owned());
-            self.selected = None;
+            self.select(None, Some(rel), None);
         }
         response.dnd_set_drag_payload(SceneDrag(rel.to_owned()));
         if response.double_clicked() && !open {
@@ -699,10 +1059,7 @@ impl AssetsPanel {
             ui.close();
         }
         if ui.button("Delete…").clicked() {
-            self.dialog = Some(Dialog::Delete {
-                scene: rel.to_owned(),
-                error: None,
-            });
+            self.ask_delete(session, rel);
             ui.close();
         }
         let startup = path == session.project.startup_scene_path();
@@ -728,15 +1085,25 @@ impl AssetsPanel {
             ui.close();
         }
         ui.separator();
-        self.create_menu(ui);
+        let langs = session.project.file.scripting;
+        self.create_menu(ui, langs);
     }
 
-    fn dialogs(&mut self, ctx: &egui::Context, session: &mut EditorSession) {
+    fn dialogs(
+        &mut self,
+        ctx: &egui::Context,
+        session: &mut EditorSession,
+        actions: &mut Vec<Action>,
+        audio: &mut EditorAudio,
+    ) {
         let Some(dialog) = &mut self.dialog else {
             return;
         };
         let mut close = false;
         let mut selected = None;
+        let mut opened_folder = None;
+        let mut changed = false;
+        let mut deleted_assets = false;
         egui::Modal::new(egui::Id::unique("copperframe-scene-file-dialog")).show(ctx, |ui| {
             let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
             let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
@@ -773,16 +1140,29 @@ impl AssetsPanel {
                         ui.colored_label(level_color(LogLevel::Error), e.as_str());
                     }
                 }
-                Dialog::Delete { scene, error } => {
-                    ui.heading("Delete scene");
+                Dialog::Delete {
+                    rel,
+                    what,
+                    notes,
+                    error,
+                } => {
+                    ui.set_max_width(460.0);
+                    ui.heading(format!("Delete {what}"));
                     ui.label(format!(
-                        "Delete {scene}? It is moved to .psx/deleted/ in the project folder, \
+                        "Delete {rel}? It is moved to {DELETED_DIR}/ in the project folder, \
                          so it can be recovered by hand."
                     ));
+                    for note in notes.iter() {
+                        ui.label(RichText::new(note.as_str()).weak());
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Delete").clicked() {
-                            match session.delete_scene(&session.project.resolve(scene)) {
-                                Ok(()) => close = true,
+                            match session.delete_path(rel) {
+                                Ok(()) => {
+                                    deleted_assets = files::root_of(rel) == Some(ROOT);
+                                    changed = true;
+                                    close = true;
+                                }
                                 Err(e) => *error = Some(e),
                             }
                         }
@@ -806,9 +1186,60 @@ impl AssetsPanel {
                         close = ui.button("Cancel").clicked() || escape;
                     });
                     if go {
-                        match session.create_scene_folder(parent, name) {
+                        match session.create_folder(parent, name) {
                             Ok(p) => {
-                                self.folder = session.project.relative(&p);
+                                opened_folder = Some(session.project.relative(&p));
+                                changed = true;
+                                close = true;
+                            }
+                            Err(e) => *error = Some(e),
+                        }
+                    }
+                    if let Some(e) = error {
+                        ui.colored_label(level_color(LogLevel::Error), e.as_str());
+                    }
+                }
+                Dialog::NewDataFile {
+                    folder,
+                    kind,
+                    name,
+                    error,
+                } => {
+                    ui.heading(format!("New {}", kind.label().to_lowercase()));
+                    ui.label(format!(
+                        "In {folder}/. It opens in your text editor and is copied into \
+                         exported games."
+                    ));
+                    ui.add(
+                        egui::TextEdit::singleline(name)
+                            .hint_text(format!("notes, or notes.{}", kind.extension()))
+                            .desired_width(260.0),
+                    )
+                    .request_focus();
+                    let checked = files::data_file_name(name, *kind);
+                    match &checked {
+                        Ok(file) => {
+                            ui.label(RichText::new(format!("{folder}/{file}")).small().weak());
+                        }
+                        Err(e) if !name.trim().is_empty() => {
+                            ui.colored_label(level_color(LogLevel::Error), e.as_str());
+                        }
+                        Err(_) => {}
+                    }
+                    let mut go = false;
+                    ui.horizontal(|ui| {
+                        let ok = ui.add_enabled(checked.is_ok(), egui::Button::new("Create"));
+                        go = ok.clicked() || (enter && checked.is_ok());
+                        close = ui.button("Cancel").clicked() || escape;
+                    });
+                    if go {
+                        match files::create_data_file(&session.project.root, folder, name, *kind) {
+                            Ok(p) => {
+                                let rel = session.project.relative(&p);
+                                session.info(format!("created {rel}"));
+                                open_file(session, &rel);
+                                selected = Some(rel);
+                                changed = true;
                                 close = true;
                             }
                             Err(e) => *error = Some(e),
@@ -821,7 +1252,22 @@ impl AssetsPanel {
             }
         });
         if let Some(s) = selected {
-            self.selected_scene = Some(s);
+            if s.ends_with(SCENE_SUFFIX) {
+                self.select(None, Some(&s), None);
+            } else {
+                self.select(None, None, Some(&s));
+            }
+        }
+        if let Some(f) = opened_folder {
+            self.folder = f;
+        }
+        if changed {
+            self.relist();
+        }
+        if deleted_assets {
+            self.clear_thumbnails();
+            audio.forget_missing(session);
+            actions.push(Action::AssetsChanged);
         }
         if close {
             self.dialog = None;
@@ -871,6 +1317,15 @@ impl AssetsPanel {
             .selected
             .and_then(|id| entries.iter().find(|e| e.id == id));
         if entry.is_none()
+            && let Some(rel) = self.selected_file.clone()
+        {
+            if session.project.resolve(&rel).is_file() {
+                self.file_details(ui, session, &rel);
+                return;
+            }
+            self.selected_file = None;
+        }
+        if entry.is_none()
             && let Some(rel) = self.selected_scene.clone()
         {
             let path = session.project.resolve(&rel);
@@ -899,6 +1354,9 @@ impl AssetsPanel {
                     {
                         open_folder(session, dir);
                     }
+                    if ui.button("Delete…").clicked() {
+                        self.ask_delete(session, &rel);
+                    }
                 });
                 return;
             }
@@ -906,9 +1364,9 @@ impl AssetsPanel {
         }
         ui.horizontal(|ui| {
             let Some(entry) = entry else {
-                ui.label(RichText::new(session.project.assets_dir().display().to_string()).weak());
+                let dir = session.project.resolve(&self.folder);
+                ui.label(RichText::new(dir.display().to_string()).weak());
                 if ui.button("Show in folder").clicked() {
-                    let dir = session.project.assets_dir();
                     open_folder(session, &dir);
                 }
                 return;
@@ -947,13 +1405,57 @@ impl AssetsPanel {
                 self.thumbnails.remove(&entry.id);
                 actions.push(Action::Reimport(entry.id));
             }
+            if ui
+                .button("Open")
+                .on_hover_text("Opens the file in the program your system uses for it")
+                .clicked()
+            {
+                open_file(session, &entry.relative);
+            }
             if ui.button("Show in folder").clicked()
                 && let Some(dir) = entry.source.parent()
             {
                 open_folder(session, dir);
             }
+            if ui.button("Delete…").clicked() {
+                self.ask_delete(session, &entry.relative);
+            }
         });
     }
+
+    /// The details strip for a script or other plain file.
+    fn file_details(&mut self, ui: &mut egui::Ui, session: &mut EditorSession, rel: &str) {
+        let kind = FileKind::of(rel);
+        ui.horizontal(|ui| {
+            let rect = icons::row_rect(ui, 14.0);
+            let (icon, color) = file_icon(kind);
+            icons::paint(ui.painter(), rect, icon, color);
+            ui.label(rel);
+            if let Some(behaviour) = script_kind(rel) {
+                ui.label(RichText::new(format!("behaviour {behaviour}")).weak());
+            }
+            if ui
+                .button("Open")
+                .on_hover_text("Opens the file in your text editor")
+                .clicked()
+            {
+                open_file(session, rel);
+            }
+            if ui.button("Show in folder").clicked()
+                && let Some(dir) = session.project.resolve(rel).parent()
+            {
+                open_folder(session, dir);
+            }
+            if ui.button("Delete…").clicked() {
+                self.ask_delete(session, rel);
+            }
+        });
+    }
+}
+
+/// Opens a project file in the program the system uses for it.
+fn open_file(session: &mut EditorSession, rel: &str) {
+    crate::scripting::open_in_editor(session, rel);
 }
 
 fn open_folder(session: &mut EditorSession, dir: &Path) {
@@ -977,30 +1479,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folders_include_parents_and_sort_before_children() {
-        let all = folders(
-            [
-                "assets/props/big/a.glb",
-                "assets/sounds/b.wav",
-                "assets/c.png",
-            ]
-            .into_iter(),
-        );
-        assert_eq!(
-            all,
-            [
-                "assets",
-                "assets/props",
-                "assets/props/big",
-                "assets/sounds",
-                "scenes"
-            ]
-        );
+    fn subfolders_are_direct_children() {
+        let all: Vec<String> = [
+            "assets",
+            "assets/props",
+            "assets/props/big",
+            "assets/sounds",
+            "scenes",
+            "scripts",
+        ]
+        .map(String::from)
+        .to_vec();
         assert_eq!(
             subfolders(&all, "assets"),
             ["assets/props", "assets/sounds"]
         );
-        assert_eq!(folders(std::iter::empty()), ["assets", "scenes"]);
+        assert!(subfolders(&all, "scripts").is_empty());
+    }
+
+    #[test]
+    fn scripts_are_listed_by_folder_or_searched_everywhere() {
+        let a = "scripts/puzzles/door.lua";
+        assert!(file_listed(a, "scripts/puzzles", "", Filter::All));
+        assert!(!file_listed(a, "scripts", "", Filter::All));
+        assert!(file_listed(a, "assets", "DOOR", Filter::Scripts));
+        assert!(file_listed(a, "assets", "", Filter::Scripts));
+        assert!(!file_listed(
+            "assets/notes.txt",
+            "assets",
+            "",
+            Filter::Scripts
+        ));
+        assert!(file_listed("assets/notes.txt", "assets", "", Filter::All));
+        assert!(!file_listed(a, "scripts/puzzles", "", Filter::Scenes));
+        assert!(!file_listed(
+            a,
+            "scripts/puzzles",
+            "",
+            Filter::Kind(AssetKind::Audio)
+        ));
+        assert_eq!(script_kind(a).as_deref(), Some("lua.puzzles.door"));
+        assert_eq!(
+            script_kind("scripts/Puzzles/DoorOpener.cs").as_deref(),
+            Some("cs.door_opener")
+        );
+        assert_eq!(script_kind("assets/notes.txt"), None);
+        assert!(!scene_listed(
+            "scenes/a.scene.json",
+            "scenes",
+            "",
+            Filter::Scripts
+        ));
+    }
+
+    #[test]
+    fn uses_read_naturally() {
+        assert_eq!(
+            describe_uses(&[("scenes/a.scene.json".into(), 2)]),
+            "1 scene (scenes/a.scene.json ×2)"
+        );
+        assert_eq!(
+            describe_uses(&[
+                ("scenes/a.scene.json".into(), 1),
+                ("scenes/b.scene.json".into(), 1)
+            ]),
+            "2 scenes (scenes/a.scene.json, scenes/b.scene.json)"
+        );
     }
 
     #[test]

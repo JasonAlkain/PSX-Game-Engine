@@ -19,9 +19,11 @@ Click **New project…**, then:
 2. Keep the **Location** (`Documents\Copperframe Projects`) or pick
    another folder with **Browse…**.
 3. Choose the **Starter scene** template.
-4. Leave **Include Rust game code** ticked if it is available, so you can
+4. Keep **Lua** as the **Scripting language** (pick **C#** if you prefer it
+   and have the .NET SDK installed).
+5. Leave **Include Rust game code** ticked if it is available, so you can
    write your own behaviours in step 4.
-5. Click **Create**.
+6. Click **Create**.
 
 The project opens in the editor right away. Next time it is at the top of
 the hub's **Recent projects**. The project folder holds:
