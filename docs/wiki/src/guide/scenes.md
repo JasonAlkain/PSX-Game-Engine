@@ -99,7 +99,7 @@ A sound played from the entity.
 | Field | Values |
 | --- | --- |
 | `sound` | A WAV or Ogg Vorbis asset |
-| `bus` | `effects` (default) or `music` |
+| `bus` | `effects` (SFX; default), `music`, `voice`, or `ambient`; routed through the project's audio mixer |
 | `volume_db` | −60 to +12 |
 | `looping`, `autoplay` | Loop the sound; start it when the scene starts (otherwise gameplay code plays it) |
 | `spatial` | Positional 3D sound (default on); off plays it flat |
@@ -163,6 +163,7 @@ format versions, duplicate IDs, missing parents, cycles, and out-of-range
 or non-finite values, so an invalid scene is never loaded or saved. Every
 save keeps the previous file as `.bak`.
 
-Scene files are versioned (`psx_scene` v3). Older v1 and v2 scenes load
-unchanged and are saved as v3 next time. See
+Scene files use the versioned `psx_scene` format (currently v8). Supported
+older versions migrate on save; for the exact format history and current
+fields, see [File formats](../reference/formats.md). See
 [File formats](../reference/formats.md).
