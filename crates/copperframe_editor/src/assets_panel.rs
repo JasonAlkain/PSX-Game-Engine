@@ -66,10 +66,10 @@ pub enum PanelRequest {
     OpenScene(PathBuf),
     /// Show the New Scene dialog for this folder (relative to the project).
     NewScene(String),
-    /// Show the New script dialog with the name starting with `prefix`
-    /// (the folder under `scripts/`, ending in `/`, or empty).
+    /// Show the New script dialog for `folder` (under `scripts/`, empty
+    /// for `scripts/` itself).
     NewScript {
-        prefix: String,
+        folder: String,
         csharp: bool,
     },
 }
@@ -559,15 +559,11 @@ impl AssetsPanel {
             ui.close();
         }
         let scripts = self.target_in(SCRIPTS_DIR);
-        let prefix = scripts
+        let folder = scripts
             .strip_prefix(SCRIPTS_DIR)
             .unwrap_or("")
-            .trim_start_matches('/');
-        let prefix = if prefix.is_empty() {
-            String::new()
-        } else {
-            format!("{prefix}/")
-        };
+            .trim_start_matches('/')
+            .to_owned();
         for (csharp, label, on) in [
             (false, "Lua script…", langs.lua),
             (true, "C# script…", langs.csharp),
@@ -581,7 +577,7 @@ impl AssetsPanel {
                 .clicked()
             {
                 self.requests.push(PanelRequest::NewScript {
-                    prefix: prefix.clone(),
+                    folder: folder.clone(),
                     csharp,
                 });
                 ui.close();
@@ -757,7 +753,14 @@ impl AssetsPanel {
         let search = self.search.trim().to_owned();
         let langs = session.project.file.scripting;
         let plain = self.files.clone();
-        let response = ui.horizontal_wrapped(|ui| {
+        // Empty space opens the Create menu. Registered before the tiles so
+        // they are on top of it.
+        let background = ui.interact(
+            ui.clip_rect(),
+            egui::Id::unique("asset-grid-background"),
+            Sense::click(),
+        );
+        ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
             if search.is_empty() && matches!(self.filter, Filter::All | Filter::Kind(_)) {
                 for sub in subfolders(all, &self.folder) {
@@ -890,9 +893,7 @@ impl AssetsPanel {
                     .context_menu(|ui| self.asset_menu(ui, session, camera, entry, langs));
             }
         });
-        let rest = ui.allocate_response(ui.available_size().max(vec2(1.0, 40.0)), Sense::click());
-        let menu_target = response.response.union(rest);
-        menu_target.context_menu(|ui| self.create_menu(ui, langs));
+        background.context_menu(|ui| self.create_menu(ui, langs));
         if !any {
             let text = match self.filter {
                 Filter::Scenes => "No scenes. Create one with Create > Scene… or Ctrl+N.",

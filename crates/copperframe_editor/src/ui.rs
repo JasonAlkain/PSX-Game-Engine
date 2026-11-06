@@ -429,10 +429,10 @@ pub fn draw(ui: &mut egui::Ui, cx: UiContext<'_>) -> UiOutput {
                     Some(folder),
                 ));
             }
-            PanelRequest::NewScript { prefix, csharp } => {
+            PanelRequest::NewScript { folder, csharp } => {
                 let mut dialog = crate::scripting::NewScript::new(&session.project, None);
                 dialog.csharp = csharp;
-                dialog.name = prefix;
+                dialog.folder = folder;
                 tools.new_script = Some(dialog);
             }
         }
