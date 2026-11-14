@@ -4,6 +4,8 @@
 
 # Copperframe Engine
 
+[![Docs](https://github.com/JasonAlkain/PSX-Game-Engine/actions/workflows/docs.yml/badge.svg)](https://github.com/JasonAlkain/PSX-Game-Engine/actions/workflows/docs.yml)
+
 A Rust game engine for making original 3D games with PlayStation 1 and
 PlayStation 2-inspired visuals on modern PCs. It is not an emulator or a
 console SDK. (Formerly "PSX Engine"; see
