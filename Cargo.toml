@@ -72,7 +72,7 @@ libc = "0.2"
 
 # Native folder and file pickers in the editor (Windows: system dialogs;
 # Linux: the desktop portal, no GTK needed).
-rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.18.0", default-features = false, features = ["xdg-portal"] }
 
 # Command-line interface
 clap = { version = "4.6", features = ["derive"] }
