@@ -201,7 +201,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -579,7 +579,7 @@ dependencies = [
  "copperframe_core",
  "copperframe_scene",
  "dunce",
- "glam 0.34.2",
+ "glam 0.34.3",
  "gltf",
  "image",
  "serde",
@@ -594,7 +594,7 @@ dependencies = [
  "copperframe_assets",
  "copperframe_core",
  "copperframe_scene",
- "glam 0.34.2",
+ "glam 0.34.3",
  "kira",
  "tracing",
 ]
@@ -640,7 +640,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "egui_tiles",
- "glam 0.34.2",
+ "glam 0.34.3",
  "image",
  "kira",
  "pollster",
@@ -669,7 +669,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
- "glam 0.34.2",
+ "glam 0.34.3",
  "hecs",
  "kira",
  "libc",
@@ -698,7 +698,7 @@ version = "0.14.0"
 dependencies = [
  "bytemuck",
  "copperframe_core",
- "glam 0.34.2",
+ "glam 0.34.3",
  "naga",
  "pollster",
  "thiserror 2.0.21",
@@ -716,7 +716,7 @@ dependencies = [
  "copperframe_render",
  "copperframe_scene",
  "egui",
- "glam 0.34.2",
+ "glam 0.34.3",
  "image",
  "pollster",
  "thiserror 2.0.21",
@@ -740,7 +740,7 @@ name = "copperframe_scene"
 version = "0.14.0"
 dependencies = [
  "copperframe_core",
- "glam 0.34.2",
+ "glam 0.34.3",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -953,7 +953,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1237,7 +1237,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1490,9 +1490,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.34.2"
+version = "0.34.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54af5066834d6c2d404eb26ea036a15b15d9ff80db510b9a73ff95ab07f30831"
+checksum = "627003914c6057c9c8f0832ee4f870b5a4f599d0cfa83f4072675114860cd0ff"
 dependencies = [
  "bytemuck",
  "mint",
@@ -1978,7 +1978,7 @@ checksum = "92df3bfdb0c2f061c5899695d1c1c8616b427005970f4b7fb129f587435b4644"
 dependencies = [
  "atomic-arena",
  "cpal",
- "glam 0.34.2",
+ "glam 0.34.3",
  "mint",
  "pastey",
  "rtrb",
@@ -2022,7 +2022,7 @@ dependencies = [
  "copperframe_assets",
  "copperframe_core",
  "copperframe_game",
- "glam 0.34.2",
+ "glam 0.34.3",
  "serde_json",
 ]
 
@@ -2369,7 +2369,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2882,7 +2882,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3391,7 +3391,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4475,9 +4475,9 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 
 [[package]]
 name = "wgpu"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "527ccdf43dd5b2e8676eed9984ce00e2bbb0a1b85b70c1969dcb6cd2eb55ab9e"
+checksum = "146fc3d654250e6207921a66c87534c621bc886c70df83dcf466c1d66813810e"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.2",
@@ -4677,7 +4677,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
